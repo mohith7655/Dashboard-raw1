@@ -8,10 +8,15 @@ export interface DateRange {
 
 export type PresetId =
   | 'today'
+  | 'yesterday'
+  | 'thisWeek'
+  | 'lastWeek'
   | 'last7'
   | 'last30'
   | 'thisMonth'
   | 'lastMonth'
+  | 'yearToDate'
+  | 'allTime'
   | 'custom'
 
 /**

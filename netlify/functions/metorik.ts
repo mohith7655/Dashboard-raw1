@@ -22,7 +22,7 @@ import {
   toErrorResponse,
 } from '../lib/http'
 
-const API_BASE = 'https://api.metorik.com/v1'
+const API_BASE = 'https://app.metorik.com/api/v1/store'
 const HINT =
   'WooCommerce metrics could not be loaded. Check the Metorik API key in your Netlify environment, then click Retry.'
 
@@ -85,16 +85,16 @@ async function metorik(
 interface MetorikPage {
   rows: Record<string, unknown>[]
   total: number
-  lastPage: number
+  hasMore: boolean
 }
 
 function readPage(body: Record<string, unknown>): MetorikPage {
   const rows = asArray(body.data).filter(isRecord)
-  const meta = isRecord(body.meta) ? body.meta : {}
+  const pagination = isRecord(body.pagination) ? body.pagination : {}
   return {
     rows,
-    total: num(meta.total) || rows.length,
-    lastPage: num(meta.last_page) || 1,
+    total: num(pagination.total) || rows.length,
+    hasMore: pagination.has_more_pages === true,
   }
 }
 
@@ -119,14 +119,14 @@ function pick(row: Record<string, unknown>, keys: string[]): number {
 }
 
 function normaliseOrder(row: Record<string, unknown>): Order {
-  const number = String(row.number ?? row.id ?? '')
+  const number = String(row.order_number ?? row.number ?? row.id ?? '')
   return {
-    id: String(row.id ?? number),
+    id: String(row.order_id ?? row.id ?? number),
     number,
-    date: String(row.date_created ?? row.date ?? ''),
+    date: String(row.order_created_at ?? row.date_created ?? row.date ?? ''),
     customer: readCustomerName(row),
     status: readStatus(row.status),
-    items: Math.round(pick(row, ['items_count', 'line_items_count', 'quantity'])),
+    items: Math.round(pick(row, ['total_items', 'items_count', 'line_items_count', 'quantity'])),
     total: round2(pick(row, ['total'])),
   }
 }
@@ -163,18 +163,22 @@ async function loadOrdersPage(
   }
 
   const field = sortParam === 'total' ? 'total' : 'date_created'
-  const body = await metorik(apiKey, '/orders', {
-    ...dateFilter(range),
-    page: String(page),
-    per_page: String(perPage),
-    order_by: field,
-    order: directionParam,
-  })
+  const [body, totals] = await Promise.all([
+    metorik(apiKey, '/orders', {
+      ...dateFilter(range),
+      page: String(page),
+      per_page: String(perPage),
+      order_by: field === 'date_created' ? 'order_created_at' : field,
+      order_dir: directionParam,
+    }),
+    metorik(apiKey, '/orders/totals', dateFilter(range)),
+  ])
 
   const parsed = readPage(body)
+  const totalData = isRecord(totals.data) ? totals.data : {}
   return {
     orders: parsed.rows.map(normaliseOrder),
-    total: parsed.total,
+    total: num(totalData.count) || parsed.total,
     page,
     perPage,
   }
@@ -184,8 +188,9 @@ const clamp = (n: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, n))
 
 const dateFilter = (range: DateRange): Record<string, string> => ({
-  date_min: range.start,
-  date_max: range.end,
+  filters: JSON.stringify([
+    { field: 'order_created_at', operator: 'between', value: [range.start, range.end] },
+  ]),
 })
 
 /* ------------------------------------------------------------------ *
@@ -252,15 +257,15 @@ async function aggregate(apiKey: string, range: DateRange): Promise<Aggregate> {
       agg.totalRevenue += order.total
       agg.byDay.set(day, (agg.byDay.get(day) ?? 0) + order.total)
 
-      agg.productCost += pick(row, ['cost_of_goods', 'cogs', 'cost_total'])
-      agg.shippingCost += pick(row, ['shipping_cost', 'shipping_total'])
-      agg.transactionCost += pick(row, ['transaction_fee', 'transaction_fees', 'fees_total'])
+      agg.productCost += pick(row, ['product_cogs', 'cost_of_goods', 'cogs', 'cost_total'])
+      agg.shippingCost += pick(row, ['shipping_cogs', 'shipping_cost', 'shipping_total'])
+      agg.transactionCost += pick(row, ['transaction_cogs', 'transaction_fee', 'transaction_fees', 'fees_total'])
 
       const source = readSource(row)
       if (source) agg.bySource.set(source, (agg.bySource.get(source) ?? 0) + order.total)
     }
 
-    if (page >= parsed.lastPage || parsed.rows.length === 0) break
+    if (!parsed.hasMore || parsed.rows.length === 0) break
   }
 
   agg.totalRevenue = round2(agg.totalRevenue)
@@ -279,12 +284,12 @@ function readSource(row: Record<string, unknown>): string {
 }
 
 async function countCustomers(apiKey: string, range: DateRange): Promise<number> {
-  const body = await metorik(apiKey, '/customers', {
-    ...dateFilter(range),
-    per_page: '1',
-    page: '1',
+  const body = await metorik(apiKey, '/customers/totals', {
+    order_start_date: range.start,
+    order_end_date: range.end,
   })
-  return readPage(body).total
+  const data = isRecord(body.data) ? body.data : {}
+  return num(data.count)
 }
 
 function toSeries(range: DateRange, byDay: Map<string, number>): RevenuePoint[] {

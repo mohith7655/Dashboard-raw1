@@ -3,11 +3,14 @@ import { formatDate } from './format'
 
 export const PRESETS: { id: PresetId; label: string }[] = [
   { id: 'today', label: 'Today' },
-  { id: 'last7', label: 'Last 7 days' },
-  { id: 'last30', label: 'Last 30 days' },
-  { id: 'thisMonth', label: 'This month' },
-  { id: 'lastMonth', label: 'Last month' },
-  { id: 'custom', label: 'Custom' },
+  { id: 'yesterday', label: 'Yesterday' },
+  { id: 'thisWeek', label: 'This Week' },
+  { id: 'lastWeek', label: 'Last Week' },
+  { id: 'thisMonth', label: 'This Month' },
+  { id: 'lastMonth', label: 'Last Month' },
+  { id: 'yearToDate', label: 'Year To Date' },
+  { id: 'allTime', label: 'All Time' },
+  { id: 'custom', label: 'Custom Range' },
 ]
 
 /** `yyyy-MM-dd` in UTC. */
@@ -29,6 +32,19 @@ export function rangeFromPreset(preset: PresetId, current?: DateRange): DateRang
   switch (preset) {
     case 'today':
       return { start: toIso(today), end: toIso(today), preset }
+    case 'yesterday': {
+      const yesterday = addDays(today, -1)
+      return { start: toIso(yesterday), end: toIso(yesterday), preset }
+    }
+    case 'thisWeek': {
+      const first = addDays(today, -today.getUTCDay())
+      return { start: toIso(first), end: toIso(today), preset }
+    }
+    case 'lastWeek': {
+      const thisWeek = addDays(today, -today.getUTCDay())
+      const first = addDays(thisWeek, -7)
+      return { start: toIso(first), end: toIso(addDays(first, 6)), preset }
+    }
     case 'last7':
       return { start: toIso(addDays(today, -6)), end: toIso(today), preset }
     case 'last30':
@@ -46,6 +62,14 @@ export function rangeFromPreset(preset: PresetId, current?: DateRange): DateRang
       )
       const last = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 0))
       return { start: toIso(first), end: toIso(last), preset }
+    }
+    case 'yearToDate': {
+      const first = new Date(Date.UTC(today.getUTCFullYear(), 0, 1))
+      return { start: toIso(first), end: toIso(today), preset }
+    }
+    case 'allTime': {
+      const first = new Date(Date.UTC(today.getUTCFullYear() - 1, 0, 1))
+      return { start: toIso(first), end: toIso(today), preset }
     }
     case 'custom':
       return current ? { ...current, preset } : rangeFromPreset('thisMonth')
