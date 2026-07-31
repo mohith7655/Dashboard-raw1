@@ -5,6 +5,7 @@ import { formatCurrency, formatPercent } from '../../lib/format'
 import { KpiCard } from '../KpiCard'
 import { SectionLabel } from '../SectionLabel'
 import { CostMix } from '../charts/CostMix'
+import { MarketTable } from '../charts/MarketTable'
 
 interface ShippingSectionProps {
   woo: WooMetrics | undefined
@@ -61,6 +62,16 @@ export function ShippingSection({ woo, loading, failed }: ShippingSectionProps) 
         total={woo?.totalCost.value ?? 0}
         loading={loading}
         unavailable={failed ? 'Cost data unavailable' : undefined}
+      />
+
+      <MarketTable
+        title="Shipping cost by country"
+        subtitle="Every destination, dearest to fulfil first"
+        keyHeader="Country"
+        rows={woo?.revenueByCountry ?? []}
+        measure="shippingCost"
+        loading={loading}
+        unavailable={failed ? 'Shipping data unavailable' : undefined}
       />
     </section>
   )

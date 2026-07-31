@@ -4,7 +4,7 @@ import { marketSummary } from '../../lib/pnl'
 import { formatInteger, formatPercent } from '../../lib/format'
 import { KpiCard } from '../KpiCard'
 import { SectionLabel } from '../SectionLabel'
-import { MarketSplit } from '../charts/MarketSplit'
+import { MarketTable } from '../charts/MarketTable'
 
 interface MarketsSectionProps {
   woo: WooMetrics | undefined
@@ -52,20 +52,22 @@ export function MarketsSection({ woo, loading, failed }: MarketsSectionProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <MarketSplit
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <MarketTable
           title="Revenue by Country"
           subtitle="Billing country on each paid order"
+          keyHeader="Country"
           rows={woo?.revenueByCountry ?? []}
-          total={woo?.totalRevenue.value ?? 0}
+          measure="revenue"
           loading={loading}
           unavailable={failed ? 'Country data unavailable' : undefined}
         />
-        <MarketSplit
+        <MarketTable
           title="Revenue by Currency"
           subtitle={`What buyers paid in, converted to ${currency}`}
+          keyHeader="Currency"
           rows={woo?.revenueByCurrency ?? []}
-          total={woo?.totalRevenue.value ?? 0}
+          measure="revenue"
           loading={loading}
           unavailable={failed ? 'Currency data unavailable' : undefined}
         />

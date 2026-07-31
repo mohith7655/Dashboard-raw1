@@ -67,6 +67,8 @@ export interface MarketRevenue {
   orders: number
   /** Always in the store's own currency, so the splits are comparable. */
   revenue: number
+  /** What it cost to fulfil these orders. */
+  shippingCost: number
 }
 
 /**

@@ -532,6 +532,7 @@ const firstOrderFilter = (range: DateRange, url?: URL): Record<string, string> =
 interface MarketTally {
   orders: number
   revenue: number
+  shippingCost: number
 }
 
 interface Aggregate extends WooTotals {
@@ -877,8 +878,9 @@ async function aggregate(
       agg.totalRevenue += order.total
       agg.byDay.set(day, (agg.byDay.get(day) ?? 0) + order.total)
 
+      const shipping = pick(row, ['shipping_cogs', 'shipping_cost', 'shipping_total'])
       agg.productCost += pick(row, ['product_cogs', 'cost_of_goods', 'cogs', 'cost_total'])
-      agg.shippingCost += pick(row, ['shipping_cogs', 'shipping_cost', 'shipping_total'])
+      agg.shippingCost += shipping
       agg.transactionCost += pick(row, ['transaction_cogs', 'transaction_fee', 'transaction_fees', 'fees_total'])
       agg.otherCost += pick(row, ['extra_cogs'])
 
@@ -887,8 +889,13 @@ async function aggregate(
 
       // Order totals are already converted to the store's own currency, so the
       // two splits sum back to total revenue whatever the buyer paid in.
-      tally(agg.byCountry, order.country || '(unknown)', order.total)
-      tally(agg.byCurrency, String(row.currency ?? '').toUpperCase() || '(unknown)', order.total)
+      tally(agg.byCountry, order.country || '(unknown)', order.total, shipping)
+      tally(
+        agg.byCurrency,
+        String(row.currency ?? '').toUpperCase() || '(unknown)',
+        order.total,
+        shipping,
+      )
     }
 
     if (!parsed.hasMore || parsed.rows.length === 0) break
@@ -902,16 +909,27 @@ async function aggregate(
   return agg
 }
 
-function tally(map: Map<string, MarketTally>, key: string, revenue: number): void {
-  const current = map.get(key) ?? { orders: 0, revenue: 0 }
+function tally(
+  map: Map<string, MarketTally>,
+  key: string,
+  revenue: number,
+  shippingCost: number,
+): void {
+  const current = map.get(key) ?? { orders: 0, revenue: 0, shippingCost: 0 }
   current.orders++
   current.revenue += revenue
+  current.shippingCost += shippingCost
   map.set(key, current)
 }
 
 function toMarkets(map: Map<string, MarketTally>): MarketRevenue[] {
   return [...map.entries()]
-    .map(([key, tallied]) => ({ key, orders: tallied.orders, revenue: round2(tallied.revenue) }))
+    .map(([key, tallied]) => ({
+      key,
+      orders: tallied.orders,
+      revenue: round2(tallied.revenue),
+      shippingCost: round2(tallied.shippingCost),
+    }))
     .sort((a, b) => b.revenue - a.revenue)
 }
 
