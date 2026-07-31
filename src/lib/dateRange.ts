@@ -27,8 +27,16 @@ function addDays(d: Date, days: number): Date {
   return new Date(d.getTime() + days * 86_400_000)
 }
 
+/**
+ * Metorik reporting data is complete through the previous UTC day. Keeping the
+ * picker one day behind prevents an in-progress day from producing a 422.
+ */
+export function latestAvailableDate(): string {
+  return toIso(addDays(utcToday(), -1))
+}
+
 export function rangeFromPreset(preset: PresetId, current?: DateRange): DateRange {
-  const today = utcToday()
+  const today = new Date(`${latestAvailableDate()}T00:00:00Z`)
   switch (preset) {
     case 'today':
       return { start: toIso(today), end: toIso(today), preset }

@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Calendar, Check, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { DateRange, PresetId } from '../lib/types'
-import { PRESETS, formatRangeLabel, rangeFromPreset, toIso } from '../lib/dateRange'
+import {
+  PRESETS,
+  formatRangeLabel,
+  latestAvailableDate,
+  rangeFromPreset,
+  toIso,
+} from '../lib/dateRange'
 
 interface DateRangePickerProps {
   value: DateRange
@@ -60,6 +66,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   const [selecting, setSelecting] = useState<Selecting>('start')
   const [visibleMonth, setVisibleMonth] = useState(() => monthStart(value.start))
   const rootRef = useRef<HTMLDivElement>(null)
+  const maxDate = latestAvailableDate()
 
   useEffect(() => {
     setDraft({ start: value.start, end: value.end })
@@ -101,6 +108,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
 
   const chooseDate = (date: Date) => {
     const selected = toIso(date)
+    if (selected > maxDate) return
     if (selecting === 'start') {
       setDraft({ start: selected, end: selected })
       setSelecting('end')
@@ -117,8 +125,10 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
 
   const applyCustom = () => {
     if (!draft.start || !draft.end) return
-    const start = draft.start <= draft.end ? draft.start : draft.end
-    const end = draft.start <= draft.end ? draft.end : draft.start
+    const orderedStart = draft.start <= draft.end ? draft.start : draft.end
+    const orderedEnd = draft.start <= draft.end ? draft.end : draft.start
+    const start = orderedStart > maxDate ? maxDate : orderedStart
+    const end = orderedEnd > maxDate ? maxDate : orderedEnd
     onChange({ start, end, preset: 'custom' })
     setOpen(false)
   }
@@ -187,6 +197,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
                     month={month}
                     start={draft.start}
                     end={draft.end}
+                    maxDate={maxDate}
                     inRange={isInRange}
                     onSelect={chooseDate}
                   />
@@ -255,12 +266,14 @@ function CalendarMonth({
   month,
   start,
   end,
+  maxDate,
   inRange,
   onSelect,
 }: {
   month: Date
   start: string
   end: string
+  maxDate: string
   inRange: (date: string) => boolean
   onSelect: (date: Date) => void
 }) {
@@ -280,13 +293,17 @@ function CalendarMonth({
           const iso = toIso(date)
           const selected = iso === start || iso === end
           const ranged = inRange(iso)
+          const unavailable = iso > maxDate
           return (
             <button
               key={iso}
               type="button"
               onClick={() => onSelect(date)}
-              className={`relative h-7 text-center text-[12px] transition-colors ${
-                ranged ? 'bg-[#4a4a4d] text-ink' : 'text-[#dedee1] hover:bg-[#35353a]'
+              disabled={unavailable}
+              className={`relative h-7 text-center text-[12px] transition-colors disabled:cursor-not-allowed ${
+                unavailable
+                  ? 'text-[#5f5f66]'
+                  : ranged ? 'bg-[#4a4a4d] text-ink' : 'text-[#dedee1] hover:bg-[#35353a]'
               } ${selected ? 'z-10 rounded-full bg-[#d7d7dc] font-semibold text-[#151518] hover:bg-[#e4e4e8]' : ''}`}
               aria-label={formatInputDate(iso)}
               aria-pressed={selected}

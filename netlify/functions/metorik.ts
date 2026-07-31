@@ -45,7 +45,7 @@ const AGGREGATE_PAGE_SIZE = 100
 export default async function handler(request: Request): Promise<Response> {
   try {
     const url = new URL(request.url)
-    const range = readRange(url)
+    const range = clampToAvailableData(readRange(url))
     const apiKey = requireEnv('METORIK_API_KEY')
 
     if (url.searchParams.get('resource') === 'orders') {
@@ -55,6 +55,17 @@ export default async function handler(request: Request): Promise<Response> {
   } catch (err) {
     return toErrorResponse(err, HINT)
   }
+}
+
+/** Metorik accepts completed reporting days only, so protect direct URL calls too. */
+function clampToAvailableData(range: DateRange): DateRange {
+  const latest = new Date()
+  latest.setUTCHours(0, 0, 0, 0)
+  latest.setUTCDate(latest.getUTCDate() - 1)
+  const maxDate = latest.toISOString().slice(0, 10)
+  const start = range.start > maxDate ? maxDate : range.start
+  const end = range.end > maxDate ? maxDate : range.end
+  return start <= end ? { ...range, start, end } : { ...range, start: maxDate, end: maxDate }
 }
 
 /* ------------------------------------------------------------------ *
