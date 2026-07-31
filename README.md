@@ -10,7 +10,7 @@ npm install
 npx netlify dev
 ```
 
-`netlify dev` serves both the Vite app and the Netlify Functions on one origin.
+`npm run dev` starts Netlify Dev, which serves both the Vite app and the Netlify Functions on one origin. Open the URL printed in the terminal (normally `http://localhost:8888`), not a Vite-only port such as `5173` or `5174`.
 The dashboard does not use fixture or mock data. If a connector is unavailable,
 the affected section shows its API error instead of invented values.
 

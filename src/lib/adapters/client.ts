@@ -26,18 +26,27 @@ export async function callFunction<T>(
 ): Promise<T> {
   const params = new URLSearchParams({ start: range.start, end: range.end, ...extra })
   const res = await fetch(`/.netlify/functions/${name}?${params.toString()}`)
+  const contentType = res.headers.get('content-type') ?? ''
+  const bodyText = await res.text()
+
+  if (!contentType.includes('application/json')) {
+    throw new Error(
+      'Netlify Functions are unavailable. Start local development with `npm run dev` and open the Netlify URL it prints.',
+    )
+  }
+
+  let body: FunctionErrorBody = {}
+  try {
+    body = JSON.parse(bodyText) as FunctionErrorBody
+  } catch {
+    throw new Error('The Netlify Function returned invalid JSON.')
+  }
 
   if (!res.ok) {
-    let body: FunctionErrorBody = {}
-    try {
-      body = (await res.json()) as FunctionErrorBody
-    } catch {
-      // Non-JSON failure (proxy error, HTML error page) — fall through.
-    }
     throw new Error(body.error?.message ?? `Request failed with status ${res.status}`)
   }
 
-  return (await res.json()) as T
+  return body as T
 }
 
 /** Wraps a fetch so every adapter resolves to the same `{ data, error }` shape. */

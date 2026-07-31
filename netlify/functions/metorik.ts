@@ -9,8 +9,9 @@ import type {
   WooMetrics,
 } from '../../src/lib/types'
 import { ORDER_STATUSES } from '../../src/lib/types'
-import { buildWooMetrics, deriveWoo, round2, type WooTotals } from '../../src/lib/derive'
+import { buildWooMetrics, deriveWoo, metric, round2, type WooTotals } from '../../src/lib/derive'
 import { eachDay, previousRange } from '../../src/lib/dateRange'
+import type { CouponType, CouponsPayload, CustomerSegment, CustomersPayload, ProductsPayload } from '../../src/lib/data/types'
 import {
   BadRequest,
   asArray,
@@ -48,8 +49,18 @@ export default async function handler(request: Request): Promise<Response> {
     const range = clampToAvailableData(readRange(url))
     const apiKey = requireEnv('METORIK_API_KEY')
 
-    if (url.searchParams.get('resource') === 'orders') {
+    const resource = url.searchParams.get('resource')
+    if (resource === 'orders') {
       return json(await loadOrdersPage(apiKey, range, url))
+    }
+    if (resource === 'customers') {
+      return json(await loadCustomersPage(apiKey, range, url))
+    }
+    if (resource === 'products') {
+      return json(await loadProductsPage(apiKey, range, url))
+    }
+    if (resource === 'coupons') {
+      return json(await loadCouponsPage(apiKey, range, url))
     }
     return json(await loadMetrics(apiKey, range))
   } catch (err) {
@@ -109,6 +120,163 @@ function readPage(body: Record<string, unknown>): MetorikPage {
   }
 }
 
+function firstString(row: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = row[key]
+    if (typeof value === 'string' && value.trim()) return value
+  }
+  return ''
+}
+
+function appendParam(
+  params: Record<string, string>,
+  url: URL,
+  key: string,
+  targetKey = key,
+): void {
+  const value = url.searchParams.get(key)
+  if (value !== null && value !== '') params[targetKey] = value
+}
+
+function customerSortField(field: string): string {
+  switch (field) {
+    case 'name':
+      return 'full_name'
+    case 'orders':
+      return 'order_count'
+    case 'ltv':
+      return 'total_spent'
+    case 'firstOrder':
+      return 'first_order_date'
+    case 'lastOrder':
+      return 'last_order_date'
+    case 'email':
+      return 'email'
+    default:
+      return field
+  }
+}
+
+function productSortField(field: string): string {
+  switch (field) {
+    case 'name':
+      return 'title'
+    case 'qtySold':
+      return 'net_items_sold'
+    case 'orders':
+      return 'net_orders'
+    case 'avgPrice':
+      return 'net_sales'
+    case 'refunded':
+      return 'total_refunds'
+    case 'stock':
+      return 'stock_quantity'
+    case 'revenue':
+      return 'net_sales'
+    default:
+      return field
+  }
+}
+
+function couponSortField(field: string): string {
+  switch (field) {
+    case 'code':
+      return 'code'
+    case 'amount':
+      return 'amount'
+    case 'used':
+      return 'usage_count'
+    case 'discount':
+      return 'total_discounted'
+    case 'revenue':
+      return 'sales_generated'
+    default:
+      return field
+  }
+}
+
+function customerRow(row: Record<string, unknown>): CustomersPayload['rows'][number] {
+  const orderCount = Math.max(0, Math.round(num(row.order_count)))
+  const ltv = round2(num(row.total_spent))
+  const lastOrder = String(row.last_order_date ?? row.customer_updated_at ?? '')
+  const oldEnough =
+    lastOrder && Date.parse(lastOrder) > 0 && Date.now() - Date.parse(lastOrder) > 180 * 86_400_000
+
+  let segment: CustomerSegment = 'returning'
+  if (orderCount <= 1) {
+    segment = 'new'
+  } else if (ltv >= 1000 || orderCount >= 10) {
+    segment = 'vip'
+  } else if (oldEnough) {
+    segment = 'at-risk'
+  }
+
+  return {
+    id: String(row.customer_id ?? row.metorik_customer_id ?? row.id ?? row.email ?? ''),
+    name: firstString(row, ['full_name']) || readCustomerName(row),
+    email: String(row.email ?? ''),
+    orders: orderCount,
+    ltv,
+    aov: round2(num(row.average_order)),
+    firstOrder: String(row.first_order_date ?? row.customer_created_at ?? ''),
+    lastOrder,
+    city: firstString(row, ['billing_address_city', 'shipping_address_city']),
+    country: firstString(row, ['billing_address_country', 'shipping_address_country']),
+    segment,
+  }
+}
+
+function productRow(row: Record<string, unknown>): ProductsPayload['rows'][number] {
+  const stock = Math.round(num(row.stock_quantity))
+  const inStock = row.in_stock !== false
+  return {
+    id: String(row.product_id ?? row.id ?? row.sku ?? row.title ?? ''),
+    name: String(row.title ?? row.name ?? ''),
+    sku: String(row.sku ?? ''),
+    qtySold: Math.max(0, Math.round(num(row.net_items_sold ?? row.gross_items_sold))),
+    revenue: round2(num(row.net_sales ?? row.gross_sales)),
+    orders: Math.max(0, Math.round(num(row.net_orders))),
+    avgPrice: round2(
+      num(row.net_items_sold) > 0
+        ? num(row.net_sales) / num(row.net_items_sold)
+        : num(row.current_price ?? row.regular_price ?? row.sale_price),
+    ),
+    refunded: round2(num(row.total_refunds)),
+    stock,
+    stockStatus: !inStock || stock <= 0 ? 'out-of-stock' : stock <= 5 ? 'low-stock' : 'in-stock',
+  }
+}
+
+function couponRow(row: Record<string, unknown>): CouponsPayload['rows'][number] {
+  const type = String(row.discount_type ?? 'fixed_cart') as CouponType
+  return {
+    id: String(row.coupon_id ?? row.id ?? row.code ?? ''),
+    code: String(row.code ?? ''),
+    type: type === 'percent' || type === 'fixed_cart' || type === 'fixed_product' ? type : 'fixed_cart',
+    amount: round2(num(row.amount)),
+    used: Math.max(0, Math.round(num(row.usage_count))),
+    usageLimit: null,
+    revenue: round2(num(row.sales_generated)),
+    discount: round2(num(row.total_discounted)),
+    expires: typeof row.date_expires === 'string' && row.date_expires ? row.date_expires : null,
+  }
+}
+
+async function collectAllRows(
+  apiKey: string,
+  path: string,
+  params: Record<string, string>,
+): Promise<Record<string, unknown>[]> {
+  const rows: Record<string, unknown>[] = []
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const body = await metorik(apiKey, path, { ...params, page: String(page), per_page: '100' })
+    const parsed = readPage(body)
+    rows.push(...parsed.rows)
+    if (!parsed.hasMore || parsed.rows.length === 0) break
+  }
+  return rows
+}
+
 /* ------------------------------------------------------------------ *
  * Order normalisation
  * ------------------------------------------------------------------ */
@@ -143,7 +311,14 @@ function normaliseOrder(row: Record<string, unknown>): Order {
 }
 
 function readCustomerName(row: Record<string, unknown>): string {
+  if (typeof row.full_name === 'string' && row.full_name) return row.full_name
   if (typeof row.customer_name === 'string' && row.customer_name) return row.customer_name
+  if (typeof row.first_name === 'string' || typeof row.last_name === 'string') {
+    const first = String(row.first_name ?? '')
+    const last = String(row.last_name ?? '')
+    const name = `${first} ${last}`.trim()
+    if (name) return name
+  }
   const billing = isRecord(row.billing) ? row.billing : {}
   const first = String(billing.first_name ?? '')
   const last = String(billing.last_name ?? '')
@@ -235,6 +410,213 @@ async function loadMetrics(apiKey: string, range: DateRange): Promise<WooMetrics
   })
 }
 
+async function loadCustomersPage(
+  apiKey: string,
+  range: DateRange,
+  url: URL,
+): Promise<CustomersPayload> {
+  const page = Math.max(1, Math.round(num(url.searchParams.get('page')) || 1))
+  const perPage = clamp(Math.round(num(url.searchParams.get('perPage')) || 25), 1, 100)
+  const sortParam = customerSortField(url.searchParams.get('sort') ?? 'ltv')
+  const directionParam = url.searchParams.get('direction') ?? 'desc'
+  if (directionParam !== 'asc' && directionParam !== 'desc') {
+    throw new BadRequest('`direction` must be `asc` or `desc`')
+  }
+
+  const currentParams: Record<string, string> = {
+    order_start_date: range.start,
+    order_end_date: range.end,
+    page: String(page),
+    per_page: String(perPage),
+    order_by: sortParam,
+    order_dir: directionParam,
+  }
+  appendParam(currentParams, url, 'search')
+  appendParam(currentParams, url, 'segment')
+  appendParam(currentParams, url, 'filters')
+  appendParam(currentParams, url, 'custom_fields')
+
+  const totalsParams: Record<string, string> = {
+    order_start_date: range.start,
+    order_end_date: range.end,
+  }
+  appendParam(totalsParams, url, 'search')
+  appendParam(totalsParams, url, 'segment')
+  appendParam(totalsParams, url, 'filters')
+
+  const [body, totals] = await Promise.all([
+    metorik(apiKey, '/customers', currentParams),
+    metorik(apiKey, '/customers/totals', totalsParams),
+  ])
+
+  const parsed = readPage(body)
+  const data = isRecord(totals.data) ? totals.data : {}
+  const totalCustomers = num(data.count) || parsed.total
+  const returningCustomers = num(data.returning_customers)
+  const averageLtv = num(data.average_ltv)
+
+  return {
+    rows: parsed.rows.map(customerRow),
+    total: totalCustomers,
+    page,
+    perPage,
+    totalCustomers: metric(totalCustomers, null),
+    newCustomers: metric(Math.max(0, totalCustomers - returningCustomers), null),
+    returningRate: metric(totalCustomers > 0 ? returningCustomers / totalCustomers : 0, null),
+    avgLtv: metric(averageLtv, null),
+  }
+}
+
+interface ProductSummary {
+  productsSold: number
+  productRevenue: number
+  grossSales: number
+  refunds: number
+}
+
+function productSummary(rows: Record<string, unknown>[]): ProductSummary {
+  return rows.reduce<ProductSummary>(
+    (acc, row) => {
+      acc.productsSold += Math.max(0, num(row.net_items_sold ?? row.gross_items_sold))
+      acc.productRevenue += Math.max(0, num(row.net_sales ?? row.gross_sales))
+      acc.grossSales += Math.max(0, num(row.gross_sales))
+      acc.refunds += Math.max(0, num(row.total_refunds))
+      return acc
+    },
+    { productsSold: 0, productRevenue: 0, grossSales: 0, refunds: 0 },
+  )
+}
+
+async function loadProductsPage(
+  apiKey: string,
+  range: DateRange,
+  url: URL,
+): Promise<ProductsPayload> {
+  const page = Math.max(1, Math.round(num(url.searchParams.get('page')) || 1))
+  const perPage = clamp(Math.round(num(url.searchParams.get('perPage')) || 25), 1, 100)
+  const sortParam = productSortField(url.searchParams.get('sort') ?? 'revenue')
+  const directionParam = url.searchParams.get('direction') ?? 'desc'
+  if (directionParam !== 'asc' && directionParam !== 'desc') {
+    throw new BadRequest('`direction` must be `asc` or `desc`')
+  }
+
+  const currentParams: Record<string, string> = {
+    start_date: range.start,
+    end_date: range.end,
+    page: String(page),
+    per_page: String(perPage),
+    order_by: sortParam,
+    order_dir: directionParam,
+  }
+  appendParam(currentParams, url, 'search')
+  appendParam(currentParams, url, 'filters')
+  appendParam(currentParams, url, 'order_filters')
+  appendParam(currentParams, url, 'custom_fields')
+
+  const summaryParams: Record<string, string> = {
+    start_date: range.start,
+    end_date: range.end,
+    order_by: sortParam,
+    order_dir: directionParam,
+  }
+  appendParam(summaryParams, url, 'search')
+  appendParam(summaryParams, url, 'filters')
+  appendParam(summaryParams, url, 'order_filters')
+  appendParam(summaryParams, url, 'custom_fields')
+
+  const [body, allRows] = await Promise.all([
+    metorik(apiKey, '/products', currentParams),
+    collectAllRows(apiKey, '/products', summaryParams),
+  ])
+
+  const parsed = readPage(body)
+  const summary = productSummary(allRows)
+
+  return {
+    rows: parsed.rows.map(productRow),
+    total: parsed.total,
+    page,
+    perPage,
+    productsSold: metric(summary.productsSold, null),
+    productRevenue: metric(summary.productRevenue, null),
+    avgPrice: metric(summary.productsSold > 0 ? summary.productRevenue / summary.productsSold : 0, null),
+    refundRate: metric(summary.grossSales > 0 ? summary.refunds / summary.grossSales : 0, null),
+  }
+}
+
+interface CouponSummary {
+  couponsUsed: number
+  discountTotal: number
+  couponRevenue: number
+}
+
+function couponSummary(rows: Record<string, unknown>[]): CouponSummary {
+  return rows.reduce<CouponSummary>(
+    (acc, row) => {
+      acc.couponsUsed += Math.max(0, num(row.usage_count))
+      acc.discountTotal += Math.max(0, num(row.total_discounted))
+      acc.couponRevenue += Math.max(0, num(row.sales_generated))
+      return acc
+    },
+    { couponsUsed: 0, discountTotal: 0, couponRevenue: 0 },
+  )
+}
+
+async function loadCouponsPage(
+  apiKey: string,
+  range: DateRange,
+  url: URL,
+): Promise<CouponsPayload> {
+  const page = Math.max(1, Math.round(num(url.searchParams.get('page')) || 1))
+  const perPage = clamp(Math.round(num(url.searchParams.get('perPage')) || 25), 1, 100)
+  const sortParam = couponSortField(url.searchParams.get('sort') ?? 'revenue')
+  const directionParam = url.searchParams.get('direction') ?? 'desc'
+  if (directionParam !== 'asc' && directionParam !== 'desc') {
+    throw new BadRequest('`direction` must be `asc` or `desc`')
+  }
+
+  const currentParams: Record<string, string> = {
+    start_date: range.start,
+    end_date: range.end,
+    page: String(page),
+    per_page: String(perPage),
+    order_by: sortParam,
+    order_dir: directionParam,
+  }
+  appendParam(currentParams, url, 'search')
+  appendParam(currentParams, url, 'has_usage')
+  appendParam(currentParams, url, 'order_filters')
+
+  const summaryParams: Record<string, string> = {
+    start_date: range.start,
+    end_date: range.end,
+    order_by: sortParam,
+    order_dir: directionParam,
+  }
+  appendParam(summaryParams, url, 'search')
+  appendParam(summaryParams, url, 'has_usage')
+  appendParam(summaryParams, url, 'order_filters')
+
+  const [body, allRows] = await Promise.all([
+    metorik(apiKey, '/coupons', currentParams),
+    collectAllRows(apiKey, '/coupons', summaryParams),
+  ])
+
+  const parsed = readPage(body)
+  const summary = couponSummary(allRows)
+
+  return {
+    rows: parsed.rows.map(couponRow),
+    total: parsed.total,
+    page,
+    perPage,
+    couponsUsed: metric(summary.couponsUsed, null),
+    discountTotal: metric(summary.discountTotal, null),
+    couponRevenue: metric(summary.couponRevenue, null),
+    avgDiscount: metric(summary.couponsUsed > 0 ? summary.discountTotal / summary.couponsUsed : 0, null),
+  }
+}
+
 async function aggregate(apiKey: string, range: DateRange): Promise<Aggregate> {
   const agg: Aggregate = {
     totalRevenue: 0,
@@ -300,7 +682,9 @@ async function countCustomers(apiKey: string, range: DateRange): Promise<number>
     order_end_date: range.end,
   })
   const data = isRecord(body.data) ? body.data : {}
-  return num(data.count)
+  const count = num(data.count)
+  const returning = num(data.returning_customers)
+  return Math.max(0, count - returning)
 }
 
 function toSeries(range: DateRange, byDay: Map<string, number>): RevenuePoint[] {
