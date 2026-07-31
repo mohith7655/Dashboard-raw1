@@ -140,7 +140,16 @@ function Row({ order }: { order: Order }) {
         <span className="font-mono text-ink">#{order.number}</span>
       </Td>
       <Td className="text-muted">{formatDate(order.date)}</Td>
-      <Td className="text-ink">{order.customer}</Td>
+      <Td>
+        <div className="min-w-0">
+          <div className="truncate text-ink">{order.customer}</div>
+          {(order.email || order.city) && (
+            <div className="truncate text-[11px] text-muted">
+              {order.email || [order.city, order.country].filter(Boolean).join(', ')}
+            </div>
+          )}
+        </div>
+      </Td>
       <Td>
         <StatusPill status={order.status} />
       </Td>

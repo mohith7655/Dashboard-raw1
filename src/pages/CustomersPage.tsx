@@ -98,7 +98,7 @@ export function CustomersPage() {
     <>
       <PageHeader
         title="Customers"
-        subtitle={`Customers who ordered between ${formatRangeLabel(range)}`}
+        subtitle={`Customers whose latest order falls between ${formatRangeLabel(range)}`}
       />
 
       <SourceBanner

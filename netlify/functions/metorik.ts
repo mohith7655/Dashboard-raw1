@@ -48,13 +48,14 @@ export default async function handler(request: Request): Promise<Response> {
     const url = new URL(request.url)
     const range = clampToAvailableData(readRange(url))
     const apiKey = requireEnv('METORIK_API_KEY')
+    const timeZone = await storeTimeZone(apiKey)
 
     const resource = url.searchParams.get('resource')
     if (resource === 'orders') {
-      return json(await loadOrdersPage(apiKey, range, url))
+      return json(await loadOrdersPage(apiKey, range, url, timeZone))
     }
     if (resource === 'customers') {
-      return json(await loadCustomersPage(apiKey, range, url))
+      return json(await loadCustomersPage(apiKey, range, url, timeZone))
     }
     if (resource === 'products') {
       return json(await loadProductsPage(apiKey, range, url))
@@ -62,7 +63,7 @@ export default async function handler(request: Request): Promise<Response> {
     if (resource === 'coupons') {
       return json(await loadCouponsPage(apiKey, range, url))
     }
-    return json(await loadMetrics(apiKey, range))
+    return json(await loadMetrics(apiKey, range, timeZone))
   } catch (err) {
     return toErrorResponse(err, HINT)
   }
@@ -77,6 +78,65 @@ function clampToAvailableData(range: DateRange): DateRange {
   const start = range.start > maxDate ? maxDate : range.start
   const end = range.end > maxDate ? maxDate : range.end
   return start <= end ? { ...range, start, end } : { ...range, start: maxDate, end: maxDate }
+}
+
+/* ------------------------------------------------------------------ *
+ * Store timezone
+ *
+ * Metorik resolves every date filter against the store's own timezone but
+ * returns timestamps in UTC. Bucketing those UTC strings by their leading ten
+ * characters pushes late-evening orders onto the following day, which drops
+ * them off the end of the selected range. Every timestamp is therefore
+ * converted back to store-local time before it is bucketed or displayed.
+ * ------------------------------------------------------------------ */
+
+let cachedTimeZone: Promise<string> | null = null
+
+function storeTimeZone(apiKey: string): Promise<string> {
+  cachedTimeZone ??= metorik(apiKey, '', {})
+    .then((body) => (typeof body.timezone === 'string' && body.timezone ? body.timezone : 'UTC'))
+    .catch(() => {
+      // A failed lookup is never cached — one blip would otherwise pin the
+      // whole warm instance to UTC and quietly shift every date by a day.
+      cachedTimeZone = null
+      return 'UTC'
+    })
+  return cachedTimeZone
+}
+
+const formatters = new Map<string, Intl.DateTimeFormat>()
+
+function formatterFor(timeZone: string): Intl.DateTimeFormat {
+  let formatter = formatters.get(timeZone)
+  if (!formatter) {
+    try {
+      formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+      })
+    } catch {
+      formatter = formatterFor('UTC')
+    }
+    formatters.set(timeZone, formatter)
+  }
+  return formatter
+}
+
+/** `2026-07-26T06:32:31Z` in `America/Los_Angeles` → `2026-07-25T23:32:31`. */
+function toStoreTime(iso: string, timeZone: string): string {
+  const ms = Date.parse(iso)
+  if (!iso || !Number.isFinite(ms)) return iso
+  const parts: Record<string, string> = {}
+  for (const part of formatterFor(timeZone).formatToParts(new Date(ms))) {
+    parts[part.type] = part.value
+  }
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`
 }
 
 /* ------------------------------------------------------------------ *
@@ -195,12 +255,18 @@ function couponSortField(field: string): string {
   }
 }
 
-function customerRow(row: Record<string, unknown>): CustomersPayload['rows'][number] {
+function customerRow(
+  row: Record<string, unknown>,
+  timeZone: string,
+): CustomersPayload['rows'][number] {
   const orderCount = Math.max(0, Math.round(num(row.order_count)))
   const ltv = round2(num(row.total_spent))
-  const lastOrder = String(row.last_order_date ?? row.customer_updated_at ?? '')
+  const lastOrderRaw = String(row.last_order_date ?? row.customer_updated_at ?? '')
+  const lastOrder = toStoreTime(lastOrderRaw, timeZone)
   const oldEnough =
-    lastOrder && Date.parse(lastOrder) > 0 && Date.now() - Date.parse(lastOrder) > 180 * 86_400_000
+    lastOrderRaw &&
+    Date.parse(lastOrderRaw) > 0 &&
+    Date.now() - Date.parse(lastOrderRaw) > 180 * 86_400_000
 
   let segment: CustomerSegment = 'returning'
   if (orderCount <= 1) {
@@ -212,13 +278,14 @@ function customerRow(row: Record<string, unknown>): CustomersPayload['rows'][num
   }
 
   return {
-    id: String(row.customer_id ?? row.metorik_customer_id ?? row.id ?? row.email ?? ''),
-    name: firstString(row, ['full_name']) || readCustomerName(row),
-    email: String(row.email ?? ''),
+    // Guest checkouts all report `customer_id: 0`, so Metorik's own id leads.
+    id: String(row.metorik_customer_id ?? row.customer_id ?? row.id ?? row.email ?? ''),
+    name: readCustomerName(row) || readCustomerEmail(row) || 'Guest',
+    email: readCustomerEmail(row),
     orders: orderCount,
     ltv,
     aov: round2(num(row.average_order)),
-    firstOrder: String(row.first_order_date ?? row.customer_created_at ?? ''),
+    firstOrder: toStoreTime(String(row.first_order_date ?? row.customer_created_at ?? ''), timeZone),
     lastOrder,
     city: firstString(row, ['billing_address_city', 'shipping_address_city']),
     country: firstString(row, ['billing_address_country', 'shipping_address_country']),
@@ -297,34 +364,53 @@ function pick(row: Record<string, unknown>, keys: string[]): number {
   return 0
 }
 
-function normaliseOrder(row: Record<string, unknown>): Order {
-  const number = String(row.order_number ?? row.number ?? row.id ?? '')
+function normaliseOrder(row: Record<string, unknown>, timeZone: string): Order {
+  const number = String(row.order_number ?? row.number ?? row.id ?? '').replace(/^#/, '')
+  const email = readCustomerEmail(row)
   return {
     id: String(row.order_id ?? row.id ?? number),
     number,
-    date: String(row.order_created_at ?? row.date_created ?? row.date ?? ''),
-    customer: readCustomerName(row),
+    date: toStoreTime(String(row.order_created_at ?? row.date_created ?? row.date ?? ''), timeZone),
+    customer: readCustomerName(row) || email || 'Guest',
+    email,
+    city: firstString(row, ['billing_address_city', 'shipping_address_city']),
+    country: firstString(row, ['billing_address_country', 'shipping_address_country']),
     status: readStatus(row.status),
     items: Math.round(pick(row, ['total_items', 'items_count', 'line_items_count', 'quantity'])),
     total: round2(pick(row, ['total'])),
   }
 }
 
+/**
+ * Orders carry the buyer as flat `billing_address_*` / `shipping_address_*`
+ * fields; customers carry `full_name`. Both shapes are read here so neither
+ * falls through to "Guest" while a real name is sitting in the payload.
+ */
 function readCustomerName(row: Record<string, unknown>): string {
-  if (typeof row.full_name === 'string' && row.full_name) return row.full_name
-  if (typeof row.customer_name === 'string' && row.customer_name) return row.customer_name
-  if (typeof row.first_name === 'string' || typeof row.last_name === 'string') {
-    const first = String(row.first_name ?? '')
-    const last = String(row.last_name ?? '')
-    const name = `${first} ${last}`.trim()
+  const direct = firstString(row, ['full_name', 'customer_name', 'order_name'])
+  if (direct) return direct
+
+  const billing = isRecord(row.billing) ? row.billing : {}
+  const shipping = isRecord(row.shipping) ? row.shipping : {}
+  const pairs: [unknown, unknown][] = [
+    [row.billing_address_first_name, row.billing_address_last_name],
+    [row.shipping_address_first_name, row.shipping_address_last_name],
+    [row.first_name, row.last_name],
+    [billing.first_name, billing.last_name],
+    [shipping.first_name, shipping.last_name],
+  ]
+  for (const [first, last] of pairs) {
+    const name = `${String(first ?? '')} ${String(last ?? '')}`.trim()
     if (name) return name
   }
+  return ''
+}
+
+function readCustomerEmail(row: Record<string, unknown>): string {
   const billing = isRecord(row.billing) ? row.billing : {}
-  const first = String(billing.first_name ?? '')
-  const last = String(billing.last_name ?? '')
-  const name = `${first} ${last}`.trim()
-  if (name) return name
-  return String(row.email ?? billing.email ?? 'Guest')
+  const direct = firstString(row, ['email', 'billing_address_email', 'customer_email'])
+  if (direct) return direct
+  return typeof billing.email === 'string' ? billing.email : ''
 }
 
 /* ------------------------------------------------------------------ *
@@ -335,6 +421,7 @@ async function loadOrdersPage(
   apiKey: string,
   range: DateRange,
   url: URL,
+  timeZone: string,
 ): Promise<OrdersPage> {
   const page = Math.max(1, Math.round(num(url.searchParams.get('page')) || 1))
   const perPage = clamp(Math.round(num(url.searchParams.get('perPage')) || 10), 1, 100)
@@ -363,7 +450,7 @@ async function loadOrdersPage(
   const parsed = readPage(body)
   const totalData = isRecord(totals.data) ? totals.data : {}
   return {
-    orders: parsed.rows.map(normaliseOrder),
+    orders: parsed.rows.map((row) => normaliseOrder(row, timeZone)),
     total: num(totalData.count) || parsed.total,
     page,
     perPage,
@@ -373,11 +460,50 @@ async function loadOrdersPage(
 const clamp = (n: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, n))
 
-const dateFilter = (range: DateRange): Record<string, string> => ({
-  filters: JSON.stringify([
+interface MetorikFilter {
+  field: string
+  operator: string
+  value: unknown
+}
+
+/**
+ * The only date scoping Metorik honours on `/orders` and `/customers` is the
+ * `filters` array — `start_date`/`end_date` are ignored there and the whole
+ * store comes back. Any caller-supplied filters are merged in rather than
+ * overwritten.
+ */
+function withFilters(base: MetorikFilter[], url?: URL): Record<string, string> {
+  const extra = url?.searchParams.get('filters')
+  let merged = base
+  if (extra) {
+    try {
+      const parsed: unknown = JSON.parse(extra)
+      if (Array.isArray(parsed)) merged = [...base, ...(parsed as MetorikFilter[])]
+    } catch {
+      throw new BadRequest('`filters` must be a JSON array')
+    }
+  }
+  return { filters: JSON.stringify(merged) }
+}
+
+const dateFilter = (range: DateRange): Record<string, string> =>
+  withFilters([
     { field: 'order_created_at', operator: 'between', value: [range.start, range.end] },
-  ]),
-})
+  ])
+
+/** Customers whose most recent order falls inside the range. */
+const lastOrderFilter = (range: DateRange, url?: URL): Record<string, string> =>
+  withFilters(
+    [{ field: 'last_order_date', operator: 'between', value: [range.start, range.end] }],
+    url,
+  )
+
+/** Customers whose first ever order falls inside the range. */
+const firstOrderFilter = (range: DateRange, url?: URL): Record<string, string> =>
+  withFilters(
+    [{ field: 'first_order_date', operator: 'between', value: [range.start, range.end] }],
+    url,
+  )
 
 /* ------------------------------------------------------------------ *
  * Metrics — every order in the range, aggregated here
@@ -390,13 +516,17 @@ interface Aggregate extends WooTotals {
   orderCount: number
 }
 
-async function loadMetrics(apiKey: string, range: DateRange): Promise<WooMetrics> {
+async function loadMetrics(
+  apiKey: string,
+  range: DateRange,
+  timeZone: string,
+): Promise<WooMetrics> {
   const prev = previousRange(range)
   const [current, previousAgg, newCustomers, prevCustomers] = await Promise.all([
-    aggregate(apiKey, range),
-    aggregate(apiKey, prev),
-    countCustomers(apiKey, range),
-    countCustomers(apiKey, prev),
+    aggregate(apiKey, range, timeZone),
+    aggregate(apiKey, prev, timeZone),
+    countNewCustomers(apiKey, range),
+    countNewCustomers(apiKey, prev),
   ])
 
   current.newCustomers = newCustomers
@@ -414,6 +544,7 @@ async function loadCustomersPage(
   apiKey: string,
   range: DateRange,
   url: URL,
+  timeZone: string,
 ): Promise<CustomersPayload> {
   const page = Math.max(1, Math.round(num(url.searchParams.get('page')) || 1))
   const perPage = clamp(Math.round(num(url.searchParams.get('perPage')) || 25), 1, 100)
@@ -423,9 +554,9 @@ async function loadCustomersPage(
     throw new BadRequest('`direction` must be `asc` or `desc`')
   }
 
+  const rangeFilter = lastOrderFilter(range, url)
   const currentParams: Record<string, string> = {
-    order_start_date: range.start,
-    order_end_date: range.end,
+    ...rangeFilter,
     page: String(page),
     per_page: String(perPage),
     order_by: sortParam,
@@ -433,16 +564,11 @@ async function loadCustomersPage(
   }
   appendParam(currentParams, url, 'search')
   appendParam(currentParams, url, 'segment')
-  appendParam(currentParams, url, 'filters')
   appendParam(currentParams, url, 'custom_fields')
 
-  const totalsParams: Record<string, string> = {
-    order_start_date: range.start,
-    order_end_date: range.end,
-  }
+  const totalsParams: Record<string, string> = { ...rangeFilter }
   appendParam(totalsParams, url, 'search')
   appendParam(totalsParams, url, 'segment')
-  appendParam(totalsParams, url, 'filters')
 
   const [body, totals] = await Promise.all([
     metorik(apiKey, '/customers', currentParams),
@@ -456,7 +582,7 @@ async function loadCustomersPage(
   const averageLtv = num(data.average_ltv)
 
   return {
-    rows: parsed.rows.map(customerRow),
+    rows: parsed.rows.map((row) => customerRow(row, timeZone)),
     total: totalCustomers,
     page,
     perPage,
@@ -534,7 +660,10 @@ async function loadProductsPage(
 
   return {
     rows: parsed.rows.map(productRow),
-    total: parsed.total,
+    // `/products` reports no grand total, and falling back to the page length
+    // pinned the table to a single page. The summary sweep already holds the
+    // whole filtered set, so it is the count.
+    total: allRows.length || parsed.total,
     page,
     perPage,
     productsSold: metric(summary.productsSold, null),
@@ -607,7 +736,7 @@ async function loadCouponsPage(
 
   return {
     rows: parsed.rows.map(couponRow),
-    total: parsed.total,
+    total: allRows.length || parsed.total,
     page,
     perPage,
     couponsUsed: metric(summary.couponsUsed, null),
@@ -617,7 +746,11 @@ async function loadCouponsPage(
   }
 }
 
-async function aggregate(apiKey: string, range: DateRange): Promise<Aggregate> {
+async function aggregate(
+  apiKey: string,
+  range: DateRange,
+  timeZone: string,
+): Promise<Aggregate> {
   const agg: Aggregate = {
     totalRevenue: 0,
     totalOrders: 0,
@@ -640,7 +773,7 @@ async function aggregate(apiKey: string, range: DateRange): Promise<Aggregate> {
     const parsed = readPage(body)
 
     for (const row of parsed.rows) {
-      const order = normaliseOrder(row)
+      const order = normaliseOrder(row, timeZone)
       agg.orderCount++
       agg.byStatus.set(order.status, (agg.byStatus.get(order.status) ?? 0) + 1)
       if (!PAID_STATUSES.has(order.status)) continue
@@ -676,15 +809,19 @@ function readSource(row: Record<string, unknown>): string {
   return value || '(direct)'
 }
 
-async function countCustomers(apiKey: string, range: DateRange): Promise<number> {
-  const body = await metorik(apiKey, '/customers/totals', {
-    order_start_date: range.start,
-    order_end_date: range.end,
-  })
+/**
+ * Customers acquired inside the range.
+ *
+ * `order_start_date`/`order_end_date` only scope the *statistics* on
+ * `/customers/totals` — `count` stays at the whole-store customer total no
+ * matter what dates are passed, which is why this KPI used to read six figures
+ * and never moved. Filtering on `first_order_date` is what actually narrows the
+ * customer set.
+ */
+async function countNewCustomers(apiKey: string, range: DateRange): Promise<number> {
+  const body = await metorik(apiKey, '/customers/totals', firstOrderFilter(range))
   const data = isRecord(body.data) ? body.data : {}
-  const count = num(data.count)
-  const returning = num(data.returning_customers)
-  return Math.max(0, count - returning)
+  return Math.max(0, num(data.count))
 }
 
 function toSeries(range: DateRange, byDay: Map<string, number>): RevenuePoint[] {

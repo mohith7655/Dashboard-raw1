@@ -95,9 +95,13 @@ export interface Order {
   id: string
   /** Display number without the leading `#`. */
   number: string
-  /** ISO timestamp */
+  /** ISO timestamp in the store's own timezone — the one Metorik filters on. */
   date: string
   customer: string
+  /** Empty when the order carries no billing email. */
+  email: string
+  city: string
+  country: string
   status: OrderStatus
   items: number
   total: number
