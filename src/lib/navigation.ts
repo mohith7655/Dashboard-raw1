@@ -5,6 +5,7 @@ import {
   Coins,
   Compass,
   Gauge,
+  Globe,
   Grid3x3,
   LayoutGrid,
   LineChart,
@@ -83,7 +84,7 @@ export const NAV_GROUPS: NavGroup[] = [
 
 /* --------------------------- Dashboard views --------------------------- */
 
-export type DashboardView = 'overview' | 'profit' | 'shipping' | 'ads'
+export type DashboardView = 'overview' | 'profit' | 'shipping' | 'markets' | 'ads'
 
 export interface DashboardTab {
   id: DashboardView
@@ -115,6 +116,12 @@ export const DASHBOARD_TABS: DashboardTab[] = [
     label: 'Shipping Costs',
     icon: Truck,
     blurb: 'What shipping costs to fulfil, per order and against revenue.',
+  },
+  {
+    id: 'markets',
+    label: 'Markets',
+    icon: Globe,
+    blurb: 'Where revenue comes from, by country and by currency billed.',
   },
   {
     id: 'ads',

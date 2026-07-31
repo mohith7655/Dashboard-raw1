@@ -6,6 +6,7 @@ import { DashboardTabs } from './components/DashboardTabs'
 import { WooCommerceSection } from './components/sections/WooCommerceSection'
 import { AdsSection } from './components/sections/AdsSection'
 import { AdSpendSection } from './components/sections/AdSpendSection'
+import { MarketsSection } from './components/sections/MarketsSection'
 import { ProfitLossSection } from './components/sections/ProfitLossSection'
 import { ShippingSection } from './components/sections/ShippingSection'
 import { RevenueOverTime } from './components/charts/RevenueOverTime'
@@ -131,6 +132,14 @@ export default function App() {
 
         {view === 'shipping' && (
           <ShippingSection
+            woo={woo.data}
+            loading={woo.isLoading}
+            failed={!!woo.error}
+          />
+        )}
+
+        {view === 'markets' && (
+          <MarketsSection
             woo={woo.data}
             loading={woo.isLoading}
             failed={!!woo.error}

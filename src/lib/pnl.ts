@@ -8,7 +8,7 @@ import { formatCurrency } from './format'
 
 /* ----------------------------- Profit & loss ---------------------------- */
 
-export type StepKind = 'total' | 'decrease'
+export type StepKind = 'total' | 'increase' | 'decrease'
 
 export interface WaterfallStep {
   label: string
@@ -24,14 +24,19 @@ export interface WaterfallStep {
 }
 
 /**
- * Revenue down to profit, one deduction per bar. Ad spend and the net-profit
- * total only appear when at least one ad platform reported, rather than
- * drawing a zero step that reads as "we spent nothing".
+ * The full statement: gross sales down through coupons, shipping and tax to
+ * total revenue, then every cost down to profit.
+ *
+ * Zero lines are dropped rather than drawn flat — a store with no refunds
+ * should not have to read a refund bar. Ad spend and the net-profit total
+ * appear only when a platform actually reported, so a dead connector never
+ * reads as "we spent nothing".
  */
 export function profitWaterfall(
   woo: WooMetrics,
   adSpend: number | null,
 ): WaterfallStep[] {
+  const { pnl } = woo
   const steps: WaterfallStep[] = []
   let running = 0
 
@@ -47,29 +52,39 @@ export function profitWaterfall(
     })
   }
 
-  const deduct = (label: string, amount: number): void => {
-    const next = round2(running - amount)
+  const move = (label: string, amount: number, kind: 'increase' | 'decrease'): boolean => {
+    if (round2(amount) === 0) return false
+    const signed = kind === 'decrease' ? -round2(amount) : round2(amount)
+    const next = round2(running + signed)
     steps.push({
       label,
-      amount: -round2(amount),
-      kind: 'decrease',
+      amount: signed,
+      kind,
       range: [Math.min(running, next), Math.max(running, next)],
       running: next,
-      valueLabel: `−${formatCurrency(amount)}`,
+      valueLabel: `${signed < 0 ? '−' : '+'}${formatCurrency(Math.abs(signed))}`,
     })
     running = next
+    return true
   }
 
-  total('Revenue', woo.totalRevenue.value)
-  deduct('Product cost', woo.productCost.value)
-  deduct('Shipping', woo.shippingCost.value)
-  deduct('Transaction', woo.transactionCost.value)
-  total('Gross profit', woo.grossProfit.value)
+  total('Gross sales', pnl.grossSales)
+  move('Coupons', pnl.discounts, 'decrease')
+  move('Shipping charged', pnl.shippingCharged, 'increase')
+  move('Tax collected', pnl.taxCollected, 'increase')
+  total('Total revenue', pnl.totalRevenue)
+  move('Product cost', pnl.productCost, 'decrease')
+  move('Shipping cost', pnl.shippingCost, 'decrease')
+  move('Transaction fees', pnl.transactionCost, 'decrease')
+  move('Other costs', pnl.otherCost, 'decrease')
+  total('Gross profit', pnl.grossProfit)
 
-  if (adSpend !== null) {
-    deduct('Ad spend', adSpend)
-    total('Net profit', running)
-  }
+  // Refunds and ad spend sit below gross profit rather than inside it: the
+  // Gross Profit KPI is revenue less cost of goods, and this bar has to keep
+  // agreeing with it.
+  let past = move('Refunds', pnl.refunds, 'decrease')
+  if (adSpend !== null) past = move('Ad spend', adSpend, 'decrease') || past
+  if (past) total('Net profit', running)
 
   return steps
 }
@@ -109,6 +124,32 @@ export function shippingEconomics(woo: WooMetrics): ShippingEconomics {
     shareOfRevenue: ratio(cost, woo.totalRevenue.value),
     shareOfCost: ratio(cost, totalCost),
     mix: slices.sort((a, b) => b.amount - a.amount),
+  }
+}
+
+/* -------------------------------- Markets ------------------------------- */
+
+export interface MarketSummary {
+  countries: number
+  currencies: number
+  /** Largest country by revenue, or null when nothing sold. */
+  topCountry: { key: string; share: number } | null
+  /** Revenue share billed in a currency other than the store's own. */
+  foreignShare: number
+}
+
+export function marketSummary(woo: WooMetrics): MarketSummary {
+  const revenue = woo.totalRevenue.value
+  const [top] = woo.revenueByCountry
+  const foreign = woo.revenueByCurrency
+    .filter((row) => row.key !== woo.storeCurrency)
+    .reduce((sum, row) => sum + row.revenue, 0)
+
+  return {
+    countries: woo.revenueByCountry.length,
+    currencies: woo.revenueByCurrency.length,
+    topCountry: top ? { key: top.key, share: ratio(top.revenue, revenue) } : null,
+    foreignShare: ratio(foreign, revenue),
   }
 }
 

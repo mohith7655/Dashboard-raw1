@@ -61,6 +61,36 @@ export interface SourceRevenue {
   revenue: number
 }
 
+export interface MarketRevenue {
+  /** ISO country code, or the ISO currency code on the currency split. */
+  key: string
+  orders: number
+  /** Always in the store's own currency, so the splits are comparable. */
+  revenue: number
+}
+
+/**
+ * A full statement for the period, reconciling to `totalRevenue`. Every figure
+ * is store currency and covers paid orders only, so it agrees with the KPIs.
+ */
+export interface ProfitAndLoss {
+  /** Product sales before any coupon comes off. */
+  grossSales: number
+  /** Coupon and cart discounts. */
+  discounts: number
+  shippingCharged: number
+  taxCollected: number
+  /** Reconciles to the Total Revenue KPI. */
+  totalRevenue: number
+  refunds: number
+  productCost: number
+  shippingCost: number
+  transactionCost: number
+  /** Metorik's `extra_cogs` — anything the store books outside the three above. */
+  otherCost: number
+  grossProfit: number
+}
+
 export interface WooMetrics {
   totalRevenue: Metric
   newCustomers: Metric
@@ -76,6 +106,11 @@ export interface WooMetrics {
   revenueSeries: RevenuePoint[]
   ordersByStatus: StatusCount[]
   revenueBySource: SourceRevenue[]
+  revenueByCountry: MarketRevenue[]
+  revenueByCurrency: MarketRevenue[]
+  /** ISO code every figure above is expressed in, e.g. `USD`. */
+  storeCurrency: string
+  pnl: ProfitAndLoss
   orderCount: number
 }
 

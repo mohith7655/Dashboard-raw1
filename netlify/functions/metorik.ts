@@ -1,8 +1,10 @@
 import type {
   DateRange,
+  MarketRevenue,
   Order,
   OrderStatus,
   OrdersPage,
+  ProfitAndLoss,
   RevenuePoint,
   SourceRevenue,
   StatusCount,
@@ -48,7 +50,8 @@ export default async function handler(request: Request): Promise<Response> {
     const url = new URL(request.url)
     const range = clampToAvailableData(readRange(url))
     const apiKey = requireEnv('METORIK_API_KEY')
-    const timeZone = await storeTimeZone(apiKey)
+    const meta = await storeMeta(apiKey)
+    const timeZone = meta.timeZone
 
     const resource = url.searchParams.get('resource')
     if (resource === 'orders') {
@@ -63,7 +66,7 @@ export default async function handler(request: Request): Promise<Response> {
     if (resource === 'coupons') {
       return json(await loadCouponsPage(apiKey, range, url))
     }
-    return json(await loadMetrics(apiKey, range, timeZone))
+    return json(await loadMetrics(apiKey, range, meta))
   } catch (err) {
     return toErrorResponse(err, HINT)
   }
@@ -90,18 +93,35 @@ function clampToAvailableData(range: DateRange): DateRange {
  * converted back to store-local time before it is bucketed or displayed.
  * ------------------------------------------------------------------ */
 
-let cachedTimeZone: Promise<string> | null = null
+export interface StoreMeta {
+  timeZone: string
+  /** The currency every order total is converted into. */
+  currency: string
+}
 
-function storeTimeZone(apiKey: string): Promise<string> {
-  cachedTimeZone ??= metorik(apiKey, '', {})
-    .then((body) => (typeof body.timezone === 'string' && body.timezone ? body.timezone : 'UTC'))
+const DEFAULT_META: StoreMeta = { timeZone: 'UTC', currency: 'USD' }
+
+let cachedMeta: Promise<StoreMeta> | null = null
+
+function storeMeta(apiKey: string): Promise<StoreMeta> {
+  cachedMeta ??= metorik(apiKey, '', {})
+    .then((body) => ({
+      timeZone:
+        typeof body.timezone === 'string' && body.timezone
+          ? body.timezone
+          : DEFAULT_META.timeZone,
+      currency:
+        typeof body.currency === 'string' && body.currency
+          ? body.currency.toUpperCase()
+          : DEFAULT_META.currency,
+    }))
     .catch(() => {
       // A failed lookup is never cached — one blip would otherwise pin the
       // whole warm instance to UTC and quietly shift every date by a day.
-      cachedTimeZone = null
-      return 'UTC'
+      cachedMeta = null
+      return DEFAULT_META
     })
-  return cachedTimeZone
+  return cachedMeta
 }
 
 const formatters = new Map<string, Intl.DateTimeFormat>()
@@ -509,35 +529,106 @@ const firstOrderFilter = (range: DateRange, url?: URL): Record<string, string> =
  * Metrics — every order in the range, aggregated here
  * ------------------------------------------------------------------ */
 
+interface MarketTally {
+  orders: number
+  revenue: number
+}
+
 interface Aggregate extends WooTotals {
   byDay: Map<string, number>
   byStatus: Map<OrderStatus, number>
   bySource: Map<string, number>
+  byCountry: Map<string, MarketTally>
+  byCurrency: Map<string, MarketTally>
   orderCount: number
 }
 
 async function loadMetrics(
   apiKey: string,
   range: DateRange,
-  timeZone: string,
+  meta: StoreMeta,
 ): Promise<WooMetrics> {
   const prev = previousRange(range)
-  const [current, previousAgg, newCustomers, prevCustomers] = await Promise.all([
-    aggregate(apiKey, range, timeZone),
-    aggregate(apiKey, prev, timeZone),
-    countNewCustomers(apiKey, range),
-    countNewCustomers(apiKey, prev),
-  ])
+  const [current, previousAgg, newCustomers, prevCustomers, revenueSide] =
+    await Promise.all([
+      aggregate(apiKey, range, meta.timeZone),
+      aggregate(apiKey, prev, meta.timeZone),
+      countNewCustomers(apiKey, range),
+      countNewCustomers(apiKey, prev),
+      paidOrderTotals(apiKey, range),
+    ])
 
   current.newCustomers = newCustomers
   previousAgg.newCustomers = prevCustomers
 
-  return buildWooMetrics(deriveWoo(current), deriveWoo(previousAgg), {
+  const derived = deriveWoo(current)
+
+  return buildWooMetrics(derived, deriveWoo(previousAgg), {
     revenueSeries: toSeries(range, current.byDay),
     ordersByStatus: toStatusCounts(current.byStatus),
     revenueBySource: toSources(current.bySource),
+    revenueByCountry: toMarkets(current.byCountry),
+    revenueByCurrency: toMarkets(current.byCurrency),
+    storeCurrency: meta.currency,
+    pnl: buildPnl(revenueSide, derived),
     orderCount: current.orderCount,
   })
+}
+
+/** The revenue-side lines Metorik only reports in aggregate. */
+interface RevenueSide {
+  net: number
+  discount: number
+  shipping: number
+  tax: number
+  refunds: number
+}
+
+/**
+ * Scoped to the same statuses the per-order loop banks, so these figures
+ * reconcile exactly with the Total Revenue KPI rather than drifting from it.
+ */
+async function paidOrderTotals(apiKey: string, range: DateRange): Promise<RevenueSide> {
+  const body = await metorik(
+    apiKey,
+    '/orders/totals',
+    withFilters([
+      { field: 'order_created_at', operator: 'between', value: [range.start, range.end] },
+      { field: 'status', operator: 'in', value: [...PAID_STATUSES] },
+    ]),
+  )
+  const data = isRecord(body.data) ? body.data : {}
+  return {
+    net: num(data.net),
+    discount: num(data.total_discount),
+    shipping: num(data.total_shipping),
+    tax: num(data.total_tax),
+    refunds: num(data.total_refunds),
+  }
+}
+
+/**
+ * `total = net + shipping + tax`, and discounts are already off `net`, so
+ * gross sales adds them back to show what was billed before coupons.
+ *
+ * Metorik's `total_fees` is deliberately absent: Woo fee lines are charges
+ * added to the order, so they already sit inside revenue and deducting them
+ * would count them twice.
+ */
+function buildPnl(side: RevenueSide, derived: WooTotals & { grossProfit: number }): ProfitAndLoss {
+  return {
+    grossSales: round2(side.net + side.discount),
+    discounts: round2(side.discount),
+    shippingCharged: round2(side.shipping),
+    taxCollected: round2(side.tax),
+    totalRevenue: derived.totalRevenue,
+    refunds: round2(side.refunds),
+    productCost: derived.productCost,
+    shippingCost: derived.shippingCost,
+    transactionCost: derived.transactionCost,
+    otherCost: derived.otherCost,
+    grossProfit: derived.grossProfit,
+  }
 }
 
 async function loadCustomersPage(
@@ -758,9 +849,12 @@ async function aggregate(
     productCost: 0,
     shippingCost: 0,
     transactionCost: 0,
+    otherCost: 0,
     byDay: new Map(),
     byStatus: new Map(),
     bySource: new Map(),
+    byCountry: new Map(),
+    byCurrency: new Map(),
     orderCount: 0,
   }
 
@@ -786,9 +880,15 @@ async function aggregate(
       agg.productCost += pick(row, ['product_cogs', 'cost_of_goods', 'cogs', 'cost_total'])
       agg.shippingCost += pick(row, ['shipping_cogs', 'shipping_cost', 'shipping_total'])
       agg.transactionCost += pick(row, ['transaction_cogs', 'transaction_fee', 'transaction_fees', 'fees_total'])
+      agg.otherCost += pick(row, ['extra_cogs'])
 
       const source = readSource(row)
       if (source) agg.bySource.set(source, (agg.bySource.get(source) ?? 0) + order.total)
+
+      // Order totals are already converted to the store's own currency, so the
+      // two splits sum back to total revenue whatever the buyer paid in.
+      tally(agg.byCountry, order.country || '(unknown)', order.total)
+      tally(agg.byCurrency, String(row.currency ?? '').toUpperCase() || '(unknown)', order.total)
     }
 
     if (!parsed.hasMore || parsed.rows.length === 0) break
@@ -798,7 +898,21 @@ async function aggregate(
   agg.productCost = round2(agg.productCost)
   agg.shippingCost = round2(agg.shippingCost)
   agg.transactionCost = round2(agg.transactionCost)
+  agg.otherCost = round2(agg.otherCost)
   return agg
+}
+
+function tally(map: Map<string, MarketTally>, key: string, revenue: number): void {
+  const current = map.get(key) ?? { orders: 0, revenue: 0 }
+  current.orders++
+  current.revenue += revenue
+  map.set(key, current)
+}
+
+function toMarkets(map: Map<string, MarketTally>): MarketRevenue[] {
+  return [...map.entries()]
+    .map(([key, tallied]) => ({ key, orders: tallied.orders, revenue: round2(tallied.revenue) }))
+    .sort((a, b) => b.revenue - a.revenue)
 }
 
 /** Paid orders only carry a UTM source; unattributed traffic reads `(direct)`. */

@@ -22,6 +22,8 @@ export interface WooTotals {
   productCost: number
   shippingCost: number
   transactionCost: number
+  /** Metorik's `extra_cogs`; folded into total cost so nothing is dropped. */
+  otherCost: number
 }
 
 export interface WooDerived extends WooTotals {
@@ -32,7 +34,9 @@ export interface WooDerived extends WooTotals {
 }
 
 export function deriveWoo(t: WooTotals): WooDerived {
-  const totalCost = round2(t.productCost + t.shippingCost + t.transactionCost)
+  const totalCost = round2(
+    t.productCost + t.shippingCost + t.transactionCost + t.otherCost,
+  )
   const grossProfit = round2(t.totalRevenue - totalCost)
   return {
     ...t,
@@ -49,7 +53,14 @@ export function buildWooMetrics(
   previous: WooDerived,
   rest: Pick<
     WooMetrics,
-    'revenueSeries' | 'ordersByStatus' | 'revenueBySource' | 'orderCount'
+    | 'revenueSeries'
+    | 'ordersByStatus'
+    | 'revenueBySource'
+    | 'revenueByCountry'
+    | 'revenueByCurrency'
+    | 'storeCurrency'
+    | 'pnl'
+    | 'orderCount'
   >,
 ): WooMetrics {
   return {
