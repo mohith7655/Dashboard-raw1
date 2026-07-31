@@ -76,20 +76,27 @@ async function fetchInsights(
 }
 
 /**
- * Meta reports one row per action type. Purchases are the conversion that
- * matters for ROAS on a commerce account.
+ * Meta reports one row per action type, and the purchase rows overlap:
+ * `omni_purchase` already contains the pixel purchases that
+ * `offsite_conversion.fb_pixel_purchase` reports on its own, and `purchase`
+ * sits between them. Summing all three counts the same order up to three
+ * times, so the first type present wins and the rest are ignored.
  */
-const PURCHASE_ACTIONS = new Set([
-  'purchase',
+const PURCHASE_ACTIONS = [
   'omni_purchase',
+  'purchase',
   'offsite_conversion.fb_pixel_purchase',
-])
+]
 
 function sumActions(raw: unknown): number {
-  return asArray(raw)
-    .filter(isRecord)
-    .filter((a) => typeof a.action_type === 'string' && PURCHASE_ACTIONS.has(a.action_type))
-    .reduce((sum, a) => sum + num(a.value), 0)
+  const rows = asArray(raw).filter(isRecord)
+  for (const actionType of PURCHASE_ACTIONS) {
+    const matches = rows.filter((a) => a.action_type === actionType)
+    if (matches.length > 0) {
+      return matches.reduce((sum, a) => sum + num(a.value), 0)
+    }
+  }
+  return 0
 }
 
 /** Preserves Facebook's own wording, e.g. `Facebook API error (190): …`. */

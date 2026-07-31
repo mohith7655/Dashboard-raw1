@@ -19,6 +19,8 @@ import {
   Table2,
   Tag,
   Target,
+  TrendingUp,
+  Truck,
   Upload,
   UserCircle,
   Users,
@@ -76,6 +78,49 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     items: [{ label: 'Store Settings', to: '/settings', icon: Settings }],
+  },
+]
+
+/* --------------------------- Dashboard views --------------------------- */
+
+export type DashboardView = 'overview' | 'profit' | 'shipping' | 'ads'
+
+export interface DashboardTab {
+  id: DashboardView
+  label: string
+  icon: LucideIcon
+  /** One line under the strip saying what the view answers. */
+  blurb: string
+}
+
+/**
+ * Cuts of the same period, all derived from figures the dashboard already
+ * loads — switching tabs costs no extra upstream call.
+ */
+export const DASHBOARD_TABS: DashboardTab[] = [
+  {
+    id: 'overview',
+    label: 'Overview',
+    icon: Compass,
+    blurb: 'Every connector at a glance for the selected period.',
+  },
+  {
+    id: 'profit',
+    label: 'Profit & Loss',
+    icon: TrendingUp,
+    blurb: 'Revenue stepped down through each cost to what is left.',
+  },
+  {
+    id: 'shipping',
+    label: 'Shipping Costs',
+    icon: Truck,
+    blurb: 'What shipping costs to fulfil, per order and against revenue.',
+  },
+  {
+    id: 'ads',
+    label: 'Ad Spend',
+    icon: Megaphone,
+    blurb: 'Spend across every platform, measured against store revenue.',
   },
 ]
 

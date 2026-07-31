@@ -1,25 +1,36 @@
 import { useMemo, useState } from 'react'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { FacebookGlyph, GoogleGlyph } from '../components/SectionLabel'
+import { DashboardTabs } from '../components/DashboardTabs'
 import { WooCommerceSection } from '../components/sections/WooCommerceSection'
 import { AdsSection } from '../components/sections/AdsSection'
+import { AdSpendSection } from '../components/sections/AdSpendSection'
+import { ProfitLossSection } from '../components/sections/ProfitLossSection'
+import { ShippingSection } from '../components/sections/ShippingSection'
 import { RevenueOverTime } from '../components/charts/RevenueOverTime'
 import { OrdersByStatus } from '../components/charts/OrdersByStatus'
 import { RevenueByTrafficSource } from '../components/charts/RevenueByTrafficSource'
 import { RecentOrders } from '../components/RecentOrders'
 import { useRange } from '../lib/rangeContext'
+import type { DashboardView } from '../lib/navigation'
 import {
   useGoogleAdsMetrics,
   useMetaMetrics,
   useOrders,
   useWooMetrics,
 } from '../lib/queries'
-import type { OrderSortField, SortDirection, SourceError } from '../lib/types'
+import type {
+  AdsMetrics,
+  OrderSortField,
+  SortDirection,
+  SourceError,
+} from '../lib/types'
 
 const PER_PAGE = 10
 
 export function DashboardPage() {
   const { range } = useRange()
+  const [view, setView] = useState<DashboardView>('overview')
   const [page, setPage] = useState(1)
   const [sort, setSort] = useState<OrderSortField>('date')
   const [direction, setDirection] = useState<SortDirection>('desc')
@@ -69,6 +80,17 @@ export function DashboardPage() {
     return google.isFetching
   }
 
+  // Only platforms that answered. A connector that failed is left out entirely
+  // so the derived views never read its silence as zero spend.
+  const reportedAds = useMemo(() => {
+    const found: { name: string; metrics: AdsMetrics }[] = []
+    if (meta.data) found.push({ name: 'Facebook Meta Ads', metrics: meta.data })
+    if (google.data) found.push({ name: 'Google Ads', metrics: google.data })
+    return found
+  }, [meta.data, google.data])
+
+  const adsLoading = meta.isLoading || google.isLoading
+
   return (
     <>
       {banners.length > 0 && (
@@ -85,59 +107,89 @@ export function DashboardPage() {
         </div>
       )}
 
-      <div className="flex flex-col gap-8">
-        <WooCommerceSection
-          metrics={woo.data}
+      <DashboardTabs active={view} onChange={setView} />
+
+      {view === 'profit' && (
+        <ProfitLossSection
+          woo={woo.data}
+          reportedAds={reportedAds}
+          loading={woo.isLoading || adsLoading}
+          failed={!!woo.error}
+        />
+      )}
+
+      {view === 'shipping' && (
+        <ShippingSection
+          woo={woo.data}
           loading={woo.isLoading}
           failed={!!woo.error}
         />
+      )}
 
-        <AdsSection
-          title="Facebook Meta Ads"
-          glyph={<FacebookGlyph />}
-          metrics={meta.data}
-          loading={meta.isLoading}
-          failed={!!meta.error}
+      {view === 'ads' && (
+        <AdSpendSection
+          woo={woo.data}
+          reportedAds={reportedAds}
+          loading={woo.isLoading || adsLoading}
+          wooFailed={!!woo.error}
         />
+      )}
 
-        <AdsSection
-          title="Google Ads"
-          glyph={<GoogleGlyph />}
-          metrics={google.data}
-          loading={google.isLoading}
-          failed={!!google.error}
-        />
-
-        <RevenueOverTime
-          data={woo.data?.revenueSeries ?? []}
-          loading={woo.isLoading}
-          unavailable={woo.error ? 'Revenue data unavailable' : undefined}
-        />
-
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <OrdersByStatus
-            data={woo.data?.ordersByStatus ?? []}
+      {view === 'overview' && (
+        <div className="flex flex-col gap-8">
+          <WooCommerceSection
+            metrics={woo.data}
             loading={woo.isLoading}
-            unavailable={woo.error ? 'Order status data unavailable' : undefined}
+            failed={!!woo.error}
           />
-          <RevenueByTrafficSource
-            data={woo.data?.revenueBySource ?? []}
+
+          <AdsSection
+            title="Facebook Meta Ads"
+            glyph={<FacebookGlyph />}
+            metrics={meta.data}
+            loading={meta.isLoading}
+            failed={!!meta.error}
+          />
+
+          <AdsSection
+            title="Google Ads"
+            glyph={<GoogleGlyph />}
+            metrics={google.data}
+            loading={google.isLoading}
+            failed={!!google.error}
+          />
+
+          <RevenueOverTime
+            data={woo.data?.revenueSeries ?? []}
             loading={woo.isLoading}
-            unavailable={woo.error ? 'Traffic source data unavailable' : undefined}
+            unavailable={woo.error ? 'Revenue data unavailable' : undefined}
+          />
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <OrdersByStatus
+              data={woo.data?.ordersByStatus ?? []}
+              loading={woo.isLoading}
+              unavailable={woo.error ? 'Order status data unavailable' : undefined}
+            />
+            <RevenueByTrafficSource
+              data={woo.data?.revenueBySource ?? []}
+              loading={woo.isLoading}
+              unavailable={woo.error ? 'Traffic source data unavailable' : undefined}
+            />
+          </div>
+
+          <RecentOrders
+            page={orders.data ?? null}
+            sort={sort}
+            direction={direction}
+            onSortChange={onSortChange}
+            onPageChange={setPage}
+            loading={orders.isLoading}
+            fetching={orders.isFetching}
+            unavailable={orders.error ? 'Orders unavailable' : undefined}
           />
         </div>
-
-        <RecentOrders
-          page={orders.data ?? null}
-          sort={sort}
-          direction={direction}
-          onSortChange={onSortChange}
-          onPageChange={setPage}
-          loading={orders.isLoading}
-          fetching={orders.isFetching}
-          unavailable={orders.error ? 'Orders unavailable' : undefined}
-        />
-      </div>
+      )}
     </>
   )
 }
