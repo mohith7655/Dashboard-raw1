@@ -116,6 +116,35 @@ export interface WooMetrics {
   orderCount: number
 }
 
+export interface TrafficPoint {
+  /** `yyyy-MM-dd` */
+  date: string
+  visitors: number
+  orders: number
+  /** Ratio in 0..1. Metorik reports a percentage; it is normalised at the edge. */
+  conversionRate: number
+}
+
+/**
+ * Store traffic as the connected analytics provider reports it. Metorik relays
+ * this from GA4 rather than measuring it, so it is only present once that
+ * integration is connected.
+ */
+export interface TrafficMetrics {
+  /** False when no analytics provider is connected — not the same as zero traffic. */
+  available: boolean
+  /** e.g. `google_analytics`. */
+  provider: string
+  /** The provider's own metric name, e.g. `totalUsers`. */
+  providerMetric: string
+  /** The provider's wording for what one visitor means. */
+  visitorDefinition: string
+  visitors: Metric
+  orders: Metric
+  conversionRate: Metric
+  series: TrafficPoint[]
+}
+
 /** One campaign, as its own platform reports it, over the requested period. */
 export interface Campaign {
   /** Unique within a platform only; pair it with the platform name for a key. */

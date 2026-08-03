@@ -37,9 +37,17 @@ const dec2 = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 })
 
+const compactInt = new Intl.NumberFormat('en-US', {
+  notation: 'compact',
+  maximumFractionDigits: 1,
+})
+
 export const formatCurrency = (n: number): string => usd.format(n)
 export const formatAxisCurrency = (n: number): string => usdAxis.format(n)
 export const formatInteger = (n: number): string => int.format(n)
+
+/** `4250` → `4.3K`. Keeps a count axis narrow enough not to crowd the plot. */
+export const formatCompactInteger = (n: number): string => compactInt.format(n)
 export const formatDecimal = (n: number): string => dec2.format(n)
 
 /** `0.774` → `77.4%` */

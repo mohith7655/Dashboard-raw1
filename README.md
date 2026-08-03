@@ -32,6 +32,26 @@ Add these as Netlify Function environment variables, then redeploy:
 
 Use `.env.example` as the local template. Never prefix secrets with `VITE_`.
 
+## Traffic
+
+The Traffic tab shows visitors, conversion rate, revenue per visitor and
+converting orders, plus visitors and conversion rate over time.
+
+This data originates in Google Analytics — Metorik relays it via
+`/reports/visitors-by-date` rather than measuring it, so the tab is only
+populated once the GA4 integration is connected in Metorik. When it is not, the
+API still answers `200` with every figure zero and a `visitor_data_available:
+false` flag; the tab reads that flag and says so rather than showing a 0%
+conversion rate beside a page of live orders.
+
+Visitors are GA4's `totalUsers` — distinct people, not sessions or pageviews.
+Orders here are counted on Metorik's own conversion basis, so they can differ
+slightly from the paid-order total on the Overview.
+
+Per-product views and conversion rates are **not** available: Metorik pulls
+those directly from GA when its own pages load and excludes them from both the
+API and exports.
+
 ## Operating costs
 
 The Profit & Loss tab has an editable **Operating costs** table for costs the

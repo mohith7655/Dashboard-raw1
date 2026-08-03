@@ -9,6 +9,7 @@ import { AdSpendSection } from './components/sections/AdSpendSection'
 import { MarketsSection } from './components/sections/MarketsSection'
 import { ProfitLossSection } from './components/sections/ProfitLossSection'
 import { ShippingSection } from './components/sections/ShippingSection'
+import { TrafficSection } from './components/sections/TrafficSection'
 import { RevenueOverTime } from './components/charts/RevenueOverTime'
 import { OrdersByStatus } from './components/charts/OrdersByStatus'
 import { RevenueByTrafficSource } from './components/charts/RevenueByTrafficSource'
@@ -21,6 +22,7 @@ import {
   useOperatingCosts,
   useOrders,
   useSaveOperatingCosts,
+  useTrafficMetrics,
   useWooMetrics,
 } from './lib/queries'
 import type {
@@ -47,6 +49,7 @@ export default function App() {
   const orders = useOrders(range, { page, perPage: PER_PAGE, sort, direction })
   const costs = useOperatingCosts()
   const saveCosts = useSaveOperatingCosts()
+  const traffic = useTrafficMetrics(range)
 
   const onRangeChange = (next: DateRange) => {
     setRange(next)
@@ -147,6 +150,16 @@ export default function App() {
             woo={woo.data}
             loading={woo.isLoading}
             failed={!!woo.error}
+          />
+        )}
+
+        {view === 'traffic' && (
+          <TrafficSection
+            traffic={traffic.data}
+            woo={woo.data}
+            loading={traffic.isLoading || woo.isLoading}
+            failed={!!traffic.error}
+            wooFailed={!!woo.error}
           />
         )}
 

@@ -8,10 +8,12 @@ import type {
   RevenuePoint,
   SourceRevenue,
   StatusCount,
+  TrafficMetrics,
+  TrafficPoint,
   WooMetrics,
 } from '../../src/lib/types'
 import { ORDER_STATUSES } from '../../src/lib/types'
-import { buildWooMetrics, deriveWoo, metric, round2, type WooTotals } from '../../src/lib/derive'
+import { buildWooMetrics, deltaPct, deriveWoo, metric, round2, type WooTotals } from '../../src/lib/derive'
 import { eachDay, previousRange } from '../../src/lib/dateRange'
 import type { CouponType, CouponsPayload, CustomerSegment, CustomersPayload, ProductsPayload } from '../../src/lib/data/types'
 import {
@@ -65,6 +67,9 @@ export default async function handler(request: Request): Promise<Response> {
     }
     if (resource === 'coupons') {
       return json(await loadCouponsPage(apiKey, range, url))
+    }
+    if (resource === 'traffic') {
+      return json(await loadTraffic(apiKey, range))
     }
     return json(await loadMetrics(apiKey, range, meta))
   } catch (err) {
@@ -835,6 +840,86 @@ async function loadCouponsPage(
     discountTotal: metric(summary.discountTotal, null),
     couponRevenue: metric(summary.couponRevenue, null),
     avgDiscount: metric(summary.couponsUsed > 0 ? summary.discountTotal / summary.couponsUsed : 0, null),
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Traffic — relayed from the store's analytics provider
+ *
+ * Metorik does not measure traffic itself; it mirrors whatever GA4 reports,
+ * which is why `visitor_data_available` matters. A store with no analytics
+ * integration answers 200 with that flag false, and reading its zeros as real
+ * would put a 0% conversion rate on screen next to a page of live orders.
+ * ------------------------------------------------------------------ */
+
+interface VisitorsReport {
+  available: boolean
+  provider: string
+  providerMetric: string
+  definition: string
+  visitors: number
+  orders: number
+  /** Ratio in 0..1; Metorik reports whole percentages here. */
+  conversionRate: number
+  series: TrafficPoint[]
+}
+
+async function visitorsReport(
+  apiKey: string,
+  range: DateRange,
+): Promise<VisitorsReport> {
+  // This report reads plain `start_date`/`end_date`, unlike /orders which only
+  // honours the filters array.
+  const body = await metorik(apiKey, '/reports/visitors-by-date', {
+    start_date: range.start,
+    end_date: range.end,
+    group_by: 'day',
+    conversion_basis: 'orders',
+  })
+
+  const meta = isRecord(body.meta) ? body.meta : {}
+  const totals = isRecord(body.totals) ? body.totals : {}
+
+  return {
+    // Absent flag is treated as available so a schema change degrades to
+    // showing the numbers rather than hiding a working report.
+    available: meta.visitor_data_available !== false,
+    provider: String(meta.visitor_data_provider ?? ''),
+    providerMetric: String(meta.visitor_data_provider_metric ?? ''),
+    definition: String(meta.visitor_definition ?? ''),
+    visitors: Math.max(0, Math.round(num(totals.visitors))),
+    orders: Math.max(0, Math.round(num(totals.orders))),
+    conversionRate: num(totals.conversion_rate) / 100,
+    series: asArray(body.data)
+      .filter(isRecord)
+      .map((row) => ({
+        date: String(row.date ?? '').slice(0, 10),
+        visitors: Math.max(0, Math.round(num(row.visitors))),
+        orders: Math.max(0, Math.round(num(row.orders))),
+        conversionRate: num(row.conversion_rate) / 100,
+      }))
+      .filter((point) => point.date.length === 10),
+  }
+}
+
+async function loadTraffic(apiKey: string, range: DateRange): Promise<TrafficMetrics> {
+  const [current, previous] = await Promise.all([
+    visitorsReport(apiKey, range),
+    visitorsReport(apiKey, previousRange(range)),
+  ])
+
+  return {
+    available: current.available,
+    provider: current.provider,
+    providerMetric: current.providerMetric,
+    visitorDefinition: current.definition,
+    visitors: metric(current.visitors, deltaPct(current.visitors, previous.visitors)),
+    orders: metric(current.orders, deltaPct(current.orders, previous.orders)),
+    conversionRate: metric(
+      current.conversionRate,
+      deltaPct(current.conversionRate, previous.conversionRate),
+    ),
+    series: current.series,
   }
 }
 

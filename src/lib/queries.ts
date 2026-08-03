@@ -12,6 +12,7 @@ import type {
   OrdersPage,
   OrdersQuery,
   SourceError,
+  TrafficMetrics,
   WooMetrics,
 } from './types'
 import { SourceFailure } from './adapters/client'
@@ -30,6 +31,7 @@ export const queryKeys = {
     ['orders', range.start, range.end, q.page, q.perPage, q.sort, q.direction] as const,
   meta: (range: DateRange) => ['meta', range.start, range.end] as const,
   googleAds: (range: DateRange) => ['googleAds', range.start, range.end] as const,
+  traffic: (range: DateRange) => ['traffic', range.start, range.end] as const,
   // Not range-scoped: the stored list is the same whatever period is on screen.
   costs: () => ['costs'] as const,
 }
@@ -94,6 +96,15 @@ export function useGoogleAdsMetrics(range: DateRange): SourceQuery<AdsMetrics> {
     useQuery({
       queryKey: queryKeys.googleAds(range),
       queryFn: () => unwrap(googleAds.fetchMetrics(range)),
+    }),
+  )
+}
+
+export function useTrafficMetrics(range: DateRange): SourceQuery<TrafficMetrics> {
+  return toSourceQuery(
+    useQuery({
+      queryKey: queryKeys.traffic(range),
+      queryFn: () => unwrap(metorik.fetchTraffic(range)),
     }),
   )
 }

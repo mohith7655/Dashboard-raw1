@@ -84,7 +84,13 @@ export const NAV_GROUPS: NavGroup[] = [
 
 /* --------------------------- Dashboard views --------------------------- */
 
-export type DashboardView = 'overview' | 'profit' | 'shipping' | 'markets' | 'ads'
+export type DashboardView =
+  | 'overview'
+  | 'profit'
+  | 'shipping'
+  | 'markets'
+  | 'ads'
+  | 'traffic'
 
 export interface DashboardTab {
   id: DashboardView
@@ -95,8 +101,8 @@ export interface DashboardTab {
 }
 
 /**
- * Cuts of the same period, all derived from figures the dashboard already
- * loads — switching tabs costs no extra upstream call.
+ * Cuts of the same period. All but Traffic are derived from figures the
+ * dashboard already loads, so switching to them costs no extra upstream call.
  */
 export const DASHBOARD_TABS: DashboardTab[] = [
   {
@@ -128,6 +134,14 @@ export const DASHBOARD_TABS: DashboardTab[] = [
     label: 'Ad Spend',
     icon: Megaphone,
     blurb: 'Spend across every platform, measured against store revenue.',
+  },
+  {
+    id: 'traffic',
+    label: 'Traffic',
+    icon: Users,
+    // The one tab that does cost an extra call — visitors come from the
+    // analytics provider, not from the orders already loaded.
+    blurb: 'Visitors from Google Analytics, and how many of them bought.',
   },
 ]
 
