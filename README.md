@@ -29,6 +29,8 @@ Add these as Netlify Function environment variables, then redeploy:
 | `GOOGLE_ADS_REFRESH_TOKEN` | Google Ads OAuth |
 | `GOOGLE_ADS_CUSTOMER_ID` | Google Ads |
 | `GOOGLE_ADS_LOGIN_CUSTOMER_ID` | Google Ads — optional, only for manager (MCC) accounts |
+| `OPENAI_API_KEY` | Insights |
+| `OPENAI_MODEL` | Insights — optional, defaults to `gpt-5.4` |
 
 Use `.env.example` as the local template. Never prefix secrets with `VITE_`.
 
@@ -68,8 +70,6 @@ token carries `adwords` only and the Data API rejects it.
 | `GA4_REFRESH_TOKEN` | Must carry `analytics.readonly`. Falls back to `GOOGLE_ADS_REFRESH_TOKEN`, which works only if that token was consented for both scopes |
 | `GA4_CLIENT_ID` / `GA4_CLIENT_SECRET` | Optional; fall back to the `GOOGLE_ADS_*` pair |
 
-GA4 has renamed API fields more than once — conversions became key events,
-landing page gained a query-string variant — and not every property offers every
 #### Minting the refresh token
 
 The Google Ads OAuth flow consents `adwords` and nothing else, so pasting the
@@ -99,9 +99,47 @@ Two prerequisites on the Google side:
 The Google account you consent with also needs at least Viewer on the GA4
 property; API access does not inherit from the Ads link.
 
+GA4 has renamed API fields more than once — conversions became key events,
+landing page gained a query-string variant — and not every property offers every
 metric. Rather than hardcode one spelling, the function resolves each field
 against the property's own `metadata` endpoint from a preference list, and
 reports anything unmatched to the UI instead of failing the whole report.
+
+## Insights
+
+The **Insights** tab reads the period's figures and writes up what changed and
+what to do about it, via OpenAI's Chat Completions API in
+`netlify/functions/insights.ts`.
+
+It runs on click, never on render. Each analysis is a paid API call, and a
+report that silently regenerated whenever the range changed would be both
+expensive and impossible to compare against. The button stays disabled until
+every connector has settled, so the model never describes a half-loaded period.
+
+The browser posts the aggregates it is **already displaying** rather than
+having the function re-fetch each connector. Two consequences worth knowing:
+
+- The commentary describes exactly what is on screen, and a broken connector
+  degrades it instead of failing it — the snapshot records that source as
+  unavailable with its error, so absence is never read as zero.
+- **Only aggregates leave the browser.** Totals, breakdowns and campaign names —
+  no orders, customers, emails or addresses. See `buildSnapshot` in
+  `src/lib/insightsSnapshot.ts`; that boundary is the reason it exists.
+
+Output is constrained to a JSON schema — a headline, a summary, findings with
+the evidence behind them, and ranked actions each carrying impact, effort and
+the metric that says whether it worked. Nothing enforces that shape on the
+model's side, so every field is coerced before it reaches the UI: unknown
+severities fall back rather than rendering as a blank badge.
+
+`OPENAI_MODEL` overrides the default of `gpt-5.4`. A run measures around 1.9k
+prompt and 1.7k completion tokens and takes roughly 20 seconds, which is why the
+button shows a spinner rather than blocking the tab. Reasoning models can spend
+their whole token budget thinking and return empty content; the function reports
+that as `finish_reason: length` rather than as a blank report.
+
+> **Note:** the model is quoting figures it was handed, not recomputing them.
+> Treat the findings as a reading of the dashboard, not an audit of it.
 
 ## Operating costs
 

@@ -331,3 +331,38 @@ export interface AdapterResult<T> {
   data: T | null
   error: SourceError | null
 }
+/* ------------------------------- Insights ------------------------------- */
+
+export type InsightSeverity = 'critical' | 'warning' | 'good'
+export type InsightLevel = 'high' | 'medium' | 'low'
+
+/** Something the model noticed in the period's figures. */
+export interface InsightFinding {
+  title: string
+  detail: string
+  severity: InsightSeverity
+  /** The figures behind the claim, so it can be checked against the tabs. */
+  evidence: string
+}
+
+/** Something to do about it. */
+export interface InsightAction {
+  title: string
+  detail: string
+  impact: InsightLevel
+  effort: InsightLevel
+  /** The one number that says whether it worked. */
+  metric: string
+}
+
+export interface InsightsReport {
+  headline: string
+  summary: string
+  findings: InsightFinding[]
+  actions: InsightAction[]
+  /** Which OpenAI model wrote this, since it is configurable. */
+  model: string
+  /** ISO timestamp, so a report kept on screen is visibly of its moment. */
+  generatedAt: string
+}
+

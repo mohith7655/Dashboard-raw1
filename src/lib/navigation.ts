@@ -16,6 +16,7 @@ import {
   Send,
   Settings,
   ShoppingCart,
+  Sparkles,
   Store,
   Table2,
   Tag,
@@ -91,6 +92,7 @@ export type DashboardView =
   | 'markets'
   | 'ads'
   | 'traffic'
+  | 'insights'
 
 export interface DashboardTab {
   id: DashboardView
@@ -142,6 +144,12 @@ export const DASHBOARD_TABS: DashboardTab[] = [
     // The one tab that does cost an extra call — visitors come from the
     // analytics provider, not from the orders already loaded.
     blurb: 'Visitors from Google Analytics, and how many of them bought.',
+  },
+  {
+    id: 'insights',
+    label: 'Insights',
+    icon: Sparkles,
+    blurb: 'What the period’s figures add up to, and what to do about it — written by OpenAI on request.',
   },
 ]
 

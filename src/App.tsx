@@ -10,14 +10,18 @@ import { MarketsSection } from './components/sections/MarketsSection'
 import { ProfitLossSection } from './components/sections/ProfitLossSection'
 import { ShippingSection } from './components/sections/ShippingSection'
 import { TrafficSection } from './components/sections/TrafficSection'
+import { InsightsSection } from './components/sections/InsightsSection'
 import { RevenueOverTime } from './components/charts/RevenueOverTime'
 import { OrdersByStatus } from './components/charts/OrdersByStatus'
 import { RevenueByTrafficSource } from './components/charts/RevenueByTrafficSource'
 import { RecentOrders } from './components/RecentOrders'
-import { rangeFromPreset } from './lib/dateRange'
+import { formatRangeLabel, rangeFromPreset } from './lib/dateRange'
+import { buildSnapshot } from './lib/insightsSnapshot'
+import { costLines } from './lib/operatingCosts'
 import type { DashboardView } from './lib/navigation'
 import {
   useGoogleAdsMetrics,
+  useInsights,
   useMetaMetrics,
   useOperatingCosts,
   useOrders,
@@ -54,6 +58,31 @@ export default function App() {
   const saveCosts = useSaveOperatingCosts()
   const traffic = useTrafficMetrics(range)
   const ga4 = useGa4Report(range, ga4Dimension)
+  const insights = useInsights()
+
+  // Every connector has answered one way or the other. Analysing before this
+  // would describe a half-loaded period and read the gaps as zeroes.
+  const connectorsSettled =
+    !woo.isLoading &&
+    !meta.isLoading &&
+    !google.isLoading &&
+    !traffic.isLoading &&
+    !ga4.isLoading &&
+    !costs.isLoading
+
+  const runAnalysis = () => {
+    insights.analyse(
+      buildSnapshot({
+        range,
+        woo,
+        meta,
+        google,
+        traffic,
+        ga4,
+        costLines: costLines(costs.data ?? [], range),
+      }),
+    )
+  }
 
   const onRangeChange = (next: DateRange) => {
     setRange(next)
@@ -170,6 +199,17 @@ export default function App() {
             ga4Loading={ga4.isLoading}
             ga4Fetching={ga4.isFetching}
             ga4Error={ga4.error?.message ?? null}
+          />
+        )}
+
+        {view === 'insights' && (
+          <InsightsSection
+            report={insights.report}
+            onAnalyse={runAnalysis}
+            running={insights.running}
+            error={insights.error}
+            ready={connectorsSettled}
+            rangeLabel={formatRangeLabel(range)}
           />
         )}
 

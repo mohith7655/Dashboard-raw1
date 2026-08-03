@@ -25,7 +25,23 @@ export async function callFunction<T>(
   extra: Record<string, string> = {},
 ): Promise<T> {
   const params = new URLSearchParams({ start: range.start, end: range.end, ...extra })
-  const res = await fetch(`/.netlify/functions/${name}?${params.toString()}`)
+  return readJson<T>(await fetch(`/.netlify/functions/${name}?${params.toString()}`))
+}
+
+/**
+ * Same contract as `callFunction`, for the one endpoint that sends a body up
+ * rather than reading a range off the query string.
+ */
+export async function postFunction<T>(name: string, body: unknown): Promise<T> {
+  const res = await fetch(`/.netlify/functions/${name}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return readJson<T>(res)
+}
+
+async function readJson<T>(res: Response): Promise<T> {
   const contentType = res.headers.get('content-type') ?? ''
   const bodyText = await res.text()
 

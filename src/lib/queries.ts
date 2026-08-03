@@ -10,6 +10,7 @@ import type {
   DateRange,
   Ga4Dimension,
   Ga4Report,
+  InsightsReport,
   OperatingCost,
   OrdersPage,
   OrdersQuery,
@@ -23,6 +24,7 @@ import * as meta from './adapters/meta'
 import * as googleAds from './adapters/googleAds'
 import * as costs from './adapters/costs'
 import * as ga4 from './adapters/ga4'
+import * as insights from './adapters/insights'
 
 /**
  * Each section subscribes to its own query, so one failing connector never
@@ -136,6 +138,30 @@ export function useOperatingCosts(): SourceQuery<OperatingCost[]> {
       queryFn: () => unwrap(costs.fetchCosts()),
     }),
   )
+}
+
+export interface Insights {
+  report: InsightsReport | undefined
+  analyse: (snapshot: Record<string, unknown>) => void
+  running: boolean
+  error: SourceError | null
+}
+
+/**
+ * A mutation rather than a query: an OpenAI call costs money on every run, so
+ * it fires when the operator asks for it and never on render or refocus.
+ */
+export function useInsights(): Insights {
+  const mutation = useMutation({
+    mutationFn: (snapshot: Record<string, unknown>) => unwrap(insights.analyse(snapshot)),
+  })
+
+  return {
+    report: mutation.data,
+    analyse: (snapshot) => mutation.mutate(snapshot),
+    running: mutation.isPending,
+    error: mutation.error instanceof SourceFailure ? mutation.error.sourceError : null,
+  }
 }
 
 export interface SaveCosts {
