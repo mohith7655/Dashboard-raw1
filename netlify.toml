@@ -3,6 +3,15 @@
   publish = "dist"
   functions = "netlify/functions"
 
+# Without this, framework detection picks the build command, waits for a dev
+# server on 5173 that a finished build never starts, and shuts itself down —
+# so local edits never reach a browser.
+[dev]
+  command = "npm run dev:vite"
+  targetPort = 5173
+  framework = "#custom"
+  autoLaunch = false
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
