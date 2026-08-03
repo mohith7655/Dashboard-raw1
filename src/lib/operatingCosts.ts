@@ -77,20 +77,162 @@ function yearlyShare(range: DateRange): number {
   return share
 }
 
+/**
+ * The part of `range` a cost was actually live for. A subscription taken out
+ * mid-period should charge from the day it started, not for the whole month.
+ * Null when the two do not overlap at all.
+ */
+function activeWindow(cost: OperatingCost, range: DateRange): DateRange | null {
+  const start =
+    cost.startDate && cost.startDate > range.start ? cost.startDate : range.start
+  const end = cost.endDate && cost.endDate < range.end ? cost.endDate : range.end
+  if (start > end) return null
+  return { start, end, preset: 'custom' }
+}
+
+/* --------------------------- Dated recurrence --------------------------- */
+
+/**
+ * Whole charges landing inside the range, counted from an anchor date.
+ *
+ * Unlike proration this is discrete: half a month contains the payday or it
+ * does not, and a salary paid on the 1st does not half-charge a range that
+ * starts on the 15th.
+ */
+
+/** Every seventh day from the anchor, forwards and backwards. */
+function weeklyCount(range: DateRange, anchor: string): number {
+  const from = parseIsoDate(anchor).getTime()
+  const start = parseIsoDate(range.start).getTime()
+  const end = parseIsoDate(range.end).getTime()
+
+  // Whole days first: dividing milliseconds by a week before rounding would put
+  // an exact boundary on the wrong side of ceil.
+  const firstWeek = Math.ceil(Math.round((start - from) / DAY_MS) / 7)
+  const lastWeek = Math.floor(Math.round((end - from) / DAY_MS) / 7)
+  return Math.max(0, lastWeek - firstWeek + 1)
+}
+
+/** The anchor's day of the month, in every month the range touches. */
+function monthlyCount(range: DateRange, anchor: string): number {
+  const day = parseIsoDate(anchor).getUTCDate()
+  const from = parseIsoDate(range.start)
+  const to = parseIsoDate(range.end)
+  const start = from.getTime()
+  const end = to.getTime()
+
+  let count = 0
+  let year = from.getUTCFullYear()
+  let month = from.getUTCMonth()
+
+  while (
+    year < to.getUTCFullYear() ||
+    (year === to.getUTCFullYear() && month <= to.getUTCMonth())
+  ) {
+    // The 31st lands on the 30th, or on the 28th of February, rather than
+    // skipping those months entirely.
+    const charged = Date.UTC(year, month, Math.min(day, daysInMonth(year, month)))
+    if (charged >= start && charged <= end) count += 1
+
+    month += 1
+    if (month > 11) {
+      month = 0
+      year += 1
+    }
+  }
+
+  return count
+}
+
+/** The anchor's month and day, in every year the range touches. */
+function yearlyCount(range: DateRange, anchor: string): number {
+  const at = parseIsoDate(anchor)
+  const month = at.getUTCMonth()
+  const day = at.getUTCDate()
+  const from = parseIsoDate(range.start)
+  const to = parseIsoDate(range.end)
+
+  let count = 0
+  for (let year = from.getUTCFullYear(); year <= to.getUTCFullYear(); year++) {
+    // A 29 February anchor falls back to the 28th in common years.
+    const charged = Date.UTC(year, month, Math.min(day, daysInMonth(year, month)))
+    if (charged >= from.getTime() && charged <= to.getTime()) count += 1
+  }
+  return count
+}
+
 /** How many times over `cost` applies to `range`. */
 function occurrences(cost: OperatingCost, range: DateRange): number {
+  const active = activeWindow(cost, range)
+  if (!active) return 0
+
+  // A one-off counts in full on its date and not at all outside it.
+  if (cost.cadence === 'once') {
+    return cost.date && cost.date >= active.start && cost.date <= active.end ? 1 : 0
+  }
+
+  // No anchor means the amount is spread evenly across the period, which is the
+  // older behaviour and still the default.
+  if (!cost.date) {
+    switch (cost.cadence) {
+      case 'weekly':
+        return daysInRange(active) / 7
+      case 'monthly':
+        return monthlyShare(active)
+      case 'yearly':
+        return yearlyShare(active)
+    }
+  }
+
   switch (cost.cadence) {
     case 'weekly':
-      return daysInRange(range) / 7
+      return weeklyCount(active, cost.date)
     case 'monthly':
-      return monthlyShare(range)
+      return monthlyCount(active, cost.date)
     case 'yearly':
-      return yearlyShare(range)
-    case 'once':
-      // A one-off counts in full on its date and not at all outside it.
-      return cost.date && cost.date >= range.start && cost.date <= range.end ? 1 : 0
+      return yearlyCount(active, cost.date)
   }
 }
+
+/* ------------------------------ Descriptions ---------------------------- */
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** `1` → `1st`, `22` → `22nd`. */
+function ordinal(n: number): string {
+  if (n % 100 >= 11 && n % 100 <= 13) return `${n}th`
+  return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`
+}
+
+/**
+ * How a row's anchor reads in words — `every Monday`, `the 1st`, `6 Apr`. The
+ * date input alone shows one calendar day, which is not what a recurring cost
+ * means, so the derived phrase sits beside it.
+ */
+export function chargeLabel(cost: OperatingCost): string {
+  if (cost.cadence === 'once') return ''
+  if (!cost.date) return 'prorated'
+
+  const at = parseIsoDate(cost.date)
+  switch (cost.cadence) {
+    case 'weekly':
+      return `every ${WEEKDAYS[at.getUTCDay()]}`
+    case 'monthly': {
+      const day = at.getUTCDate()
+      // Only 29–31 can miss a month, and only those need the caveat.
+      return day > 28 ? `the ${ordinal(day)} or month end` : `the ${ordinal(day)}`
+    }
+    case 'yearly':
+      return `${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]}`
+  }
+  return ''
+}
+
+/** True when the window can never match, so the UI can say so rather than just showing zero. */
+export const hasImpossibleWindow = (cost: OperatingCost): boolean =>
+  !!cost.startDate && !!cost.endDate && cost.startDate > cost.endDate
 
 /** Resolves each cost against the range, largest first. Zero lines are kept
  *  so a one-off outside the range is visibly zero rather than silently gone. */

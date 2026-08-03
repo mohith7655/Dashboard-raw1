@@ -306,8 +306,23 @@ export interface OperatingCost {
   /** The charge for one occurrence of `cadence`, in store currency. */
   amount: number
   cadence: CostCadence
-  /** `yyyy-MM-dd`. Required for `once`; the date the charge landed. */
+  /**
+   * `yyyy-MM-dd`. The date the charge lands.
+   *
+   * Required for `once`. For the recurring cadences it is the anchor the charge
+   * repeats from — weekly every seven days after it, monthly on its day of the
+   * month, yearly on its month and day — which makes each charge discrete: a
+   * range either contains one or it does not. Blank prorates across the period
+   * instead, spreading the amount evenly, which is the default.
+   */
   date?: string
+  /**
+   * `yyyy-MM-dd`. A recurring cost does not apply before this date — when a
+   * salary started, when a subscription was taken out. Blank means it always has.
+   */
+  startDate?: string
+  /** `yyyy-MM-dd`. Nor after it — when it was cancelled. Blank means it still runs. */
+  endDate?: string
 }
 
 /** One cost resolved against a date range. */
@@ -316,21 +331,6 @@ export interface CostLine extends OperatingCost {
   applied: number
 }
 
-/** Every upstream error is normalised into this shape before it reaches the UI. */
-export interface SourceError {
-  /** Human label for the failing connector, e.g. "Facebook Ads". */
-  source: string
-  /** The raw upstream message, preserved verbatim. */
-  message: string
-  /** Optional trailing hint rendered on the banner's second line. */
-  hint?: string
-}
-
-/** Adapters never throw — they resolve to one side of this union populated. */
-export interface AdapterResult<T> {
-  data: T | null
-  error: SourceError | null
-}
 /* ------------------------------- Insights ------------------------------- */
 
 export type InsightSeverity = 'critical' | 'warning' | 'good'
@@ -366,3 +366,18 @@ export interface InsightsReport {
   generatedAt: string
 }
 
+/** Every upstream error is normalised into this shape before it reaches the UI. */
+export interface SourceError {
+  /** Human label for the failing connector, e.g. "Facebook Ads". */
+  source: string
+  /** The raw upstream message, preserved verbatim. */
+  message: string
+  /** Optional trailing hint rendered on the banner's second line. */
+  hint?: string
+}
+
+/** Adapters never throw — they resolve to one side of this union populated. */
+export interface AdapterResult<T> {
+  data: T | null
+  error: SourceError | null
+}

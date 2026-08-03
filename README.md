@@ -154,6 +154,52 @@ reads as exactly one month's charge over any full calendar month — February as
 much as August — and a part-month range gets the matching fraction. One-off
 costs count in full on their date and not at all outside it.
 
+### Active dates
+
+Recurring rows carry an optional **from** and **until**. A cost only applies
+inside that window, so a subscription taken out on the 16th charges for sixteen
+days of an August range rather than the whole month, and a cancelled one stops
+counting on the day it ended. Either side can be left blank for open-ended, which
+is what every existing row does.
+
+An end before its start can never match. Rather than showing an ordinary $0.00 —
+indistinguishable from a cost that simply did not run — the card names those rows
+and says they never apply.
+
+### Charge date
+
+Every cadence takes an optional **charged** date, which switches that cost from
+prorated to discrete: the range either contains a charge or it does not. A salary
+paid on the 1st charges in full over `Aug 1 – Aug 15` and nothing at all over
+`Aug 2 – Aug 31`, where the prorated reading would have said roughly half in both
+cases.
+
+The date is read as a point on the recurring schedule, not as a start date:
+
+| Cadence | What the date contributes | Example |
+| --- | --- | --- |
+| Weekly | Its weekday | `2026-08-03` → every Monday |
+| Monthly | Its day of the month | `2026-08-01` → the 1st |
+| Yearly | Its month and day | `2026-04-06` → 6 April |
+| One-off | The whole date; required | `2026-08-10` → that day only |
+
+So **any** date on the schedule will do, past or future — a Monday anchor dated
+next December still means every Monday, including ones already gone. Bounding
+when a cost actually ran is what the active dates above are for, and the two
+compose: an anchor on the 15th with an end date of 20 August charges once across
+an August–September range, not twice.
+
+The card shows the derived phrase — `every Monday`, `the 1st`, `6 Apr`,
+`prorated` — beside each date, because a single calendar day is a misleading way
+to display a repeating charge.
+
+Days that not every month has fall back to month end rather than being skipped,
+so the 31st still counts once in February and once in September, and a 29
+February yearly anchor charges on the 28th in common years.
+
+Leave the date blank for costs that accrue continuously — rent thought of as a
+monthly rate — which stays the default and the older behaviour.
+
 The list is stored in [Netlify Blobs](https://docs.netlify.com/blobs/overview/)
 via `netlify/functions/costs.ts`, so it is shared across every browser and
 device rather than living in one machine's local storage. No environment

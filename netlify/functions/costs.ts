@@ -67,16 +67,37 @@ function readCosts(raw: unknown): OperatingCost[] {
       cadence,
     }
 
+    const date = readIsoDate(row.date)
+
     if (cadence === 'once') {
-      const date = typeof row.date === 'string' ? row.date.slice(0, 10) : ''
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
+      // A one-off with no date has nowhere to land, so the row is dropped
+      // rather than stored as a charge that can never count.
+      if (!date) continue
       cost.date = date
+    } else {
+      // Optional here: it anchors the recurrence, and its absence means prorate
+      // rather than being a missing field.
+      if (date) cost.date = date
+
+      // The window applies to recurring costs only — a one-off already carries
+      // its own date, and a second pair of bounds around it would just be a way
+      // to contradict it.
+      const startDate = readIsoDate(row.startDate)
+      const endDate = readIsoDate(row.endDate)
+      if (startDate) cost.startDate = startDate
+      if (endDate) cost.endDate = endDate
     }
 
     costs.push(cost)
   }
 
   return costs
+}
+
+/** `yyyy-MM-dd` or nothing; anything else is dropped rather than half-stored. */
+function readIsoDate(raw: unknown): string | undefined {
+  const date = typeof raw === 'string' ? raw.slice(0, 10) : ''
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined
 }
 
 function readCadence(raw: unknown): CostCadence {

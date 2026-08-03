@@ -8,7 +8,9 @@ import type {
 } from '../../lib/types'
 import { COST_CADENCES, COST_CATEGORIES } from '../../lib/types'
 import {
+  chargeLabel,
   costLines,
+  hasImpossibleWindow,
   newCostId,
   totalOperatingCost,
 } from '../../lib/operatingCosts'
@@ -89,15 +91,23 @@ export function OperatingCostsCard({
   // A nameless row is the blank one just added; saving it would store a ghost.
   const saveable = draft.filter((row) => row.name.trim().length > 0)
 
+  // An end before its start can never match, and would otherwise read as an
+  // ordinary $0.00 row — indistinguishable from a cost that simply did not run.
+  const inverted = draft.filter(hasImpossibleWindow)
+
   return (
     <div className="card p-0">
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-4 pt-5">
         <div className="min-w-0">
           <h3 className="text-[15px] font-semibold text-ink">Operating costs</h3>
-          <p className="mt-0.5 text-[12px] text-muted">
-            Costs the store never sees — payroll, software, rent. Recurring costs
-            are prorated onto the selected range, so a full calendar month shows
-            exactly one month&apos;s charge.
+          <p className="mt-0.5 max-w-prose text-[12px] text-muted">
+            Costs the store never sees — payroll, software, rent. A{' '}
+            <span className="text-ink">Charged</span> date sets which day a
+            recurring cost lands on — any date on its schedule will do — and it
+            then charges in full whenever the range contains one. Leave it blank
+            to prorate evenly instead. Use{' '}
+            <span className="text-ink">Active</span> dates to bound when the cost
+            ran at all; either side can be blank for open-ended.
           </p>
         </div>
         <button
@@ -123,12 +133,14 @@ export function OperatingCostsCard({
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] border-collapse text-[13px]">
+          <table className="w-full min-w-[1240px] border-collapse text-[13px]">
             <thead>
               <tr className="border-b border-line text-left">
                 <Th className="pl-5">Cost</Th>
                 <Th>Category</Th>
                 <Th>Cadence</Th>
+                <Th>Charged</Th>
+                <Th>Active from — until</Th>
                 <Th align="right">Amount</Th>
                 <Th align="right">In this range</Th>
                 <Th className="w-10 pr-5" />
@@ -163,39 +175,90 @@ export function OperatingCostsCard({
                     </select>
                   </td>
                   <td className="h-12 px-3 align-middle">
+                    <select
+                      aria-label="Cadence"
+                      value={line.cadence}
+                      onChange={(e) => {
+                        const cadence = e.target.value as CostCadence
+                        update(line.id, {
+                          cadence,
+                          // A one-off must have a date; default it to the range
+                          // end so the row counts immediately rather than
+                          // reading zero. Recurring rows keep whatever anchor
+                          // they had, since it means the same thing there.
+                          date:
+                            cadence === 'once' ? (line.date ?? range.end) : line.date,
+                          // The window has no meaning against a single dated
+                          // charge, so it is dropped rather than left dormant.
+                          startDate: cadence === 'once' ? undefined : line.startDate,
+                          endDate: cadence === 'once' ? undefined : line.endDate,
+                        })
+                      }}
+                      className={`${INPUT} w-28`}
+                    >
+                      {COST_CADENCES.map((c) => (
+                        <option key={c} value={c}>
+                          {CADENCE_LABELS[c]}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+
+                  <td className="h-12 px-3 align-middle">
                     <div className="flex items-center gap-2">
-                      <select
-                        aria-label="Cadence"
-                        value={line.cadence}
+                      <input
+                        type="date"
+                        aria-label={`Charge date, ${line.name || 'cost'}`}
+                        title={
+                          line.cadence === 'once'
+                            ? 'The day this charge landed'
+                            : 'Any date on the recurring schedule — it sets which day the charge lands, not when it began. Use Active from for that. Blank spreads the amount evenly instead.'
+                        }
+                        value={line.date ?? ''}
                         onChange={(e) =>
                           update(line.id, {
-                            cadence: e.target.value as CostCadence,
-                            // A one-off needs a date; default it to the range end
-                            // so the row counts immediately instead of reading zero.
+                            // Only a one-off cannot do without one.
                             date:
-                              e.target.value === 'once'
-                                ? (line.date ?? range.end)
-                                : undefined,
+                              e.target.value ||
+                              (line.cadence === 'once' ? '' : undefined),
                           })
                         }
-                        className={INPUT}
-                      >
-                        {COST_CADENCES.map((c) => (
-                          <option key={c} value={c}>
-                            {CADENCE_LABELS[c]}
-                          </option>
-                        ))}
-                      </select>
-                      {line.cadence === 'once' && (
-                        <input
-                          type="date"
-                          aria-label="Charge date"
-                          value={line.date ?? ''}
-                          onChange={(e) => update(line.id, { date: e.target.value })}
-                          className={INPUT}
-                        />
+                        className={`${INPUT} w-[140px]`}
+                      />
+                      {line.cadence !== 'once' && (
+                        <span className="whitespace-nowrap text-[12px] text-muted">
+                          {chargeLabel(line)}
+                        </span>
                       )}
                     </div>
+                  </td>
+
+                  <td className="h-12 px-3 align-middle">
+                    {line.cadence === 'once' ? (
+                      <span className="text-muted">—</span>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="date"
+                          aria-label={`Active from, ${line.name || 'cost'}`}
+                          value={line.startDate ?? ''}
+                          onChange={(e) =>
+                            update(line.id, { startDate: e.target.value || undefined })
+                          }
+                          className={`${INPUT} w-[140px]`}
+                        />
+                        <span className="text-muted">–</span>
+                        <input
+                          type="date"
+                          aria-label={`Active until, ${line.name || 'cost'}`}
+                          value={line.endDate ?? ''}
+                          onChange={(e) =>
+                            update(line.id, { endDate: e.target.value || undefined })
+                          }
+                          className={`${INPUT} w-[140px]`}
+                        />
+                      </div>
+                    )}
                   </td>
                   <td className="h-12 px-3 align-middle">
                     <input
@@ -229,7 +292,7 @@ export function OperatingCostsCard({
 
               {draft.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-5 py-10 text-center text-muted">
+                  <td colSpan={8} className="px-5 py-10 text-center text-muted">
                     No operating costs yet. Add salaries, subscriptions or rent to
                     see them in the statement above.
                   </td>
@@ -238,6 +301,15 @@ export function OperatingCostsCard({
             </tbody>
           </table>
         </div>
+      )}
+
+      {inverted.length > 0 && (
+        <p className="mx-5 mb-3 text-[12px] text-neg">
+          {inverted.map((row) => row.name || 'A cost').join(', ')}{' '}
+          {inverted.length === 1 ? 'ends' : 'end'} before{' '}
+          {inverted.length === 1 ? 'it starts' : 'they start'}, so{' '}
+          {inverted.length === 1 ? 'it never applies' : 'they never apply'}.
+        </p>
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-3.5 text-[12px]">
