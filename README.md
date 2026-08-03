@@ -32,6 +32,28 @@ Add these as Netlify Function environment variables, then redeploy:
 
 Use `.env.example` as the local template. Never prefix secrets with `VITE_`.
 
+## Operating costs
+
+The Profit & Loss tab has an editable **Operating costs** table for costs the
+store itself never sees — payroll, software subscriptions, rent, contractors.
+Each row carries an amount and a cadence (weekly, monthly, yearly, or a dated
+one-off), and is prorated onto whichever range is selected before it reaches the
+statement.
+
+Proration follows the calendar rather than an average month, so a monthly salary
+reads as exactly one month's charge over any full calendar month — February as
+much as August — and a part-month range gets the matching fraction. One-off
+costs count in full on their date and not at all outside it.
+
+The list is stored in [Netlify Blobs](https://docs.netlify.com/blobs/overview/)
+via `netlify/functions/costs.ts`, so it is shared across every browser and
+device rather than living in one machine's local storage. No environment
+variable is needed; Blobs is configured automatically for the site.
+
+> **Note:** the dashboard has no authentication, so anyone who can reach the
+> site URL can read and edit this list. Put the site behind Netlify's password
+> protection or Identity before entering real payroll figures.
+
 ## Scripts
 
 | Command | Description |

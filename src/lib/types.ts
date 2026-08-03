@@ -182,6 +182,51 @@ export interface OrdersQuery {
   direction: SortDirection
 }
 
+/**
+ * How often an operating cost recurs. `once` is a single dated charge; the
+ * rest repeat forever and are prorated onto whatever range is on screen.
+ */
+export type CostCadence = 'once' | 'weekly' | 'monthly' | 'yearly'
+
+export const COST_CADENCES: CostCadence[] = [
+  'monthly',
+  'weekly',
+  'yearly',
+  'once',
+]
+
+export const COST_CATEGORIES = [
+  'Salaries',
+  'Software',
+  'Marketing',
+  'Rent',
+  'Contractors',
+  'Other',
+] as const
+
+export type CostCategory = (typeof COST_CATEGORIES)[number]
+
+/**
+ * A cost the store itself never sees — payroll, SaaS, rent. Entered by hand and
+ * stored server-side, then prorated onto the selected range.
+ */
+export interface OperatingCost {
+  id: string
+  name: string
+  category: CostCategory
+  /** The charge for one occurrence of `cadence`, in store currency. */
+  amount: number
+  cadence: CostCadence
+  /** `yyyy-MM-dd`. Required for `once`; the date the charge landed. */
+  date?: string
+}
+
+/** One cost resolved against a date range. */
+export interface CostLine extends OperatingCost {
+  /** The share of `amount` that falls inside the range. */
+  applied: number
+}
+
 /** Every upstream error is normalised into this shape before it reaches the UI. */
 export interface SourceError {
   /** Human label for the failing connector, e.g. "Facebook Ads". */

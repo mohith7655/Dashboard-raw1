@@ -18,7 +18,9 @@ import type { DashboardView } from './lib/navigation'
 import {
   useGoogleAdsMetrics,
   useMetaMetrics,
+  useOperatingCosts,
   useOrders,
+  useSaveOperatingCosts,
   useWooMetrics,
 } from './lib/queries'
 import type {
@@ -43,6 +45,8 @@ export default function App() {
   const meta = useMetaMetrics(range)
   const google = useGoogleAdsMetrics(range)
   const orders = useOrders(range, { page, perPage: PER_PAGE, sort, direction })
+  const costs = useOperatingCosts()
+  const saveCosts = useSaveOperatingCosts()
 
   const onRangeChange = (next: DateRange) => {
     setRange(next)
@@ -127,6 +131,14 @@ export default function App() {
             reportedAds={reportedAds}
             loading={woo.isLoading || adsLoading}
             failed={!!woo.error}
+            range={range}
+            costs={costs.data}
+            costsLoading={costs.isLoading}
+            // A failed save matters more than a stale load: it is the message
+            // that says the numbers on screen are not the stored ones.
+            costsError={saveCosts.error ?? costs.error?.message ?? null}
+            savingCosts={saveCosts.saving}
+            onSaveCosts={saveCosts.save}
           />
         )}
 

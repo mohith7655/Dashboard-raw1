@@ -35,6 +35,8 @@ export interface WaterfallStep {
 export function profitWaterfall(
   woo: WooMetrics,
   adSpend: number | null,
+  /** Hand-entered operating costs already prorated onto the range. */
+  operatingCost = 0,
 ): WaterfallStep[] {
   const { pnl } = woo
   const steps: WaterfallStep[] = []
@@ -79,11 +81,12 @@ export function profitWaterfall(
   move('Other costs', pnl.otherCost, 'decrease')
   total('Gross profit', pnl.grossProfit)
 
-  // Refunds and ad spend sit below gross profit rather than inside it: the
-  // Gross Profit KPI is revenue less cost of goods, and this bar has to keep
-  // agreeing with it.
+  // Refunds, ad spend and payroll-style overheads sit below gross profit
+  // rather than inside it: the Gross Profit KPI is revenue less cost of goods,
+  // and this bar has to keep agreeing with it.
   let past = move('Refunds', pnl.refunds, 'decrease')
   if (adSpend !== null) past = move('Ad spend', adSpend, 'decrease') || past
+  past = move('Operating costs', operatingCost, 'decrease') || past
   if (past) total('Net profit', running)
 
   return steps

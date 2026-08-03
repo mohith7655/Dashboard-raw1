@@ -1,10 +1,13 @@
-import { Coins, DollarSign, Percent, TrendingUp } from 'lucide-react'
-import type { AdsMetrics, WooMetrics } from '../../lib/types'
+import { useMemo } from 'react'
+import { Coins, DollarSign, Percent, Receipt, TrendingUp } from 'lucide-react'
+import type { AdsMetrics, DateRange, OperatingCost, WooMetrics } from '../../lib/types'
 import { profitWaterfall } from '../../lib/pnl'
+import { costLines, totalOperatingCost } from '../../lib/operatingCosts'
 import { formatCurrency, formatPercent } from '../../lib/format'
 import { KpiCard } from '../KpiCard'
 import { SectionLabel } from '../SectionLabel'
 import { ProfitWaterfall } from '../charts/ProfitWaterfall'
+import { OperatingCostsCard } from './OperatingCostsCard'
 
 interface ProfitLossSectionProps {
   woo: WooMetrics | undefined
@@ -12,6 +15,12 @@ interface ProfitLossSectionProps {
   reportedAds: { name: string; metrics: AdsMetrics }[]
   loading: boolean
   failed: boolean
+  range: DateRange
+  costs: OperatingCost[] | undefined
+  costsLoading: boolean
+  costsError: string | null
+  savingCosts: boolean
+  onSaveCosts: (costs: OperatingCost[]) => void
 }
 
 const GRID = 'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'
@@ -21,15 +30,37 @@ export function ProfitLossSection({
   reportedAds,
   loading,
   failed,
+  range,
+  costs,
+  costsLoading,
+  costsError,
+  savingCosts,
+  onSaveCosts,
 }: ProfitLossSectionProps) {
   const shared = { loading, unavailable: failed }
   const adSpend = reportedAds.length
     ? reportedAds.reduce((sum, p) => sum + p.metrics.spend.value, 0)
     : null
-  const steps = woo ? profitWaterfall(woo, adSpend) : []
+
+  const operatingCost = useMemo(
+    () => totalOperatingCost(costLines(costs ?? [], range)),
+    [costs, range],
+  )
+
+  const steps = woo ? profitWaterfall(woo, adSpend, operatingCost) : []
   const netProfit = steps.length ? steps[steps.length - 1].running : 0
   const netMargin =
     woo && woo.totalRevenue.value > 0 ? netProfit / woo.totalRevenue.value : 0
+
+  // The bottom row restates profit after everything, so it has to say what
+  // "everything" covered — ads only, overheads only, or both.
+  const netLabel =
+    adSpend !== null && operatingCost > 0
+      ? 'after Ads & Costs'
+      : adSpend !== null
+        ? 'after Ads'
+        : 'after Costs'
+  const showNet = adSpend !== null || operatingCost > 0
 
   return (
     <section className="flex flex-col gap-4">
@@ -75,22 +106,39 @@ export function ProfitLossSection({
         unavailable={failed ? 'Profit data unavailable' : undefined}
       />
 
-      {adSpend !== null && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      {showNet && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <KpiCard
-            label="Net Profit after Ads"
+            label="Operating Costs"
+            value={formatCurrency(operatingCost)}
+            polarity="down-good"
+            icon={Receipt}
+            loading={costsLoading}
+            unavailable={!!costsError}
+          />
+          <KpiCard
+            label={`Net Profit ${netLabel}`}
             value={woo ? formatCurrency(netProfit) : '—'}
             icon={TrendingUp}
             {...shared}
           />
           <KpiCard
-            label="Net Margin after Ads"
+            label={`Net Margin ${netLabel}`}
             value={woo ? formatPercent(netMargin) : '—'}
             icon={Percent}
             {...shared}
           />
         </div>
       )}
+
+      <OperatingCostsCard
+        costs={costs}
+        range={range}
+        loading={costsLoading}
+        error={costsError}
+        saving={savingCosts}
+        onSave={onSaveCosts}
+      />
     </section>
   )
 }

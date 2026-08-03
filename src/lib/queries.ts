@@ -1,8 +1,14 @@
-import { useQuery, type UseQueryResult } from '@tanstack/react-query'
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from '@tanstack/react-query'
 import type {
   AdapterResult,
   AdsMetrics,
   DateRange,
+  OperatingCost,
   OrdersPage,
   OrdersQuery,
   SourceError,
@@ -12,6 +18,7 @@ import { SourceFailure } from './adapters/client'
 import * as metorik from './adapters/metorik'
 import * as meta from './adapters/meta'
 import * as googleAds from './adapters/googleAds'
+import * as costs from './adapters/costs'
 
 /**
  * Each section subscribes to its own query, so one failing connector never
@@ -23,6 +30,8 @@ export const queryKeys = {
     ['orders', range.start, range.end, q.page, q.perPage, q.sort, q.direction] as const,
   meta: (range: DateRange) => ['meta', range.start, range.end] as const,
   googleAds: (range: DateRange) => ['googleAds', range.start, range.end] as const,
+  // Not range-scoped: the stored list is the same whatever period is on screen.
+  costs: () => ['costs'] as const,
 }
 
 /** Adapters never throw; rethrow their error so the query layer can retry it. */
@@ -87,4 +96,37 @@ export function useGoogleAdsMetrics(range: DateRange): SourceQuery<AdsMetrics> {
       queryFn: () => unwrap(googleAds.fetchMetrics(range)),
     }),
   )
+}
+
+export function useOperatingCosts(): SourceQuery<OperatingCost[]> {
+  return toSourceQuery(
+    useQuery({
+      queryKey: queryKeys.costs(),
+      queryFn: () => unwrap(costs.fetchCosts()),
+    }),
+  )
+}
+
+export interface SaveCosts {
+  save: (costs: OperatingCost[]) => void
+  saving: boolean
+  error: string | null
+}
+
+/**
+ * Writes the list back and seeds the cache with what the server stored, so the
+ * table shows the saved rows rather than the optimistic ones.
+ */
+export function useSaveOperatingCosts(): SaveCosts {
+  const client = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: costs.saveCosts,
+    onSuccess: (saved) => client.setQueryData(queryKeys.costs(), saved),
+  })
+
+  return {
+    save: (next) => mutation.mutate(next),
+    saving: mutation.isPending,
+    error: mutation.error ? mutation.error.message : null,
+  }
 }

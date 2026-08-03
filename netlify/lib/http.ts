@@ -16,6 +16,17 @@ export function json(body: unknown, status = 200): Response {
 }
 
 /**
+ * For resources the dashboard writes as well as reads — a CDN copy would
+ * survive an edit and show the old list straight after saving.
+ */
+export function jsonNoStore(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+  })
+}
+
+/**
  * Upstream failures are passed through with their original message intact —
  * operators need the real text (error codes, token expiry times) to act on it.
  */
