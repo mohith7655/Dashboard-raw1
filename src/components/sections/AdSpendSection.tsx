@@ -1,12 +1,20 @@
+import { useMemo, useState } from 'react'
 import { Megaphone, Percent, ShoppingCart, TrendingUp } from 'lucide-react'
-import type { AdsMetrics, WooMetrics } from '../../lib/types'
-import { blendedAds } from '../../lib/pnl'
+import type { AdsMetrics, SortDirection, WooMetrics } from '../../lib/types'
 import {
+  blendedAds,
+  campaignRows,
+  type CampaignRow,
+  type CampaignSortField,
+} from '../../lib/pnl'
+import {
+  formatCtr,
   formatCurrency,
   formatInteger,
   formatPercent,
   formatRoas,
 } from '../../lib/format'
+import { DataTable, paginateRows, type Column } from '../DataTable'
 import { KpiCard } from '../KpiCard'
 import { SectionLabel } from '../SectionLabel'
 import { Skeleton } from '../Skeleton'
@@ -20,6 +28,7 @@ interface AdSpendSectionProps {
 }
 
 const GRID = 'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'
+const PER_PAGE = 10
 
 export function AdSpendSection({
   woo,
@@ -29,6 +38,30 @@ export function AdSpendSection({
 }: AdSpendSectionProps) {
   const blended = blendedAds(woo, reportedAds)
   const shared = { loading, unavailable: wooFailed || !blended }
+
+  const [sort, setSort] = useState<CampaignSortField>('spend')
+  const [direction, setDirection] = useState<SortDirection>('desc')
+  const [page, setPage] = useState(1)
+
+  const campaigns = useMemo(
+    () => campaignRows(reportedAds, sort, direction),
+    [reportedAds, sort, direction],
+  )
+
+  // The range can change under a page that no longer exists.
+  const pageCount = Math.max(1, Math.ceil(campaigns.length / PER_PAGE))
+  const safePage = Math.min(page, pageCount)
+
+  const onSortChange = (key: string) => {
+    const field = key as CampaignSortField
+    if (field === sort) {
+      setDirection((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSort(field)
+      setDirection('desc')
+    }
+    setPage(1)
+  }
 
   return (
     <section className="flex flex-col gap-4">
@@ -121,8 +154,130 @@ export function AdSpendSection({
           </div>
         )}
       </div>
+
+      <DataTable
+        title="Campaigns"
+        subtitle="Every campaign that spent or served in this period, ranked across both platforms. Each figure is its own platform's attribution."
+        columns={CAMPAIGN_COLUMNS}
+        rows={paginateRows(campaigns, safePage, PER_PAGE)}
+        rowKey={(row) => `${row.platform}:${row.id}`}
+        total={campaigns.length}
+        page={safePage}
+        perPage={PER_PAGE}
+        onPageChange={setPage}
+        sort={sort}
+        direction={direction}
+        onSortChange={onSortChange}
+        loading={loading}
+        noun="campaigns"
+        unavailable={
+          !loading && reportedAds.length === 0
+            ? 'No ad platform reported for this period.'
+            : undefined
+        }
+      />
     </section>
   )
+}
+
+const CAMPAIGN_COLUMNS: Column<CampaignRow>[] = [
+  {
+    key: 'name',
+    header: 'Campaign',
+    width: 'min-w-[220px]',
+    skeletonWidth: 'w-44',
+    render: (row) => <span className="text-ink">{row.name}</span>,
+  },
+  {
+    key: 'platform',
+    header: 'Platform',
+    skeletonWidth: 'w-20',
+    render: (row) => <span className="text-muted">{row.platform}</span>,
+  },
+  {
+    key: 'status',
+    header: 'Status',
+    skeletonWidth: 'w-14',
+    render: (row) => <CampaignStatus status={row.status} />,
+  },
+  {
+    key: 'spend',
+    header: 'Spend',
+    align: 'right',
+    sortable: true,
+    skeletonWidth: 'w-16',
+    render: (row) => (
+      <span className="tabular-nums text-ink">{formatCurrency(row.spend)}</span>
+    ),
+  },
+  {
+    key: 'impressions',
+    header: 'Impressions',
+    align: 'right',
+    sortable: true,
+    skeletonWidth: 'w-16',
+    render: (row) => (
+      <span className="tabular-nums text-muted">
+        {formatInteger(row.impressions)}
+      </span>
+    ),
+  },
+  {
+    key: 'clicks',
+    header: 'Clicks',
+    align: 'right',
+    sortable: true,
+    skeletonWidth: 'w-12',
+    render: (row) => (
+      <span className="tabular-nums text-muted">{formatInteger(row.clicks)}</span>
+    ),
+  },
+  {
+    key: 'ctr',
+    header: 'CTR',
+    align: 'right',
+    sortable: true,
+    skeletonWidth: 'w-12',
+    render: (row) => (
+      <span className="tabular-nums text-muted">{formatCtr(row.ctr)}</span>
+    ),
+  },
+  {
+    key: 'conversions',
+    header: 'Conversions',
+    align: 'right',
+    sortable: true,
+    skeletonWidth: 'w-12',
+    render: (row) => (
+      <span className="tabular-nums text-muted">
+        {formatInteger(row.conversions)}
+      </span>
+    ),
+  },
+  {
+    key: 'roas',
+    header: 'ROAS',
+    align: 'right',
+    sortable: true,
+    skeletonWidth: 'w-12',
+    render: (row) => (
+      <span className="tabular-nums text-ink">{formatRoas(row.roas)}</span>
+    ),
+  },
+]
+
+/** Colour is a second cue here; the word itself always carries the meaning. */
+function CampaignStatus({ status }: { status: string }) {
+  if (!status) return <span className="text-muted">—</span>
+
+  const tone =
+    status === 'Active'
+      ? 'text-emerald-400'
+      : status === 'Paused'
+        ? 'text-amber-400'
+        : 'text-muted'
+
+  return <span className={tone}>{status}</span>
 }
 
 function Th({

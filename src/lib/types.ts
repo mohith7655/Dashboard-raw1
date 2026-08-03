@@ -116,6 +116,25 @@ export interface WooMetrics {
   orderCount: number
 }
 
+/** One campaign, as its own platform reports it, over the requested period. */
+export interface Campaign {
+  /** Unique within a platform only; pair it with the platform name for a key. */
+  id: string
+  name: string
+  /** Normalised to `Active` / `Paused` / `Ended`, or empty when unreported. */
+  status: string
+  spend: number
+  impressions: number
+  clicks: number
+  /** Ratio in 0..1 */
+  ctr: number
+  conversions: number
+  /** Platform-attributed revenue, which is what its ROAS divides by spend. */
+  conversionValue: number
+  roas: number
+  cpc: number
+}
+
 export interface AdsMetrics {
   spend: Metric
   impressions: Metric
@@ -126,6 +145,8 @@ export interface AdsMetrics {
   cpc: Metric
   cpm: Metric
   conversions: Metric
+  /** Every campaign that spent or served in the period, largest spend first. */
+  campaigns: Campaign[]
 }
 
 export interface Order {

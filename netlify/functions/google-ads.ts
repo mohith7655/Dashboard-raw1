@@ -1,5 +1,12 @@
-import type { AdsMetrics, DateRange } from '../../src/lib/types'
-import { buildAdsMetrics, deriveAds, type AdsTotals } from '../../src/lib/derive'
+import type { AdsMetrics, Campaign, DateRange } from '../../src/lib/types'
+import {
+  buildAdsMetrics,
+  buildCampaign,
+  deriveAds,
+  emptyAdsTotals,
+  rankCampaigns,
+  type AdsTotals,
+} from '../../src/lib/derive'
 import { previousRange } from '../../src/lib/dateRange'
 import {
   asArray,
@@ -28,14 +35,19 @@ export default async function handler(request: Request): Promise<Response> {
     const developerToken = requireEnv('GOOGLE_ADS_DEVELOPER_TOKEN')
     const accessToken = await getAccessToken()
 
-    const [current, previous] = await Promise.all([
-      fetchTotals(customerId, developerToken, accessToken, range),
-      fetchTotals(customerId, developerToken, accessToken, previousRange(range)),
+    const search = (query: string) =>
+      runSearch(customerId, developerToken, accessToken, query)
+
+    const [current, previous, campaigns] = await Promise.all([
+      fetchTotals(search, range),
+      fetchTotals(search, previousRange(range)),
+      fetchCampaigns(search, range),
     ])
 
     const metrics: AdsMetrics = buildAdsMetrics(
       deriveAds(current),
       deriveAds(previous),
+      campaigns,
     )
     return json(metrics)
   } catch (err) {
@@ -67,23 +79,15 @@ async function getAccessToken(): Promise<string> {
   return body.access_token
 }
 
-async function fetchTotals(
+type Search = (query: string) => Promise<unknown[]>
+
+/** Runs one GAQL query and returns its rows, following pagination to the end. */
+async function runSearch(
   customerId: string,
   developerToken: string,
   accessToken: string,
-  range: DateRange,
-): Promise<AdsTotals> {
-  const query = `
-    SELECT
-      metrics.cost_micros,
-      metrics.impressions,
-      metrics.clicks,
-      metrics.conversions,
-      metrics.conversions_value
-    FROM customer
-    WHERE segments.date BETWEEN '${range.start}' AND '${range.end}'
-  `
-
+  query: string,
+): Promise<unknown[]> {
   const headers: Record<string, string> = {
     authorization: `Bearer ${accessToken}`,
     'developer-token': developerToken,
@@ -96,36 +100,114 @@ async function fetchTotals(
   const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID
   if (loginCustomerId) headers['login-customer-id'] = digitsOnly(loginCustomerId)
 
-  const res = await fetch(
-    `https://googleads.googleapis.com/${API_VERSION}/customers/${customerId}/googleAds:search`,
-    { method: 'POST', headers, body: JSON.stringify({ query }) },
-  )
-  const body: unknown = await res.json()
+  const rows: unknown[] = []
+  let pageToken: string | undefined
 
-  if (!res.ok) throw new Error(readAdsError(body, res.status))
+  do {
+    const payload = pageToken ? { query, pageToken } : { query }
+    const res = await fetch(
+      `https://googleads.googleapis.com/${API_VERSION}/customers/${customerId}/googleAds:search`,
+      { method: 'POST', headers, body: JSON.stringify(payload) },
+    )
+    const body: unknown = await res.json()
 
-  const rows = isRecord(body) ? asArray(body.results) : []
-  const totals: AdsTotals = {
-    spend: 0,
-    impressions: 0,
-    clicks: 0,
-    conversions: 0,
-    conversionValue: 0,
-  }
+    if (!res.ok) throw new Error(readAdsError(body, res.status))
 
+    rows.push(...(isRecord(body) ? asArray(body.results) : []))
+    pageToken =
+      isRecord(body) && typeof body.nextPageToken === 'string'
+        ? body.nextPageToken
+        : undefined
+  } while (pageToken)
+
+  return rows
+}
+
+/** Google reports cost in micros. */
+const fromMicros = (v: unknown): number => num(v) / 1_000_000
+
+function addMetrics(totals: AdsTotals, metrics: Record<string, unknown>): void {
+  totals.spend += fromMicros(metrics.costMicros)
+  totals.impressions += num(metrics.impressions)
+  totals.clicks += num(metrics.clicks)
+  totals.conversions += num(metrics.conversions)
+  totals.conversionValue += num(metrics.conversionsValue)
+}
+
+const METRIC_FIELDS = `
+  metrics.cost_micros,
+  metrics.impressions,
+  metrics.clicks,
+  metrics.conversions,
+  metrics.conversions_value
+`
+
+async function fetchTotals(search: Search, range: DateRange): Promise<AdsTotals> {
+  const rows = await search(`
+    SELECT ${METRIC_FIELDS}
+    FROM customer
+    WHERE segments.date BETWEEN '${range.start}' AND '${range.end}'
+  `)
+
+  const totals = emptyAdsTotals()
   for (const row of rows) {
     if (!isRecord(row) || !isRecord(row.metrics)) continue
-    const m = row.metrics
-    // Google reports cost in micros.
-    totals.spend += num(m.costMicros) / 1_000_000
-    totals.impressions += num(m.impressions)
-    totals.clicks += num(m.clicks)
-    totals.conversions += num(m.conversions)
-    totals.conversionValue += num(m.conversionsValue)
+    addMetrics(totals, row.metrics)
   }
 
   totals.spend = Math.round(totals.spend * 100) / 100
   return totals
+}
+
+async function fetchCampaigns(
+  search: Search,
+  range: DateRange,
+): Promise<Campaign[]> {
+  const rows = await search(`
+    SELECT
+      campaign.id,
+      campaign.name,
+      campaign.status,
+      ${METRIC_FIELDS}
+    FROM campaign
+    WHERE segments.date BETWEEN '${range.start}' AND '${range.end}'
+  `)
+
+  // Whether Google returns one row per campaign or one per campaign-day
+  // depends on how it reads the date filter, so fold rows onto the campaign id
+  // rather than trusting one row to be the whole period.
+  const byId = new Map<string, { name: string; status: string; totals: AdsTotals }>()
+
+  for (const row of rows) {
+    if (!isRecord(row) || !isRecord(row.campaign)) continue
+    const { id, name, status } = row.campaign
+    if (id === undefined || id === null) continue
+
+    const key = String(id)
+    let entry = byId.get(key)
+    if (!entry) {
+      entry = {
+        name: typeof name === 'string' ? name : key,
+        status: readStatus(status),
+        totals: emptyAdsTotals(),
+      }
+      byId.set(key, entry)
+    }
+    if (isRecord(row.metrics)) addMetrics(entry.totals, row.metrics)
+  }
+
+  const campaigns = [...byId].map(([id, { name, status, totals }]) =>
+    buildCampaign({ id, name, status }, totals),
+  )
+  return rankCampaigns(campaigns)
+}
+
+/** `ENABLED` / `PAUSED` / `REMOVED` → the wording the table shares with Meta. */
+function readStatus(status: unknown): string {
+  if (status === 'ENABLED') return 'Active'
+  if (status === 'PAUSED') return 'Paused'
+  if (status === 'REMOVED') return 'Ended'
+  return ''
 }
 
 /** Google accepts ids with or without dashes; the URL path needs them stripped. */

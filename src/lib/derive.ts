@@ -1,4 +1,4 @@
-import type { AdsMetrics, Metric, WooMetrics } from './types'
+import type { AdsMetrics, Campaign, Metric, WooMetrics } from './types'
 
 export function metric(value: number, deltaPct: number | null): Metric {
   return { value, deltaPct }
@@ -108,6 +108,7 @@ export function deriveAds(t: AdsTotals): AdsDerived {
 export function buildAdsMetrics(
   current: AdsDerived,
   previous: AdsDerived,
+  campaigns: Campaign[] = [],
 ): AdsMetrics {
   return {
     spend: metric(current.spend, deltaPct(current.spend, previous.spend)),
@@ -118,5 +119,45 @@ export function buildAdsMetrics(
     cpc: metric(current.cpc, deltaPct(current.cpc, previous.cpc)),
     cpm: metric(current.cpm, deltaPct(current.cpm, previous.cpm)),
     conversions: metric(current.conversions, deltaPct(current.conversions, previous.conversions)),
+    campaigns,
   }
+}
+
+/** Campaign ratios come from the same derivation the account totals use. */
+export function buildCampaign(
+  identity: { id: string; name: string; status: string },
+  totals: AdsTotals,
+): Campaign {
+  const d = deriveAds(totals)
+  return {
+    ...identity,
+    spend: round2(d.spend),
+    impressions: d.impressions,
+    clicks: d.clicks,
+    ctr: d.ctr,
+    conversions: d.conversions,
+    conversionValue: round2(d.conversionValue),
+    roas: d.roas,
+    cpc: d.cpc,
+  }
+}
+
+/** An empty accumulator, so callers can sum rows onto it. */
+export const emptyAdsTotals = (): AdsTotals => ({
+  spend: 0,
+  impressions: 0,
+  clicks: 0,
+  conversions: 0,
+  conversionValue: 0,
+})
+
+/**
+ * Drops campaigns that neither spent nor served — a platform will happily
+ * return every campaign it has ever had, and rows of zeroes bury the ones that
+ * actually ran. Ordered by spend so the table opens on what cost the most.
+ */
+export function rankCampaigns(campaigns: Campaign[]): Campaign[] {
+  return campaigns
+    .filter((c) => c.spend > 0 || c.impressions > 0 || c.clicks > 0)
+    .sort((a, b) => b.spend - a.spend)
 }

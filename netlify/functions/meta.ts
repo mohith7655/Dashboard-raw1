@@ -1,5 +1,11 @@
-import type { AdsMetrics, DateRange } from '../../src/lib/types'
-import { buildAdsMetrics, deriveAds, type AdsTotals } from '../../src/lib/derive'
+import type { AdsMetrics, Campaign, DateRange } from '../../src/lib/types'
+import {
+  buildAdsMetrics,
+  buildCampaign,
+  deriveAds,
+  rankCampaigns,
+  type AdsTotals,
+} from '../../src/lib/derive'
 import { previousRange } from '../../src/lib/dateRange'
 import {
   asArray,
@@ -24,14 +30,16 @@ export default async function handler(request: Request): Promise<Response> {
     const token = requireEnv('META_ACCESS_TOKEN')
     const accountId = normaliseAccountId(requireEnv('META_AD_ACCOUNT_ID'))
 
-    const [current, previous] = await Promise.all([
+    const [current, previous, campaigns] = await Promise.all([
       fetchInsights(accountId, token, range),
       fetchInsights(accountId, token, previousRange(range)),
+      fetchCampaigns(accountId, token, range),
     ])
 
     const metrics: AdsMetrics = buildAdsMetrics(
       deriveAds(current),
       deriveAds(previous),
+      campaigns,
     )
     return json(metrics)
   } catch (err) {
@@ -73,6 +81,107 @@ async function fetchInsights(
     conversions: sumActions(row.actions),
     conversionValue: sumActions(row.action_values),
   }
+}
+
+/**
+ * Campaign-level insights for the period. Status is not an insights field, so
+ * it comes from a second call and is merged in by id.
+ */
+async function fetchCampaigns(
+  accountId: string,
+  token: string,
+  range: DateRange,
+): Promise<Campaign[]> {
+  const params = new URLSearchParams({
+    fields: 'campaign_id,campaign_name,spend,impressions,clicks,actions,action_values',
+    time_range: JSON.stringify({ since: range.start, until: range.end }),
+    level: 'campaign',
+    limit: '500',
+    access_token: token,
+  })
+
+  const [rows, statuses] = await Promise.all([
+    fetchAllPages(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${accountId}/insights?${params.toString()}`,
+    ),
+    fetchCampaignStatuses(accountId, token),
+  ])
+
+  const campaigns = rows.map((row) => {
+    const id = String(row.campaign_id ?? '')
+    return buildCampaign(
+      {
+        id,
+        name: typeof row.campaign_name === 'string' ? row.campaign_name : id,
+        status: statuses.get(id) ?? '',
+      },
+      {
+        spend: num(row.spend),
+        impressions: num(row.impressions),
+        clicks: num(row.clicks),
+        conversions: sumActions(row.actions),
+        conversionValue: sumActions(row.action_values),
+      },
+    )
+  })
+
+  return rankCampaigns(campaigns)
+}
+
+/**
+ * Status is decoration on the campaign table, so a failure here degrades to a
+ * blank column rather than taking the whole Meta section down with it.
+ */
+async function fetchCampaignStatuses(
+  accountId: string,
+  token: string,
+): Promise<Map<string, string>> {
+  const params = new URLSearchParams({
+    fields: 'id,effective_status',
+    limit: '500',
+    access_token: token,
+  })
+
+  try {
+    const rows = await fetchAllPages(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${accountId}/campaigns?${params.toString()}`,
+    )
+    return new Map(
+      rows.map((row) => [String(row.id ?? ''), readStatus(row.effective_status)]),
+    )
+  } catch {
+    return new Map()
+  }
+}
+
+/** Meta pages with a cursor; a busy account can exceed one page of campaigns. */
+async function fetchAllPages(first: string): Promise<Record<string, unknown>[]> {
+  const rows: Record<string, unknown>[] = []
+  let url: string | undefined = first
+
+  // Bounded so a malformed cursor can never spin the function until timeout.
+  for (let page = 0; url && page < 20; page++) {
+    const res = await fetch(url)
+    const body: unknown = await res.json()
+    if (!res.ok) throw new Error(readGraphError(body, res.status))
+    if (!isRecord(body)) break
+
+    rows.push(...asArray(body.data).filter(isRecord))
+    const paging = isRecord(body.paging) ? body.paging : null
+    url = paging && typeof paging.next === 'string' ? paging.next : undefined
+  }
+
+  return rows
+}
+
+/** Meta's enum → the wording the campaign table shares with Google. */
+function readStatus(status: unknown): string {
+  if (typeof status !== 'string') return ''
+  if (status === 'ACTIVE') return 'Active'
+  if (status.endsWith('PAUSED')) return 'Paused'
+  if (status === 'DELETED' || status === 'ARCHIVED') return 'Ended'
+  // Anything else is a review or billing state; show Meta's own word for it.
+  return status.charAt(0) + status.slice(1).toLowerCase().replace(/_/g, ' ')
 }
 
 /**

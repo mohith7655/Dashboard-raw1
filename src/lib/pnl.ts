@@ -2,7 +2,7 @@
  * Views that are built entirely from figures the dashboard already loads —
  * no extra upstream calls, so every tab answers its question at a glance.
  */
-import type { AdsMetrics, WooMetrics } from './types'
+import type { AdsMetrics, Campaign, WooMetrics } from './types'
 import { round2 } from './derive'
 import { formatCurrency } from './format'
 
@@ -169,6 +169,40 @@ export interface BlendedAds {
   shareOfRevenue: number
   costPerOrder: number
   platforms: PlatformSpend[]
+}
+
+/** A campaign with the platform that reported it, for the combined table. */
+export interface CampaignRow extends Campaign {
+  platform: string
+}
+
+export type CampaignSortField =
+  | 'spend'
+  | 'impressions'
+  | 'clicks'
+  | 'ctr'
+  | 'conversions'
+  | 'roas'
+
+/**
+ * Every reported platform's campaigns in one list. Ranking across platforms is
+ * the point of the view — spend is spend regardless of who booked it — so the
+ * rows interleave rather than staying grouped.
+ */
+export function campaignRows(
+  reported: { name: string; metrics: AdsMetrics }[],
+  sort: CampaignSortField,
+  direction: 'asc' | 'desc',
+): CampaignRow[] {
+  const rows = reported.flatMap(({ name, metrics }) =>
+    metrics.campaigns.map((campaign) => ({ ...campaign, platform: name })),
+  )
+
+  const sign = direction === 'asc' ? 1 : -1
+  // Ties settle on name so the order never shuffles between renders.
+  return rows.sort(
+    (a, b) => sign * (a[sort] - b[sort]) || a.name.localeCompare(b.name),
+  )
 }
 
 /**
