@@ -20,7 +20,7 @@ import {
 
 const API = 'https://analyticsdata.googleapis.com/v1beta'
 const HINT =
-  'The GA4 connector could not be reached. Check GA4_PROPERTY_ID and that the refresh token carries the analytics.readonly scope, then click Retry.'
+  'The GA4 connector could not be reached. Check GA4_PROPERTY_ID, and that the refresh token carries the analytics.readonly scope — `npm run ga4:auth` mints one that does. Then click Retry.'
 
 /** GA4 caps a report at 250k rows; a breakdown table needs far fewer. */
 const ROW_LIMIT = 250
@@ -66,7 +66,10 @@ function readDimension(url: URL): Ga4Dimension {
  * can still be shared, since re-consenting the same OAuth client for both scopes
  * is the simplest setup.
  */
+const ANALYTICS_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly'
+
 async function getAccessToken(): Promise<string> {
+  const usingFallback = !process.env.GA4_REFRESH_TOKEN
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -87,6 +90,19 @@ async function getAccessToken(): Promise<string> {
         ? body.error_description
         : `token endpoint returned ${res.status}`
     throw new Error(`GA4 API error (OAUTH): ${detail}`)
+  }
+
+  // An Ads token authenticates fine and then fails every Data API call with a
+  // bare "insufficient authentication scopes". The grant lists its scopes here,
+  // so the mismatch is worth naming now rather than two requests later.
+  const granted = typeof body.scope === 'string' ? body.scope : ''
+  if (granted && !granted.split(' ').includes(ANALYTICS_SCOPE)) {
+    throw new Error(
+      `GA4 API error (SCOPE): the refresh token in ${
+        usingFallback ? 'GOOGLE_ADS_REFRESH_TOKEN' : 'GA4_REFRESH_TOKEN'
+      } carries [${granted}] but not ${ANALYTICS_SCOPE}, so the Data API rejects it. ` +
+        'Run `npm run ga4:auth` to mint one that carries both scopes.',
+    )
   }
   return body.access_token
 }
@@ -241,11 +257,14 @@ async function runBreakdown(
     ? measuresFrom(readMetricValues(totalRow), fields)
     : sumRows(rows)
 
+  // Nested under `metadata`, not at the top level of the response.
+  const meta = isRecord(record.metadata) ? record.metadata : {}
+
   return {
     dimension,
     totals,
     rows,
-    currency: String(record.currencyCode ?? '') || 'USD',
+    currency: String(meta.currencyCode ?? '') || 'USD',
     unsupported,
   }
 }

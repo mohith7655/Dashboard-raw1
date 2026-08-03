@@ -70,6 +70,35 @@ token carries `adwords` only and the Data API rejects it.
 
 GA4 has renamed API fields more than once — conversions became key events,
 landing page gained a query-string variant — and not every property offers every
+#### Minting the refresh token
+
+The Google Ads OAuth flow consents `adwords` and nothing else, so pasting the
+Ads refresh token into `GA4_REFRESH_TOKEN` authenticates but then fails every
+Data API call with `403 ACCESS_TOKEN_SCOPE_INSUFFICIENT`. The function checks
+the grant's scope list up front and names the mismatch rather than passing that
+error through.
+
+To get a token that carries both scopes:
+
+```bash
+npm run ga4:auth
+```
+
+It reads the OAuth client from `.env`, opens the consent screen, and prints a
+refresh token. Set it as `GA4_REFRESH_TOKEN` in `.env` and in Netlify, then
+redeploy. It can replace `GOOGLE_ADS_REFRESH_TOKEN` too.
+
+Two prerequisites on the Google side:
+
+- The **Google Analytics Data API** must be enabled for the Cloud project that
+  owns the OAuth client.
+- `http://localhost:8976/oauth2callback` must be an authorised redirect URI on
+  that client — required for Web application clients, automatic for Desktop
+  ones.
+
+The Google account you consent with also needs at least Viewer on the GA4
+property; API access does not inherit from the Ads link.
+
 metric. Rather than hardcode one spelling, the function resolves each field
 against the property's own `metadata` endpoint from a preference list, and
 reports anything unmatched to the UI instead of failing the whole report.

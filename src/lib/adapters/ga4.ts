@@ -3,7 +3,7 @@ import { callFunction, toResult } from './client'
 
 const SOURCE = 'Google Analytics'
 const HINT =
-  'Check GA4_PROPERTY_ID and that the Google refresh token carries the analytics.readonly scope, then click Retry.'
+  'Check GA4_PROPERTY_ID, and that the Google refresh token carries the analytics.readonly scope — `npm run ga4:auth` mints one that does. Then click Retry.'
 
 export async function fetchReport(
   range: DateRange,
