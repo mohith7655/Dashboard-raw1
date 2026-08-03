@@ -1,5 +1,5 @@
 import { MousePointerClick, Percent, ShoppingCart, Users } from 'lucide-react'
-import type { TrafficMetrics, WooMetrics } from '../../lib/types'
+import type { Ga4Dimension, Ga4Report, TrafficMetrics, WooMetrics } from '../../lib/types'
 import { formatCurrency, formatInteger, formatPercent } from '../../lib/format'
 import { KpiCard } from '../KpiCard'
 import { SectionLabel } from '../SectionLabel'
@@ -8,6 +8,7 @@ import {
   VisitorsOverTime,
 } from '../charts/TrafficOverTime'
 import { RevenueByTrafficSource } from '../charts/RevenueByTrafficSource'
+import { Ga4BreakdownCard } from './Ga4BreakdownCard'
 
 interface TrafficSectionProps {
   traffic: TrafficMetrics | undefined
@@ -15,6 +16,12 @@ interface TrafficSectionProps {
   loading: boolean
   failed: boolean
   wooFailed: boolean
+  ga4: Ga4Report | undefined
+  ga4Dimension: Ga4Dimension
+  onGa4DimensionChange: (dimension: Ga4Dimension) => void
+  ga4Loading: boolean
+  ga4Fetching: boolean
+  ga4Error: string | null
 }
 
 const GRID = 'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'
@@ -25,6 +32,12 @@ export function TrafficSection({
   loading,
   failed,
   wooFailed,
+  ga4,
+  ga4Dimension,
+  onGa4DimensionChange,
+  ga4Loading,
+  ga4Fetching,
+  ga4Error,
 }: TrafficSectionProps) {
   // A store with no analytics integration still answers 200, with every figure
   // zero. Treating that as real would put a 0% conversion rate beside a page of
@@ -118,6 +131,15 @@ export function TrafficSection({
           unavailable={failed ? 'Conversion data unavailable' : undefined}
         />
       </div>
+
+      <Ga4BreakdownCard
+        report={ga4}
+        dimension={ga4Dimension}
+        onDimensionChange={onGa4DimensionChange}
+        loading={ga4Loading}
+        fetching={ga4Fetching}
+        error={ga4Error}
+      />
 
       <RevenueByTrafficSource
         data={woo?.revenueBySource ?? []}

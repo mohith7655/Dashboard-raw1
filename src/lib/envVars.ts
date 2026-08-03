@@ -160,6 +160,47 @@ export const ENV_VARS: EnvVarSpec[] = [
     where: 'Google Ads → switch to the manager account → top-right account id',
   },
 
+  /* ----------------------- Google Analytics 4 -------------------------- */
+  {
+    name: 'GA4_PROPERTY_ID',
+    service: 'Google Analytics',
+    required: false,
+    scope: 'functions',
+    description:
+      'Numeric GA4 property id — not the G-XXXXXXX measurement id. Without it the GA4 breakdowns on the Traffic tab stay empty.',
+    powers: ['Dashboard → Traffic'],
+    where: 'GA4 → Admin → Property settings → Property ID (top right)',
+  },
+  {
+    name: 'GA4_REFRESH_TOKEN',
+    service: 'Google Analytics',
+    required: false,
+    scope: 'functions',
+    description:
+      'Refresh token carrying the analytics.readonly scope. Falls back to GOOGLE_ADS_REFRESH_TOKEN, which only works if that token was consented for both scopes — an Ads-only token is rejected by the Data API.',
+    powers: ['Dashboard → Traffic'],
+    where: 'OAuth playground or your own consent flow, scope analytics.readonly',
+  },
+  {
+    name: 'GA4_CLIENT_ID',
+    service: 'Google Analytics',
+    required: false,
+    scope: 'functions',
+    description:
+      'OAuth client id for the GA4 token. Falls back to GOOGLE_ADS_CLIENT_ID; reusing the same client is the simplest setup.',
+    powers: ['Dashboard → Traffic'],
+    where: 'Google Cloud Console → Credentials',
+  },
+  {
+    name: 'GA4_CLIENT_SECRET',
+    service: 'Google Analytics',
+    required: false,
+    scope: 'functions',
+    description: 'Secret for the GA4 OAuth client. Falls back to GOOGLE_ADS_CLIENT_SECRET.',
+    powers: ['Dashboard → Traffic'],
+    where: 'Google Cloud Console → Credentials',
+  },
+
   /* --------------------------- WooCommerce (opt) ----------------------- */
   {
     name: 'WOOCOMMERCE_STORE_URL',

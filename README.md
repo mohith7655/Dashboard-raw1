@@ -48,9 +48,31 @@ Visitors are GA4's `totalUsers` — distinct people, not sessions or pageviews.
 Orders here are counted on Metorik's own conversion basis, so they can differ
 slightly from the paid-order total on the Overview.
 
-Per-product views and conversion rates are **not** available: Metorik pulls
-those directly from GA when its own pages load and excludes them from both the
-API and exports.
+Per-product views and conversion rates are **not** available from Metorik: it
+pulls those directly from GA when its own pages load and excludes them from both
+the API and exports.
+
+### GA4 breakdowns
+
+Metorik's visitor report carries **no dimensions at all** — its only options are
+`group_by=day|week|month|year`. Country, landing page, page, source and device
+therefore come from the GA4 Data API directly, via `netlify/functions/ga4.ts`,
+and appear in the breakdown table on the Traffic tab.
+
+This needs its own credentials, because the scopes differ: a Google Ads refresh
+token carries `adwords` only and the Data API rejects it.
+
+| Variable | Notes |
+| --- | --- |
+| `GA4_PROPERTY_ID` | Numeric property id — **not** the `G-XXXXXXX` measurement id. GA4 → Admin → Property settings |
+| `GA4_REFRESH_TOKEN` | Must carry `analytics.readonly`. Falls back to `GOOGLE_ADS_REFRESH_TOKEN`, which works only if that token was consented for both scopes |
+| `GA4_CLIENT_ID` / `GA4_CLIENT_SECRET` | Optional; fall back to the `GOOGLE_ADS_*` pair |
+
+GA4 has renamed API fields more than once — conversions became key events,
+landing page gained a query-string variant — and not every property offers every
+metric. Rather than hardcode one spelling, the function resolves each field
+against the property's own `metadata` endpoint from a preference list, and
+reports anything unmatched to the UI instead of failing the whole report.
 
 ## Operating costs
 

@@ -8,6 +8,8 @@ import type {
   AdapterResult,
   AdsMetrics,
   DateRange,
+  Ga4Dimension,
+  Ga4Report,
   OperatingCost,
   OrdersPage,
   OrdersQuery,
@@ -20,6 +22,7 @@ import * as metorik from './adapters/metorik'
 import * as meta from './adapters/meta'
 import * as googleAds from './adapters/googleAds'
 import * as costs from './adapters/costs'
+import * as ga4 from './adapters/ga4'
 
 /**
  * Each section subscribes to its own query, so one failing connector never
@@ -32,6 +35,8 @@ export const queryKeys = {
   meta: (range: DateRange) => ['meta', range.start, range.end] as const,
   googleAds: (range: DateRange) => ['googleAds', range.start, range.end] as const,
   traffic: (range: DateRange) => ['traffic', range.start, range.end] as const,
+  ga4: (range: DateRange, dimension: Ga4Dimension) =>
+    ['ga4', range.start, range.end, dimension] as const,
   // Not range-scoped: the stored list is the same whatever period is on screen.
   costs: () => ['costs'] as const,
 }
@@ -105,6 +110,21 @@ export function useTrafficMetrics(range: DateRange): SourceQuery<TrafficMetrics>
     useQuery({
       queryKey: queryKeys.traffic(range),
       queryFn: () => unwrap(metorik.fetchTraffic(range)),
+    }),
+  )
+}
+
+export function useGa4Report(
+  range: DateRange,
+  dimension: Ga4Dimension,
+): SourceQuery<Ga4Report> {
+  return toSourceQuery(
+    useQuery({
+      queryKey: queryKeys.ga4(range, dimension),
+      queryFn: () => unwrap(ga4.fetchReport(range, dimension)),
+      // Switching breakdown keeps the previous table on screen rather than
+      // collapsing the card to a skeleton on every click.
+      placeholderData: (prev) => prev,
     }),
   )
 }

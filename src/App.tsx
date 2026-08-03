@@ -22,12 +22,14 @@ import {
   useOperatingCosts,
   useOrders,
   useSaveOperatingCosts,
+  useGa4Report,
   useTrafficMetrics,
   useWooMetrics,
 } from './lib/queries'
 import type {
   AdsMetrics,
   DateRange,
+  Ga4Dimension,
   OrderSortField,
   SortDirection,
   SourceError,
@@ -42,6 +44,7 @@ export default function App() {
   const [sort, setSort] = useState<OrderSortField>('date')
   const [direction, setDirection] = useState<SortDirection>('desc')
   const [dismissed, setDismissed] = useState<string[]>([])
+  const [ga4Dimension, setGa4Dimension] = useState<Ga4Dimension>('country')
 
   const woo = useWooMetrics(range)
   const meta = useMetaMetrics(range)
@@ -50,6 +53,7 @@ export default function App() {
   const costs = useOperatingCosts()
   const saveCosts = useSaveOperatingCosts()
   const traffic = useTrafficMetrics(range)
+  const ga4 = useGa4Report(range, ga4Dimension)
 
   const onRangeChange = (next: DateRange) => {
     setRange(next)
@@ -160,6 +164,12 @@ export default function App() {
             loading={traffic.isLoading || woo.isLoading}
             failed={!!traffic.error}
             wooFailed={!!woo.error}
+            ga4={ga4.data}
+            ga4Dimension={ga4Dimension}
+            onGa4DimensionChange={setGa4Dimension}
+            ga4Loading={ga4.isLoading}
+            ga4Fetching={ga4.isFetching}
+            ga4Error={ga4.error?.message ?? null}
           />
         )}
 

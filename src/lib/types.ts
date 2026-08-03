@@ -116,6 +116,66 @@ export interface WooMetrics {
   orderCount: number
 }
 
+/** The breakdowns the GA4 view can be sliced by. */
+export const GA4_DIMENSIONS = [
+  'country',
+  'landingPage',
+  'pagePath',
+  'sourceMedium',
+  'channel',
+  'device',
+  'browser',
+  'operatingSystem',
+] as const
+
+export type Ga4Dimension = (typeof GA4_DIMENSIONS)[number]
+
+export const GA4_DIMENSION_LABELS: Record<Ga4Dimension, string> = {
+  country: 'Country',
+  landingPage: 'Landing page',
+  pagePath: 'Page',
+  sourceMedium: 'Source / medium',
+  channel: 'Channel',
+  device: 'Device',
+  browser: 'Browser',
+  operatingSystem: 'Operating system',
+}
+
+/** The metric set every GA4 row and total carries. */
+export interface Ga4Measures {
+  users: number
+  sessions: number
+  pageViews: number
+  /** Ratios in 0..1. */
+  engagementRate: number
+  bounceRate: number
+  /** Seconds. */
+  avgSessionDuration: number
+  purchases: number
+  revenue: number
+  /** Purchases per session, derived here rather than taken from GA4. */
+  conversionRate: number
+  revenuePerUser: number
+}
+
+export interface Ga4Row extends Ga4Measures {
+  /** The dimension value, e.g. `India` or `/products/hoodie`. */
+  key: string
+}
+
+export interface Ga4Report {
+  dimension: Ga4Dimension
+  totals: Ga4Measures
+  rows: Ga4Row[]
+  /** GA4's own currency for `revenue`, e.g. `USD`. */
+  currency: string
+  /**
+   * Metrics this property did not offer, so the table can grey those columns
+   * instead of showing a column of zeroes as though they were measured.
+   */
+  unsupported: string[]
+}
+
 export interface TrafficPoint {
   /** `yyyy-MM-dd` */
   date: string
