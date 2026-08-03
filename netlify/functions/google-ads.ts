@@ -11,7 +11,12 @@ import {
   toErrorResponse,
 } from '../lib/http'
 
-const API_VERSION = 'v18'
+/**
+ * Google sunsets each major version roughly a year after release, and a request
+ * to a sunset version fails outright rather than degrading. v25 shipped
+ * 2026-07-22; bump this before its sunset a year later.
+ */
+const API_VERSION = 'v25'
 const HINT =
   'The Google Ads connector could not be reached. Check the OAuth refresh token in your Netlify environment, then click Retry.'
 
@@ -19,7 +24,7 @@ const HINT =
 export default async function handler(request: Request): Promise<Response> {
   try {
     const range = readRange(new URL(request.url))
-    const customerId = requireEnv('GOOGLE_ADS_CUSTOMER_ID').replace(/-/g, '')
+    const customerId = digitsOnly(requireEnv('GOOGLE_ADS_CUSTOMER_ID'))
     const developerToken = requireEnv('GOOGLE_ADS_DEVELOPER_TOKEN')
     const accessToken = await getAccessToken()
 
@@ -79,17 +84,21 @@ async function fetchTotals(
     WHERE segments.date BETWEEN '${range.start}' AND '${range.end}'
   `
 
+  const headers: Record<string, string> = {
+    authorization: `Bearer ${accessToken}`,
+    'developer-token': developerToken,
+    'content-type': 'application/json',
+  }
+
+  // When the OAuth user reaches the account through a manager (MCC), Google
+  // requires the manager id alongside the target customer id. Without it the
+  // call fails with USER_PERMISSION_DENIED even though the token is valid.
+  const loginCustomerId = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID
+  if (loginCustomerId) headers['login-customer-id'] = digitsOnly(loginCustomerId)
+
   const res = await fetch(
     `https://googleads.googleapis.com/${API_VERSION}/customers/${customerId}/googleAds:search`,
-    {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${accessToken}`,
-        'developer-token': developerToken,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ query }),
-    },
+    { method: 'POST', headers, body: JSON.stringify({ query }) },
   )
   const body: unknown = await res.json()
 
@@ -119,11 +128,47 @@ async function fetchTotals(
   return totals
 }
 
+/** Google accepts ids with or without dashes; the URL path needs them stripped. */
+function digitsOnly(raw: string): string {
+  return raw.replace(/\D/g, '')
+}
+
+/**
+ * The top-level `message` is generic ("Request contains an invalid argument").
+ * The actionable text lives in the nested GoogleAdsFailure, so prefer it and
+ * carry the specific error code — that is what tells an operator whether to fix
+ * the token, the customer id, or the query.
+ */
 function readAdsError(body: unknown, status: number): string {
-  if (isRecord(body) && isRecord(body.error)) {
-    const { message, status: code } = body.error
-    const text = typeof message === 'string' ? message : 'request failed'
-    return `Google Ads API error (${typeof code === 'string' ? code : status}): ${text}`
+  if (!isRecord(body) || !isRecord(body.error)) {
+    return `Google Ads API error (${status}): request failed`
   }
-  return `Google Ads API error (${status}): request failed`
+  const { message, status: code } = body.error
+  const label = typeof code === 'string' ? code : String(status)
+  const detail = readFailureDetail(body.error.details)
+  const text =
+    detail ?? (typeof message === 'string' ? message : 'request failed')
+  return `Google Ads API error (${label}): ${text}`
+}
+
+function readFailureDetail(details: unknown): string | null {
+  for (const detail of asArray(details)) {
+    if (!isRecord(detail)) continue
+    for (const failure of asArray(detail.errors)) {
+      if (!isRecord(failure)) continue
+      if (typeof failure.message !== 'string') continue
+      const reason = readErrorCode(failure.errorCode)
+      return reason ? `${failure.message} (${reason})` : failure.message
+    }
+  }
+  return null
+}
+
+/** `errorCode` is a one-key union, e.g. `{ authenticationError: 'BAD_TOKEN' }`. */
+function readErrorCode(errorCode: unknown): string | null {
+  if (!isRecord(errorCode)) return null
+  for (const value of Object.values(errorCode)) {
+    if (typeof value === 'string') return value
+  }
+  return null
 }

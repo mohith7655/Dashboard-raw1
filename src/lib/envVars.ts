@@ -149,6 +149,16 @@ export const ENV_VARS: EnvVarSpec[] = [
     powers: ['Dashboard', 'Costs'],
     where: 'Google Ads → top-right account id',
   },
+  {
+    name: 'GOOGLE_ADS_LOGIN_CUSTOMER_ID',
+    service: 'Google Ads',
+    required: false,
+    scope: 'functions',
+    description:
+      'Manager (MCC) account id. Required only when the OAuth user reaches the target account through a manager — without it Google answers USER_PERMISSION_DENIED.',
+    powers: ['Dashboard', 'Costs'],
+    where: 'Google Ads → switch to the manager account → top-right account id',
+  },
 
   /* --------------------------- WooCommerce (opt) ----------------------- */
   {

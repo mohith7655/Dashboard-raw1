@@ -28,6 +28,7 @@ Add these as Netlify Function environment variables, then redeploy:
 | `GOOGLE_ADS_CLIENT_SECRET` | Google Ads OAuth |
 | `GOOGLE_ADS_REFRESH_TOKEN` | Google Ads OAuth |
 | `GOOGLE_ADS_CUSTOMER_ID` | Google Ads |
+| `GOOGLE_ADS_LOGIN_CUSTOMER_ID` | Google Ads — optional, only for manager (MCC) accounts |
 
 Use `.env.example` as the local template. Never prefix secrets with `VITE_`.
 
