@@ -92,6 +92,9 @@ export function AdsSection({
           ? platform.metrics[key].value / total
           : 0
         : undefined,
+      // Each platform's own change, not a share of the combined one — Meta can
+      // be up over the window while Google is down.
+      deltaPct: platform.metrics[key].deltaPct,
     }))
   }
 

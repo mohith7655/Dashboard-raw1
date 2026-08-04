@@ -14,6 +14,12 @@ export interface KpiPart {
    * larger than the revenue below it, and `112%` would read as an error.
    */
   share?: number
+  /**
+   * This line's own change against the comparison window. Null when there is
+   * nothing to compare it against, and the column is then simply blank —
+   * a part can lack a baseline the headline has.
+   */
+  deltaPct?: number | null
 }
 
 interface KpiCardProps {
@@ -108,9 +114,24 @@ export function KpiCard({
                   <span className="text-[12px] font-medium tabular-nums text-ink">
                     {part.value}
                   </span>
+                  {/* Each column keeps a fixed width so they line up down the
+                      card, and holds its space when a line has no figure —
+                      otherwise one part without a delta shunts the shares
+                      beside it out of alignment. */}
+                  {parts.some((p) => p.deltaPct != null) && (
+                    <span
+                      className={`w-14 text-right text-[11px] tabular-nums ${
+                        part.deltaPct == null
+                          ? 'text-muted'
+                          : deltaColor(part.deltaPct, polarity)
+                      }`}
+                    >
+                      {part.deltaPct == null
+                        ? ''
+                        : `${part.deltaPct < 0 ? '↓' : '↑'} ${formatDeltaPercent(part.deltaPct)}`}
+                    </span>
+                  )}
                   {part.share !== undefined && (
-                    // Fixed width so the column of shares lines up down the card
-                    // however wide the figures beside it are.
                     <span className="w-11 text-right text-[11px] tabular-nums text-muted">
                       {formatPercent(part.share)}
                     </span>

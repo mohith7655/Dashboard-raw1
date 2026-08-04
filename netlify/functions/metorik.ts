@@ -563,21 +563,25 @@ async function loadMetrics(
 ): Promise<WooMetrics> {
   // The comparison costs two of the five upstream calls, so turning it off
   // makes the whole load meaningfully cheaper rather than merely quieter.
-  const [current, previousAgg, newCustomers, prevCustomers, revenueSide] =
+  const [current, previousAgg, newCustomers, prevCustomers, revenueSide, prevRevenueSide] =
     await Promise.all([
       aggregate(apiKey, range, meta.timeZone),
       against ? aggregate(apiKey, against, meta.timeZone) : null,
       countNewCustomers(apiKey, range),
       against ? countNewCustomers(apiKey, against) : 0,
       paidOrderTotals(apiKey, range),
+      // The statement's own lines — gross sales, coupons, tax — are only in
+      // this call, so comparing them needs it for the other window too.
+      against ? paidOrderTotals(apiKey, against) : null,
     ])
 
   current.newCustomers = newCustomers
   if (previousAgg) previousAgg.newCustomers = prevCustomers
 
   const derived = deriveWoo(current)
+  const previousDerived = previousAgg ? deriveWoo(previousAgg) : null
 
-  return buildWooMetrics(derived, previousAgg && deriveWoo(previousAgg), {
+  return buildWooMetrics(derived, previousDerived, {
     revenueSeries: toSeries(range, current.byDay),
     ordersByStatus: toStatusCounts(current.byStatus),
     revenueBySource: toSources(current.bySource),
@@ -585,6 +589,10 @@ async function loadMetrics(
     revenueByCurrency: toMarkets(current.byCurrency),
     storeCurrency: meta.currency,
     pnl: buildPnl(revenueSide, derived),
+    pnlPrevious:
+      prevRevenueSide && previousDerived
+        ? buildPnl(prevRevenueSide, previousDerived)
+        : null,
     orderCount: current.orderCount,
   })
 }

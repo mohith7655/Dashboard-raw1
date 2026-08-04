@@ -140,6 +140,13 @@ export interface WooMetrics {
   /** ISO code every figure above is expressed in, e.g. `USD`. */
   storeCurrency: string
   pnl: ProfitAndLoss
+  /**
+   * The same statement over the comparison window, or null when the comparison
+   * is off. Carried as figures rather than as deltas because the lines are
+   * combined before they are compared — net sales is gross less coupons, and
+   * two percentages cannot be subtracted from one another.
+   */
+  pnlPrevious: ProfitAndLoss | null
   orderCount: number
 }
 

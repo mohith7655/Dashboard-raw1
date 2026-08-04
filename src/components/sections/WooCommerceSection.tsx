@@ -8,9 +8,9 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react'
-import type { WooMetrics } from '../../lib/types'
+import type { ProfitAndLoss, WooMetrics } from '../../lib/types'
 import { formatCurrency, formatInteger, formatPercent } from '../../lib/format'
-import { round2 } from '../../lib/derive'
+import { deltaPct, round2 } from '../../lib/derive'
 import { KpiCard, type KpiPart } from '../KpiCard'
 import { CardRow } from '../CardRow'
 import { SectionLabel } from '../SectionLabel'
@@ -33,20 +33,28 @@ export function WooCommerceSection({
 
   // What the headline is made of, in the same card. Gross is sales before
   // coupons come off; net is what survives refunds, which is the figure that
-  // actually reached the bank.
+  // actually reached the bank. Each is compared against its own figure in the
+  // comparison window, which is null when the comparison is off.
+  const was = metrics?.pnlPrevious ?? null
+  const netOfRefunds = (p: ProfitAndLoss): number => round2(p.totalRevenue - p.refunds)
+
   const revenueParts: KpiPart[] = metrics
     ? [
-        { label: 'Gross sales', value: formatCurrency(metrics.pnl.grossSales) },
+        {
+          label: 'Gross sales',
+          value: formatCurrency(metrics.pnl.grossSales),
+          deltaPct: was ? deltaPct(metrics.pnl.grossSales, was.grossSales) : null,
+        },
         {
           label: 'Net of refunds',
-          value: formatCurrency(
-            round2(metrics.pnl.totalRevenue - metrics.pnl.refunds),
-          ),
+          value: formatCurrency(netOfRefunds(metrics.pnl)),
+          deltaPct: was ? deltaPct(netOfRefunds(metrics.pnl), netOfRefunds(was)) : null,
         },
       ]
     : []
 
-  // These two do add up to the headline, so each carries its share of it.
+  // These two do add up to the headline, so each carries its share of it, and
+  // each already carries its own change from the metric set.
   const buyers = metrics?.totalCustomers.value ?? 0
   const customerParts: KpiPart[] = metrics
     ? [
@@ -54,18 +62,20 @@ export function WooCommerceSection({
           label: 'New',
           value: formatInteger(metrics.newCustomers.value),
           share: buyers ? metrics.newCustomers.value / buyers : 0,
+          deltaPct: metrics.newCustomers.deltaPct,
         },
         {
           label: 'Returning',
           value: formatInteger(metrics.returningCustomers.value),
           share: buyers ? metrics.returningCustomers.value / buyers : 0,
+          deltaPct: metrics.returningCustomers.deltaPct,
         },
       ]
     : []
 
   return (
     <section>
-      <SectionLabel>WooCommerce</SectionLabel>
+      <SectionLabel>CEO Dashboard</SectionLabel>
 
       {summary && <div className="mb-4">{summary}</div>}
 

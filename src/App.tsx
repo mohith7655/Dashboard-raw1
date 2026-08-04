@@ -284,6 +284,7 @@ export default function App() {
                   reportedAds={reportedAds}
                   costs={costs.data}
                   range={range}
+                  against={against}
                   loading={woo.isLoading || adsLoading || costs.isLoading}
                   failed={!!woo.error}
                 />

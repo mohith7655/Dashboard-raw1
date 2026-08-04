@@ -74,6 +74,7 @@ export function buildWooMetrics(
     | 'revenueByCurrency'
     | 'storeCurrency'
     | 'pnl'
+    | 'pnlPrevious'
     | 'orderCount'
   >,
 ): WooMetrics {

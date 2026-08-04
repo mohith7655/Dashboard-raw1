@@ -1,9 +1,16 @@
 import { useMemo } from 'react'
-import { TrendingUp } from 'lucide-react'
-import type { AdsMetrics, DateRange, OperatingCost, WooMetrics } from '../../lib/types'
+import { ArrowDown, ArrowUp, TrendingUp } from 'lucide-react'
+import type {
+  AdsMetrics,
+  DateRange,
+  OperatingCost,
+  Polarity,
+  ProfitAndLoss,
+  WooMetrics,
+} from '../../lib/types'
 import { costLines, totalOperatingCost } from '../../lib/operatingCosts'
-import { round2 } from '../../lib/derive'
-import { formatCurrency, formatPercent } from '../../lib/format'
+import { deltaPct, round2 } from '../../lib/derive'
+import { formatCurrency, formatDeltaPercent, formatPercent } from '../../lib/format'
 import { Skeleton } from '../Skeleton'
 
 interface ProfitSummaryCardProps {
@@ -12,18 +19,37 @@ interface ProfitSummaryCardProps {
   reportedAds: { name: string; metrics: AdsMetrics }[]
   costs: OperatingCost[] | undefined
   range: DateRange
+  /** The window every line is compared against, or null when comparison is off. */
+  against: DateRange | null
   loading: boolean
   failed: boolean
 }
 
-/** A heading figure, or one of the movements that produced it. */
+/**
+ * A heading figure, one of the movements that produced it, or a resting point
+ * partway down a group.
+ */
 interface Line {
   label: string
-  /** The figure itself, always positive; the sign lives in `valueLabel`. */
+  /** The figure itself; the sign lives in `valueLabel`. */
   amount: number
-  total: boolean
+  kind: 'total' | 'subtotal' | 'part'
   /** Pre-formatted, carrying a sign only where the sign means something. */
   valueLabel: string
+  /**
+   * Which direction reads as good. A statement mixes both: revenue rising is
+   * green, cost rising is red, and colouring every increase alike would
+   * congratulate the store on its coupons.
+   */
+  polarity: Polarity
+}
+
+/** Everything a statement is built from, for either window. */
+interface StatementInput {
+  pnl: ProfitAndLoss
+  totalCost: number
+  adSpend: number | null
+  operatingCost: number
 }
 
 /**
@@ -35,55 +61,92 @@ interface Line {
  * recognises goes first, and the lines that make it up sit underneath. Same
  * numbers, read from the other end.
  *
- * Every share is of the largest line — see `topLine`.
+ * Built identically for the selected period and the comparison window, so the
+ * two can be paired line by line.
  */
-function buildStatement(
-  woo: WooMetrics,
-  adSpend: number | null,
-  operatingCost: number,
-): Line[] {
-  const { pnl } = woo
+function buildStatement({
+  pnl,
+  totalCost,
+  adSpend,
+  operatingCost,
+}: StatementInput): Line[] {
   const lines: Line[] = []
 
-  const total = (label: string, amount: number): void => {
-    lines.push({ label, amount, total: true, valueLabel: formatCurrency(amount) })
+  const total = (label: string, amount: number, polarity: Polarity = 'up-good') => {
+    lines.push({
+      label,
+      amount,
+      kind: 'total',
+      valueLabel: formatCurrency(amount),
+      polarity,
+    })
+  }
+
+  const subtotal = (label: string, amount: number, polarity: Polarity = 'up-good') => {
+    lines.push({
+      label,
+      amount,
+      kind: 'subtotal',
+      valueLabel: formatCurrency(amount),
+      polarity,
+    })
   }
 
   // Zero movements are dropped rather than listed flat — a store with no
   // refunds should not have to read a refund line to find that out.
-  const part = (label: string, amount: number, sign: '+' | '−' | ''): void => {
+  const part = (
+    label: string,
+    amount: number,
+    sign: '+' | '−' | '',
+    polarity: Polarity = 'up-good',
+  ) => {
     const value = round2(amount)
     if (value === 0) return
     lines.push({
       label,
       amount: value,
-      total: false,
+      kind: 'part',
       valueLabel: `${sign}${formatCurrency(Math.abs(value))}`,
+      polarity,
     })
   }
 
+  const refunds = round2(pnl.refunds)
+
   total('Total revenue', pnl.totalRevenue)
   part('Gross sales', pnl.grossSales, '')
-  part('Coupons', pnl.discounts, '−')
+  // More coupons is worse, so its polarity inverts against the group's.
+  part('Coupons', pnl.discounts, '−', 'down-good')
+  // Sales after the coupons come off, before shipping and tax are added on.
+  // It sits below the deduction that produces it rather than above it, and
+  // only when there were coupons — with none it would restate gross sales.
+  if (round2(pnl.discounts) !== 0) {
+    subtotal('Net sales', round2(pnl.grossSales - pnl.discounts))
+  }
   part('Shipping charged', pnl.shippingCharged, '+')
   part('Tax collected', pnl.taxCollected, '+')
+  // A refund is money handed back, not a cost of trading, so it belongs to the
+  // revenue section rather than down among the overheads.
+  part('Refunds', refunds, '−', 'down-good')
+  if (refunds !== 0) {
+    subtotal('Net revenue', round2(pnl.totalRevenue - refunds))
+  }
 
-  total('Total cost', woo.totalCost.value)
-  part('Product cost', pnl.productCost, '−')
-  part('Shipping cost', pnl.shippingCost, '−')
-  part('Transaction fees', pnl.transactionCost, '−')
-  part('Other costs', pnl.otherCost, '−')
+  total('Total cost', totalCost, 'down-good')
+  part('Product cost', pnl.productCost, '−', 'down-good')
+  part('Shipping cost', pnl.shippingCost, '−', 'down-good')
+  part('Transaction fees', pnl.transactionCost, '−', 'down-good')
+  part('Other costs', pnl.otherCost, '−', 'down-good')
 
   total('Gross profit', pnl.grossProfit)
-  part('Refunds', pnl.refunds, '−')
   // Absent rather than zero when no platform reported, so the line never
   // claims the store advertised for nothing.
-  if (adSpend !== null) part('Ad spend', adSpend, '−')
-  part('Operating costs', operatingCost, '−')
+  if (adSpend !== null) part('Ad spend', adSpend, '−', 'down-good')
+  part('Operating costs', operatingCost, '−', 'down-good')
 
   total(
     'Net profit',
-    round2(pnl.grossProfit - pnl.refunds - (adSpend ?? 0) - operatingCost),
+    round2(pnl.grossProfit - refunds - (adSpend ?? 0) - operatingCost),
   )
 
   return lines
@@ -98,16 +161,21 @@ function buildStatement(
  * the other read over it, so the top of the statement is chosen rather than
  * assumed, and no line can then exceed 100%.
  */
-const topLine = (woo: WooMetrics): { label: string; amount: number } =>
-  woo.pnl.grossSales >= woo.pnl.totalRevenue
-    ? { label: 'Gross sales', amount: woo.pnl.grossSales }
-    : { label: 'Total revenue', amount: woo.pnl.totalRevenue }
+const topLine = (pnl: ProfitAndLoss): { label: string; amount: number } =>
+  pnl.grossSales >= pnl.totalRevenue
+    ? { label: 'Gross sales', amount: pnl.grossSales }
+    : { label: 'Total revenue', amount: pnl.totalRevenue }
+
+/** The four cost lines a statement subtracts, for a window with no `totalCost`. */
+const costsOf = (pnl: ProfitAndLoss): number =>
+  round2(pnl.productCost + pnl.shippingCost + pnl.transactionCost + pnl.otherCost)
 
 export function ProfitSummaryCard({
   woo,
   reportedAds,
   costs,
   range,
+  against,
   loading,
   failed,
 }: ProfitSummaryCardProps) {
@@ -115,22 +183,60 @@ export function ProfitSummaryCard({
     ? reportedAds.reduce((sum, p) => sum + p.metrics.spend.value, 0)
     : null
 
+  // Only platforms that reported a comparison window contribute to its total;
+  // a missing baseline counted as zero would invent growth.
+  const prevAds = reportedAds.filter((p) => p.metrics.previousTotals)
+  const prevAdSpend = prevAds.length
+    ? prevAds.reduce((sum, p) => sum + (p.metrics.previousTotals?.spend ?? 0), 0)
+    : null
+
   const operatingCost = useMemo(
     () => totalOperatingCost(costLines(costs ?? [], range)),
     [costs, range],
   )
 
+  // The same saved costs prorated onto the comparison window instead — a
+  // subscription taken out last month did not apply the month before.
+  const prevOperatingCost = useMemo(
+    () => (against ? totalOperatingCost(costLines(costs ?? [], against)) : 0),
+    [costs, against],
+  )
+
   const lines = useMemo(
-    () => (woo ? buildStatement(woo, adSpend, operatingCost) : []),
+    () =>
+      woo
+        ? buildStatement({
+            pnl: woo.pnl,
+            totalCost: woo.totalCost.value,
+            adSpend,
+            operatingCost,
+          })
+        : [],
     [woo, adSpend, operatingCost],
   )
 
-  // The statement is headed by its own top line, not by its result — net
-  // profit closes the list below, and stating it twice made the smallest
-  // figure on the card the loudest thing on it.
-  const top = woo ? topLine(woo) : null
+  // Paired by label rather than by position: a line dropped for being zero in
+  // one window but not the other would otherwise shift every delta below it.
+  const previousByLabel = useMemo(() => {
+    if (!woo?.pnlPrevious) return null
+    const previous = buildStatement({
+      pnl: woo.pnlPrevious,
+      totalCost: costsOf(woo.pnlPrevious),
+      adSpend: prevAdSpend,
+      operatingCost: prevOperatingCost,
+    })
+    return new Map(previous.map((line) => [line.label, line.amount]))
+  }, [woo, prevAdSpend, prevOperatingCost])
+
+  const changeOf = (line: Line): number | null => {
+    const before = previousByLabel?.get(line.label)
+    return before === undefined ? null : deltaPct(line.amount, before)
+  }
+
+  const top = woo ? topLine(woo.pnl) : null
   const base = top?.amount ?? 0
   const share = (amount: number): number => (base === 0 ? 0 : Math.abs(amount) / base)
+  const anyChange = lines.some((line) => changeOf(line) !== null)
 
   return (
     <div className="card">
@@ -165,16 +271,18 @@ export function ProfitSummaryCard({
           Profit data unavailable for this period.
         </p>
       ) : (
-        // On a narrow screen the label, figure and share cannot all fit; the
-        // row scrolls sideways rather than wrapping a statement into
+        // On a narrow screen the label, figure, change and share cannot all
+        // fit; the rows scroll sideways rather than wrapping a statement into
         // unreadable shapes or truncating the figures themselves.
         <div className="mt-4 overflow-x-auto border-t border-row-line pt-1">
-          <dl className="flex min-w-[19rem] flex-col">
+          <dl className={`flex flex-col ${anyChange ? 'min-w-[26rem]' : 'min-w-[19rem]'}`}>
             {lines.map((line, index) => (
               <StatementRow
                 key={`${line.label}-${index}`}
                 line={line}
                 share={share(line.amount)}
+                change={changeOf(line)}
+                showChange={anyChange}
               />
             ))}
           </dl>
@@ -184,20 +292,41 @@ export function ProfitSummaryCard({
   )
 }
 
+function changeColor(deltaPctValue: number, polarity: Polarity): string {
+  if (polarity === 'neutral' || deltaPctValue === 0) return 'text-muted'
+  const good = polarity === 'down-good' ? deltaPctValue < 0 : deltaPctValue > 0
+  return good ? 'text-pos' : 'text-neg'
+}
+
 /**
  * Totals sit flush and carry a rule; the movements under them are indented and
  * muted, so the shape of the statement reads before any number does.
  */
-function StatementRow({ line, share }: { line: Line; share: number }) {
+function StatementRow({
+  line,
+  share,
+  change,
+  showChange,
+}: {
+  line: Line
+  share: number
+  change: number | null
+  showChange: boolean
+}) {
+  const total = line.kind === 'total'
+  // A subtotal stays indented with the movements it sums, but in the ink the
+  // totals use — it is a figure to rest on, not another adjustment.
+  const strong = total || line.kind === 'subtotal'
+
   return (
     <div
       className={`flex items-baseline justify-between gap-2 py-1 ${
-        line.total ? 'border-t border-row-line first:border-0' : ''
+        total ? 'border-t border-row-line first:border-0' : ''
       }`}
     >
       <dt
-        className={`truncate ${
-          line.total ? 'text-[12px] font-medium text-ink' : 'pl-3 text-[11px] text-muted'
+        className={`truncate ${total ? '' : 'pl-3'} ${
+          strong ? 'text-[12px] font-medium text-ink' : 'text-[11px] text-muted'
         }`}
       >
         {line.label}
@@ -205,15 +334,30 @@ function StatementRow({ line, share }: { line: Line; share: number }) {
       <dd className="flex shrink-0 items-baseline gap-2">
         <span
           className={`tabular-nums ${
-            line.total ? 'text-[12px] font-semibold text-ink' : 'text-[11px] text-muted'
+            strong ? 'text-[12px] font-semibold text-ink' : 'text-[11px] text-muted'
           }`}
         >
           {line.valueLabel}
         </span>
-        {/* Fixed width so the shares line up as a column down the card. */}
+        {/* Each column holds its width even when a line has no figure for it,
+            so one gap cannot shunt the column beside it out of alignment. */}
+        {showChange && (
+          <span
+            className={`flex w-[4.5rem] items-center justify-end gap-0.5 text-[11px] tabular-nums ${
+              change === null ? 'text-muted' : changeColor(change, line.polarity)
+            }`}
+          >
+            {change !== null && (
+              <>
+                {change < 0 ? <ArrowDown size={10} strokeWidth={3} /> : <ArrowUp size={10} strokeWidth={3} />}
+                {formatDeltaPercent(change)}
+              </>
+            )}
+          </span>
+        )}
         <span
           className={`w-12 text-right text-[11px] tabular-nums ${
-            line.total ? 'text-[#9a9aa2]' : 'text-muted'
+            strong ? 'text-[#9a9aa2]' : 'text-muted'
           }`}
         >
           {formatPercent(share)}
