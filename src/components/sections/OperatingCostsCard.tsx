@@ -15,6 +15,7 @@ import {
   totalOperatingCost,
 } from '../../lib/operatingCosts'
 import { formatCurrency } from '../../lib/format'
+import { DatePicker } from '../DatePicker'
 import { Skeleton } from '../Skeleton'
 
 interface OperatingCostsCardProps {
@@ -36,6 +37,28 @@ const CADENCE_LABELS: Record<CostCadence, string> = {
 
 const INPUT =
   'h-8 w-full rounded-md border border-btn-border bg-btn px-2 text-[13px] text-ink outline-none transition-colors focus:border-[#3d3d44]'
+
+/**
+ * The single date a row starts on.
+ *
+ * Underneath, a recurring cost still carries two: `date`, the day of the week
+ * or month each charge lands on, and `startDate`, the day it began applying.
+ * They only ever differ in rows written before the two were asked for together
+ * — a cost that started on the 5th bills on the 5th — so the field shows one
+ * and writes both. The order here matches the one the charge itself resolves
+ * by, so the date on screen is always the date being charged on.
+ */
+const startOf = (cost: OperatingCost): string | undefined =>
+  cost.date ?? cost.startDate
+
+/** Writes that one date back to whichever fields the cadence uses. */
+const startPatch = (
+  cost: OperatingCost,
+  next: string | undefined,
+): Partial<OperatingCost> =>
+  cost.cadence === 'once'
+    ? { date: next }
+    : { date: next, startDate: next }
 
 /**
  * The one place in the dashboard that writes rather than reads. Edits are held
@@ -101,13 +124,13 @@ export function OperatingCostsCard({
         <div className="min-w-0">
           <h3 className="text-[15px] font-semibold text-ink">Operating costs</h3>
           <p className="mt-0.5 max-w-prose text-[12px] text-muted">
-            Costs the store never sees — payroll, software, rent. A{' '}
-            <span className="text-ink">Charged</span> date sets which day a
-            recurring cost lands on — any date on its schedule will do — and it
-            then charges in full whenever the range contains one. Leave it blank
-            to prorate evenly instead. Use{' '}
-            <span className="text-ink">Active</span> dates to bound when the cost
-            ran at all; either side can be blank for open-ended.
+            Costs the store never sees — payroll, software, rent. A recurring
+            cost asks when it{' '}
+            <span className="text-ink">started</span> — that date sets both when
+            it began and which day it lands on, so a subscription taken out on
+            the 5th charges the 5th of every month — and when it{' '}
+            <span className="text-ink">ended</span>, blank while it still runs. A
+            one-off asks only for the day it was charged.
           </p>
         </div>
         <button
@@ -133,14 +156,14 @@ export function OperatingCostsCard({
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1240px] border-collapse text-[13px]">
+          <table className="w-full min-w-[1100px] border-collapse text-[13px]">
             <thead>
               <tr className="border-b border-line text-left">
                 <Th className="pl-5">Cost</Th>
                 <Th>Category</Th>
                 <Th>Cadence</Th>
-                <Th>Charged</Th>
-                <Th>Active from — until</Th>
+                <Th>Starts</Th>
+                <Th>Ends</Th>
                 <Th align="right">Amount</Th>
                 <Th align="right">In this range</Th>
                 <Th className="w-10 pr-5" />
@@ -180,17 +203,18 @@ export function OperatingCostsCard({
                       value={line.cadence}
                       onChange={(e) => {
                         const cadence = e.target.value as CostCadence
+                        const start = startOf(line)
                         update(line.id, {
                           cadence,
                           // A one-off must have a date; default it to the range
                           // end so the row counts immediately rather than
-                          // reading zero. Recurring rows keep whatever anchor
-                          // they had, since it means the same thing there.
-                          date:
-                            cadence === 'once' ? (line.date ?? range.end) : line.date,
-                          // The window has no meaning against a single dated
+                          // reading zero. Either way the day already chosen
+                          // carries over — it means the same thing on both
+                          // sides of the switch.
+                          date: cadence === 'once' ? (start ?? range.end) : start,
+                          // An end date has no meaning against a single dated
                           // charge, so it is dropped rather than left dormant.
-                          startDate: cadence === 'once' ? undefined : line.startDate,
+                          startDate: cadence === 'once' ? undefined : start,
                           endDate: cadence === 'once' ? undefined : line.endDate,
                         })
                       }}
@@ -206,24 +230,27 @@ export function OperatingCostsCard({
 
                   <td className="h-12 px-3 align-middle">
                     <div className="flex items-center gap-2">
-                      <input
-                        type="date"
-                        aria-label={`Charge date, ${line.name || 'cost'}`}
+                      <DatePicker
+                        label={
+                          line.cadence === 'once'
+                            ? `Charge date, ${line.name || 'cost'}`
+                            : `Start date, ${line.name || 'cost'}`
+                        }
                         title={
                           line.cadence === 'once'
                             ? 'The day this charge landed'
-                            : 'Any date on the recurring schedule — it sets which day the charge lands, not when it began. Use Active from for that. Blank spreads the amount evenly instead.'
+                            : 'When the cost began. It also sets which day each charge lands on. Leave it blank to spread the amount evenly across the period instead.'
                         }
-                        value={line.date ?? ''}
-                        onChange={(e) =>
-                          update(line.id, {
-                            // Only a one-off cannot do without one.
-                            date:
-                              e.target.value ||
-                              (line.cadence === 'once' ? '' : undefined),
-                          })
+                        value={startOf(line)}
+                        placeholder={
+                          line.cadence === 'once' ? 'Pick a date' : 'Prorate evenly'
                         }
-                        className={`${INPUT} w-[140px]`}
+                        // A one-off with no date has nowhere to land, so it
+                        // keeps the one it was given; a recurring cost can go
+                        // back to being spread evenly.
+                        clearable={line.cadence !== 'once'}
+                        onChange={(next) => update(line.id, startPatch(line, next))}
+                        className="w-[148px]"
                       />
                       {line.cadence !== 'once' && (
                         <span className="whitespace-nowrap text-[12px] text-muted">
@@ -237,27 +264,18 @@ export function OperatingCostsCard({
                     {line.cadence === 'once' ? (
                       <span className="text-muted">—</span>
                     ) : (
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="date"
-                          aria-label={`Active from, ${line.name || 'cost'}`}
-                          value={line.startDate ?? ''}
-                          onChange={(e) =>
-                            update(line.id, { startDate: e.target.value || undefined })
-                          }
-                          className={`${INPUT} w-[140px]`}
-                        />
-                        <span className="text-muted">–</span>
-                        <input
-                          type="date"
-                          aria-label={`Active until, ${line.name || 'cost'}`}
-                          value={line.endDate ?? ''}
-                          onChange={(e) =>
-                            update(line.id, { endDate: e.target.value || undefined })
-                          }
-                          className={`${INPUT} w-[140px]`}
-                        />
-                      </div>
+                      <DatePicker
+                        label={`End date, ${line.name || 'cost'}`}
+                        title="When the cost stopped. Leave it blank while it still runs."
+                        value={line.endDate}
+                        placeholder="Still running"
+                        clearable
+                        // Nothing before the start can end it, so those days are
+                        // unpickable rather than merely warned about after.
+                        min={startOf(line)}
+                        onChange={(next) => update(line.id, { endDate: next })}
+                        className="w-[148px]"
+                      />
                     )}
                   </td>
                   <td className="h-12 px-3 align-middle">

@@ -313,12 +313,17 @@ export interface OperatingCost {
    * repeats from — weekly every seven days after it, monthly on its day of the
    * month, yearly on its month and day — which makes each charge discrete: a
    * range either contains one or it does not. Blank prorates across the period
-   * instead, spreading the amount evenly, which is the default.
+   * instead, spreading the amount evenly.
    */
   date?: string
   /**
    * `yyyy-MM-dd`. A recurring cost does not apply before this date — when a
    * salary started, when a subscription was taken out. Blank means it always has.
+   *
+   * The editor asks for this and `date` as one question, since a cost that
+   * started on the 5th also bills on the 5th, and writes the answer to both.
+   * They can still differ in rows written before that, so the two stay separate
+   * here and are resolved independently.
    */
   startDate?: string
   /** `yyyy-MM-dd`. Nor after it — when it was cancelled. Blank means it still runs. */

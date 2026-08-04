@@ -161,6 +161,17 @@ function yearlyCount(range: DateRange, anchor: string): number {
   return count
 }
 
+/**
+ * The day a recurring charge repeats from.
+ *
+ * The editor asks for the start date once and writes it to both fields, so they
+ * normally agree. Falling back to `startDate` covers rows stored when the two
+ * were asked for separately: a cost known to have begun on a date charges from
+ * that date rather than quietly reverting to an even spread.
+ */
+const anchorOf = (cost: OperatingCost): string | undefined =>
+  cost.date ?? cost.startDate
+
 /** How many times over `cost` applies to `range`. */
 function occurrences(cost: OperatingCost, range: DateRange): number {
   const active = activeWindow(cost, range)
@@ -171,9 +182,9 @@ function occurrences(cost: OperatingCost, range: DateRange): number {
     return cost.date && cost.date >= active.start && cost.date <= active.end ? 1 : 0
   }
 
-  // No anchor means the amount is spread evenly across the period, which is the
-  // older behaviour and still the default.
-  if (!cost.date) {
+  // No date at all means the amount is spread evenly across the period.
+  const anchor = anchorOf(cost)
+  if (!anchor) {
     switch (cost.cadence) {
       case 'weekly':
         return daysInRange(active) / 7
@@ -186,11 +197,11 @@ function occurrences(cost: OperatingCost, range: DateRange): number {
 
   switch (cost.cadence) {
     case 'weekly':
-      return weeklyCount(active, cost.date)
+      return weeklyCount(active, anchor)
     case 'monthly':
-      return monthlyCount(active, cost.date)
+      return monthlyCount(active, anchor)
     case 'yearly':
-      return yearlyCount(active, cost.date)
+      return yearlyCount(active, anchor)
   }
 }
 
@@ -213,9 +224,10 @@ function ordinal(n: number): string {
  */
 export function chargeLabel(cost: OperatingCost): string {
   if (cost.cadence === 'once') return ''
-  if (!cost.date) return 'prorated'
+  const anchor = anchorOf(cost)
+  if (!anchor) return 'prorated'
 
-  const at = parseIsoDate(cost.date)
+  const at = parseIsoDate(anchor)
   switch (cost.cadence) {
     case 'weekly':
       return `every ${WEEKDAYS[at.getUTCDay()]}`
