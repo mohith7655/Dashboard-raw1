@@ -30,13 +30,28 @@ import * as insights from './adapters/insights'
  * Each section subscribes to its own query, so one failing connector never
  * blanks out the rest of the dashboard.
  */
+/**
+ * The comparison window is part of a cached response, not just of the request
+ * that fetched it — the same range compared against last month and against last
+ * year are two different payloads. Keying on it stops the second one being
+ * served the first one's deltas.
+ */
+const vs = (against: DateRange | null): string =>
+  against ? `${against.start}:${against.end}` : 'none'
+
 export const queryKeys = {
-  woo: (range: DateRange) => ['woo', range.start, range.end] as const,
+  woo: (range: DateRange, against: DateRange | null) =>
+    ['woo', range.start, range.end, vs(against)] as const,
   orders: (range: DateRange, q: OrdersQuery) =>
     ['orders', range.start, range.end, q.page, q.perPage, q.sort, q.direction] as const,
-  meta: (range: DateRange) => ['meta', range.start, range.end] as const,
-  googleAds: (range: DateRange) => ['googleAds', range.start, range.end] as const,
-  traffic: (range: DateRange) => ['traffic', range.start, range.end] as const,
+  meta: (range: DateRange, against: DateRange | null) =>
+    ['meta', range.start, range.end, vs(against)] as const,
+  googleAds: (range: DateRange, against: DateRange | null) =>
+    ['googleAds', range.start, range.end, vs(against)] as const,
+  traffic: (range: DateRange, against: DateRange | null) =>
+    ['traffic', range.start, range.end, vs(against)] as const,
+  // No deltas on either: a GA4 breakdown and a page of orders are lists, and a
+  // row has nothing to be compared against.
   ga4: (range: DateRange, dimension: Ga4Dimension) =>
     ['ga4', range.start, range.end, dimension] as const,
   // Not range-scoped: the stored list is the same whatever period is on screen.
@@ -69,11 +84,14 @@ function toSourceQuery<T>(query: UseQueryResult<T, Error>): SourceQuery<T> {
   }
 }
 
-export function useWooMetrics(range: DateRange): SourceQuery<WooMetrics> {
+export function useWooMetrics(
+  range: DateRange,
+  against: DateRange | null,
+): SourceQuery<WooMetrics> {
   return toSourceQuery(
     useQuery({
-      queryKey: queryKeys.woo(range),
-      queryFn: () => unwrap(metorik.fetchMetrics(range)),
+      queryKey: queryKeys.woo(range, against),
+      queryFn: () => unwrap(metorik.fetchMetrics(range, against)),
     }),
   )
 }
@@ -89,29 +107,38 @@ export function useOrders(range: DateRange, q: OrdersQuery): SourceQuery<OrdersP
   )
 }
 
-export function useMetaMetrics(range: DateRange): SourceQuery<AdsMetrics> {
+export function useMetaMetrics(
+  range: DateRange,
+  against: DateRange | null,
+): SourceQuery<AdsMetrics> {
   return toSourceQuery(
     useQuery({
-      queryKey: queryKeys.meta(range),
-      queryFn: () => unwrap(meta.fetchMetrics(range)),
+      queryKey: queryKeys.meta(range, against),
+      queryFn: () => unwrap(meta.fetchMetrics(range, against)),
     }),
   )
 }
 
-export function useGoogleAdsMetrics(range: DateRange): SourceQuery<AdsMetrics> {
+export function useGoogleAdsMetrics(
+  range: DateRange,
+  against: DateRange | null,
+): SourceQuery<AdsMetrics> {
   return toSourceQuery(
     useQuery({
-      queryKey: queryKeys.googleAds(range),
-      queryFn: () => unwrap(googleAds.fetchMetrics(range)),
+      queryKey: queryKeys.googleAds(range, against),
+      queryFn: () => unwrap(googleAds.fetchMetrics(range, against)),
     }),
   )
 }
 
-export function useTrafficMetrics(range: DateRange): SourceQuery<TrafficMetrics> {
+export function useTrafficMetrics(
+  range: DateRange,
+  against: DateRange | null,
+): SourceQuery<TrafficMetrics> {
   return toSourceQuery(
     useQuery({
-      queryKey: queryKeys.traffic(range),
-      queryFn: () => unwrap(metorik.fetchTraffic(range)),
+      queryKey: queryKeys.traffic(range, against),
+      queryFn: () => unwrap(metorik.fetchTraffic(range, against)),
     }),
   )
 }

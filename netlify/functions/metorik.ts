@@ -14,7 +14,7 @@ import type {
 } from '../../src/lib/types'
 import { ORDER_STATUSES } from '../../src/lib/types'
 import { buildWooMetrics, deltaPct, deriveWoo, metric, round2, type WooTotals } from '../../src/lib/derive'
-import { eachDay, previousRange } from '../../src/lib/dateRange'
+import { eachDay } from '../../src/lib/dateRange'
 import type { CouponType, CouponsPayload, CustomerSegment, CustomersPayload, ProductsPayload } from '../../src/lib/data/types'
 import {
   BadRequest,
@@ -22,6 +22,7 @@ import {
   isRecord,
   json,
   num,
+  readComparison,
   readRange,
   requireEnv,
   toErrorResponse,
@@ -68,10 +69,15 @@ export default async function handler(request: Request): Promise<Response> {
     if (resource === 'coupons') {
       return json(await loadCouponsPage(apiKey, range, url))
     }
+    // Only the two metric views carry deltas; the paged resources above are
+    // lists, and have nothing to compare a row against. A hand-picked window
+    // gets the same clamp the range does — Metorik 422s on a future date.
+    const requested = readComparison(url, range)
+    const against = requested && clampToAvailableData(requested)
     if (resource === 'traffic') {
-      return json(await loadTraffic(apiKey, range))
+      return json(await loadTraffic(apiKey, range, against))
     }
-    return json(await loadMetrics(apiKey, range, meta))
+    return json(await loadMetrics(apiKey, range, against, meta))
   } catch (err) {
     return toErrorResponse(err, HINT)
   }
@@ -552,24 +558,26 @@ interface Aggregate extends WooTotals {
 async function loadMetrics(
   apiKey: string,
   range: DateRange,
+  against: DateRange | null,
   meta: StoreMeta,
 ): Promise<WooMetrics> {
-  const prev = previousRange(range)
+  // The comparison costs two of the five upstream calls, so turning it off
+  // makes the whole load meaningfully cheaper rather than merely quieter.
   const [current, previousAgg, newCustomers, prevCustomers, revenueSide] =
     await Promise.all([
       aggregate(apiKey, range, meta.timeZone),
-      aggregate(apiKey, prev, meta.timeZone),
+      against ? aggregate(apiKey, against, meta.timeZone) : null,
       countNewCustomers(apiKey, range),
-      countNewCustomers(apiKey, prev),
+      against ? countNewCustomers(apiKey, against) : 0,
       paidOrderTotals(apiKey, range),
     ])
 
   current.newCustomers = newCustomers
-  previousAgg.newCustomers = prevCustomers
+  if (previousAgg) previousAgg.newCustomers = prevCustomers
 
   const derived = deriveWoo(current)
 
-  return buildWooMetrics(derived, deriveWoo(previousAgg), {
+  return buildWooMetrics(derived, previousAgg && deriveWoo(previousAgg), {
     revenueSeries: toSeries(range, current.byDay),
     ordersByStatus: toStatusCounts(current.byStatus),
     revenueBySource: toSources(current.bySource),
@@ -902,22 +910,29 @@ async function visitorsReport(
   }
 }
 
-async function loadTraffic(apiKey: string, range: DateRange): Promise<TrafficMetrics> {
+async function loadTraffic(
+  apiKey: string,
+  range: DateRange,
+  against: DateRange | null,
+): Promise<TrafficMetrics> {
   const [current, previous] = await Promise.all([
     visitorsReport(apiKey, range),
-    visitorsReport(apiKey, previousRange(range)),
+    against ? visitorsReport(apiKey, against) : null,
   ])
+
+  const change = (now: number, before: number): number | null =>
+    previous ? deltaPct(now, before) : null
 
   return {
     available: current.available,
     provider: current.provider,
     providerMetric: current.providerMetric,
     visitorDefinition: current.definition,
-    visitors: metric(current.visitors, deltaPct(current.visitors, previous.visitors)),
-    orders: metric(current.orders, deltaPct(current.orders, previous.orders)),
+    visitors: metric(current.visitors, change(current.visitors, previous?.visitors ?? 0)),
+    orders: metric(current.orders, change(current.orders, previous?.orders ?? 0)),
     conversionRate: metric(
       current.conversionRate,
-      deltaPct(current.conversionRate, previous.conversionRate),
+      change(current.conversionRate, previous?.conversionRate ?? 0),
     ),
     series: current.series,
   }

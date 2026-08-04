@@ -1,4 +1,4 @@
-import type { DateRange, PresetId } from './types'
+import type { Comparison, CompareMode, DateRange, PresetId } from './types'
 import { formatDate } from './format'
 
 export const PRESETS: { id: PresetId; label: string }[] = [
@@ -124,6 +124,86 @@ export function previousRange(range: DateRange): DateRange {
     end: toIso(addDays(start, -1)),
     preset: 'custom',
   }
+}
+
+/* ------------------------------ Comparison ------------------------------ */
+
+/**
+ * The same day of the month, N months earlier, falling back to month end where
+ * the target month is shorter. Without the clamp, a range ending on the 31st
+ * would roll forward into the next month and compare against the wrong window.
+ */
+function addMonthsClamped(iso: string, months: number): string {
+  const at = new Date(`${iso}T00:00:00Z`)
+  const month = at.getUTCMonth() + months
+  const lastDay = new Date(Date.UTC(at.getUTCFullYear(), month + 1, 0)).getUTCDate()
+  return toIso(
+    new Date(Date.UTC(at.getUTCFullYear(), month, Math.min(at.getUTCDate(), lastDay))),
+  )
+}
+
+/**
+ * The same range shifted back whole calendar months, both ends together.
+ *
+ * A whole month keeps its shape without needing a special case: July 1–31 back
+ * one month clamps to June 1–30, which is the whole of June.
+ */
+const shiftMonths = (range: DateRange, months: number): DateRange => ({
+  start: addMonthsClamped(range.start, months),
+  end: addMonthsClamped(range.end, months),
+  preset: 'custom',
+})
+
+const shiftDays = (range: DateRange, days: number): DateRange => ({
+  start: toIso(addDays(new Date(`${range.start}T00:00:00Z`), days)),
+  end: toIso(addDays(new Date(`${range.end}T00:00:00Z`), days)),
+  preset: 'custom',
+})
+
+/** What every delta was measured against before the comparison was selectable. */
+export const DEFAULT_COMPARISON: Comparison = { mode: 'period' }
+
+export const COMPARE_MODES: { id: CompareMode; label: string }[] = [
+  { id: 'period', label: 'Period' },
+  { id: 'week', label: 'Week' },
+  { id: 'month', label: 'Month' },
+  { id: 'year', label: 'Year' },
+  { id: 'custom', label: 'Custom' },
+]
+
+/**
+ * The window `range` is measured against, or null when the comparison is off
+ * and the dashboard should show figures without deltas.
+ */
+export function resolveComparison(
+  range: DateRange,
+  comparison: Comparison,
+): DateRange | null {
+  switch (comparison.mode) {
+    case 'none':
+      return null
+    case 'period':
+      return previousRange(range)
+    case 'week':
+      return shiftDays(range, -7)
+    case 'month':
+      return shiftMonths(range, -1)
+    case 'year':
+      return shiftMonths(range, -12)
+    case 'custom':
+      // An unanswered custom is still a comparison, so it falls back rather
+      // than silently turning every delta off.
+      return comparison.range ?? previousRange(range)
+  }
+}
+
+/** `vs Jun 1, 2026 – Jun 30, 2026`, or nothing when the comparison is off. */
+export function formatComparisonLabel(
+  range: DateRange,
+  comparison: Comparison,
+): string {
+  const against = resolveComparison(range, comparison)
+  return against ? `vs ${formatRangeLabel(against)}` : ''
 }
 
 /** Every calendar day in the range, ascending. */

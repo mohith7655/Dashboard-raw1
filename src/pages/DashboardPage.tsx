@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
+import { Megaphone, Percent, TrendingUp } from 'lucide-react'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { KpiCard } from '../components/KpiCard'
 import { FacebookGlyph, GoogleGlyph } from '../components/SectionLabel'
 import { DashboardTabs } from '../components/DashboardTabs'
 import { WooCommerceSection } from '../components/sections/WooCommerceSection'
@@ -12,6 +14,8 @@ import { OrdersByStatus } from '../components/charts/OrdersByStatus'
 import { RevenueByTrafficSource } from '../components/charts/RevenueByTrafficSource'
 import { RecentOrders } from '../components/RecentOrders'
 import { useRange } from '../lib/rangeContext'
+import { blendedAds, combinedAds } from '../lib/pnl'
+import { formatPercent, formatRoas } from '../lib/format'
 import type { DashboardView } from '../lib/navigation'
 import {
   useGoogleAdsMetrics,
@@ -31,16 +35,16 @@ import type {
 const PER_PAGE = 10
 
 export function DashboardPage() {
-  const { range } = useRange()
+  const { range, against } = useRange()
   const [view, setView] = useState<DashboardView>('overview')
   const [page, setPage] = useState(1)
   const [sort, setSort] = useState<OrderSortField>('date')
   const [direction, setDirection] = useState<SortDirection>('desc')
   const [dismissed, setDismissed] = useState<string[]>([])
 
-  const woo = useWooMetrics(range)
-  const meta = useMetaMetrics(range)
-  const google = useGoogleAdsMetrics(range)
+  const woo = useWooMetrics(range, against)
+  const meta = useMetaMetrics(range, against)
+  const google = useGoogleAdsMetrics(range, against)
   const orders = useOrders(range, { page, perPage: PER_PAGE, sort, direction })
   const costs = useOperatingCosts()
   const saveCosts = useSaveOperatingCosts()
@@ -94,6 +98,23 @@ export function DashboardPage() {
   }, [meta.data, google.data])
 
   const adsLoading = meta.isLoading || google.isLoading
+
+  // Meta and Google as one account, plus the two figures that only mean
+  // anything once spend is set against store revenue.
+  const combined = useMemo(() => combinedAds(reportedAds), [reportedAds])
+  const blended = useMemo(
+    () => blendedAds(woo.data, reportedAds),
+    [woo.data, reportedAds],
+  )
+
+  // Named rather than implied: with one connector down the totals are still
+  // real, but they are not everything that was spent.
+  const combinedScope =
+    reportedAds.length > 1
+      ? 'Facebook Meta Ads and Google Ads added together.'
+      : reportedAds.length === 1
+        ? `${reportedAds[0].name} only — the other platform did not report.`
+        : ''
 
   return (
     <>
@@ -153,6 +174,36 @@ export function DashboardPage() {
             metrics={woo.data}
             loading={woo.isLoading}
             failed={!!woo.error}
+          />
+
+          <AdsSection
+            title="All Ads"
+            glyph={<Megaphone size={14} className="text-muted" />}
+            metrics={combined ?? undefined}
+            loading={adsLoading}
+            // Only when neither platform answered; one that did still has real
+            // figures to show.
+            failed={!adsLoading && !combined}
+            subtitle={combinedScope}
+            extra={
+              <>
+                <KpiCard
+                  label="Blended ROAS"
+                  value={blended ? formatRoas(blended.blendedRoas) : '—'}
+                  icon={TrendingUp}
+                  loading={adsLoading || woo.isLoading}
+                  unavailable={!blended || !!woo.error}
+                />
+                <KpiCard
+                  label="Spend % of Revenue"
+                  value={blended ? formatPercent(blended.shareOfRevenue) : '—'}
+                  polarity="down-good"
+                  icon={Percent}
+                  loading={adsLoading || woo.isLoading}
+                  unavailable={!blended || !!woo.error}
+                />
+              </>
+            }
           />
 
           <AdsSection

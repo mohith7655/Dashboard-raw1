@@ -6,12 +6,12 @@ import {
   rankCampaigns,
   type AdsTotals,
 } from '../../src/lib/derive'
-import { previousRange } from '../../src/lib/dateRange'
 import {
   asArray,
   isRecord,
   json,
   num,
+  readComparison,
   readRange,
   requireEnv,
   toErrorResponse,
@@ -26,19 +26,23 @@ const HINT = 'This is a session issue. Please refresh the page or click Retry.'
  */
 export default async function handler(request: Request): Promise<Response> {
   try {
-    const range = readRange(new URL(request.url))
+    const url = new URL(request.url)
+    const range = readRange(url)
+    const against = readComparison(url, range)
     const token = requireEnv('META_ACCESS_TOKEN')
     const accountId = normaliseAccountId(requireEnv('META_AD_ACCOUNT_ID'))
 
     const [current, previous, campaigns] = await Promise.all([
       fetchInsights(accountId, token, range),
-      fetchInsights(accountId, token, previousRange(range)),
+      // With no comparison chosen there is nothing to divide by, so the second
+      // window is never fetched rather than fetched and discarded.
+      against ? fetchInsights(accountId, token, against) : null,
       fetchCampaigns(accountId, token, range),
     ])
 
     const metrics: AdsMetrics = buildAdsMetrics(
       deriveAds(current),
-      deriveAds(previous),
+      previous && deriveAds(previous),
       campaigns,
     )
     return json(metrics)

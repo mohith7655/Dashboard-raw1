@@ -29,6 +29,19 @@ export async function callFunction<T>(
 }
 
 /**
+ * The comparison window as query params.
+ *
+ * Resolved in the browser rather than named by mode, so the function receives
+ * two dates and never has to agree with the client about what `month` means.
+ * Null is sent explicitly — omitting it would read as "unspecified", which the
+ * function answers with the previous period.
+ */
+export const compareParams = (against: DateRange | null): Record<string, string> =>
+  against
+    ? { compareStart: against.start, compareEnd: against.end }
+    : { compare: 'none' }
+
+/**
  * Same contract as `callFunction`, for the one endpoint that sends a body up
  * rather than reading a range off the query string.
  */

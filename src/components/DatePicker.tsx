@@ -180,6 +180,10 @@ export function DatePicker({
             ref={panelRef}
             role="dialog"
             aria-label={label}
+            // Portalled out of the DOM it belongs to, so a popover this one
+            // opens inside cannot recognise a click on it as its own. The
+            // marker is how an outer popover tells the difference.
+            data-nested-popover=""
             style={{ top: pos.top, left: pos.left, width: PANEL_WIDTH }}
             className="fixed z-50 rounded-lg border border-[#3b3b40] bg-[#242426] p-3 shadow-2xl shadow-black/50"
           >

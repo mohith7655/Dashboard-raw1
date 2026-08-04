@@ -1,17 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Calendar, Check, ChevronLeft, ChevronRight } from 'lucide-react'
-import type { DateRange, PresetId } from '../lib/types'
+import { Calendar, Check, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import type { CompareMode, Comparison, DateRange, PresetId } from '../lib/types'
 import {
+  COMPARE_MODES,
   PRESETS,
   formatRangeLabel,
   latestAvailableDate,
+  previousRange,
   rangeFromPreset,
+  resolveComparison,
   toIso,
 } from '../lib/dateRange'
+import { DatePicker } from './DatePicker'
 
 interface DateRangePickerProps {
   value: DateRange
   onChange: (range: DateRange) => void
+  comparison: Comparison
+  onComparisonChange: (comparison: Comparison) => void
 }
 
 type Selecting = 'start' | 'end'
@@ -60,7 +66,12 @@ function calendarDays(month: Date) {
   )
 }
 
-export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
+export function DateRangePicker({
+  value,
+  onChange,
+  comparison,
+  onComparisonChange,
+}: DateRangePickerProps) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState({ start: value.start, end: value.end })
   const [selecting, setSelecting] = useState<Selecting>('start')
@@ -76,7 +87,11 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   useEffect(() => {
     if (!open) return
     const onPointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+      const target = event.target as HTMLElement
+      // The custom comparison's own calendar is portalled to the body, so it
+      // sits outside this panel in the DOM while being part of it on screen.
+      if (target.closest?.('[data-nested-popover]')) return
+      if (!rootRef.current?.contains(target)) setOpen(false)
     }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setOpen(false)
@@ -135,6 +150,10 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
 
   const isInRange = (date: string) => date >= draft.start && date <= draft.end
 
+  // Resolved from the applied range, not the draft: the button reports what the
+  // dashboard is actually measuring against, not what it would be after Apply.
+  const against = resolveComparison(value, comparison)
+
   return (
     <div className="relative" ref={rootRef}>
       <button
@@ -145,7 +164,16 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
         className="flex items-center gap-2 rounded-lg border border-btn-border bg-btn px-3 py-2 text-[13px] text-ink transition-colors hover:border-[#3a3a40]"
       >
         <Calendar size={14} className="text-muted" />
-        <span className="whitespace-nowrap">{formatRangeLabel(value)}</span>
+        <span className="flex flex-col items-start leading-tight">
+          <span className="whitespace-nowrap">{formatRangeLabel(value)}</span>
+          {/* Every delta on the page is measured against this, so it is named
+              on the button rather than only inside the panel that sets it. */}
+          {against && (
+            <span className="whitespace-nowrap text-[11px] text-muted">
+              vs {formatRangeLabel(against)}
+            </span>
+          )}
+        </span>
       </button>
 
       {open && (
@@ -203,6 +231,12 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
                   />
                 ))}
               </div>
+
+              <ComparePanel
+                range={value}
+                comparison={comparison}
+                onChange={onComparisonChange}
+              />
             </div>
 
             <div className="border-t border-[#3b3b40] p-3 md:w-[9.25rem] md:border-l md:border-t-0">
@@ -232,6 +266,105 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Chooses what the range is measured against.
+ *
+ * The modes are relative rather than absolute — `Month` means one month before
+ * whatever range is selected, not a fixed June — so the comparison survives
+ * changing the range, which is the whole point of picking it once at the top.
+ * `Custom` names two dates for anything the four shifts do not reach, such as
+ * two months back or the same quarter two years ago.
+ */
+function ComparePanel({
+  range,
+  comparison,
+  onChange,
+}: {
+  range: DateRange
+  comparison: Comparison
+  onChange: (comparison: Comparison) => void
+}) {
+  const against = resolveComparison(range, comparison)
+  const custom = comparison.mode === 'custom' ? (comparison.range ?? against) : null
+
+  const choose = (mode: CompareMode) => {
+    if (mode !== 'custom') return onChange({ mode })
+    // Seeded from whatever is resolved now, so the two fields open on a real
+    // window rather than empty ones that resolve to nothing.
+    onChange({ mode: 'custom', range: against ?? previousRange(range) })
+  }
+
+  const setBound = (key: 'start' | 'end', iso: string | undefined) => {
+    if (!iso || !custom) return
+    const next =
+      key === 'start'
+        ? { start: iso, end: custom.end < iso ? iso : custom.end }
+        : { start: custom.start, end: iso }
+    onChange({ mode: 'custom', range: { ...next, preset: 'custom' as const } })
+  }
+
+  return (
+    <div className="mt-4 border-t border-[#3b3b40] pt-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[12px] font-medium text-[#e8e8ea]">Compare to previous</span>
+        {comparison.mode !== 'none' && (
+          <button
+            type="button"
+            onClick={() => onChange({ mode: 'none' })}
+            className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-muted transition-colors hover:bg-[#313136] hover:text-ink"
+          >
+            <X size={11} />
+            Clear
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-1">
+        {COMPARE_MODES.map((mode) => (
+          <button
+            key={mode.id}
+            type="button"
+            onClick={() => choose(mode.id)}
+            aria-pressed={comparison.mode === mode.id}
+            className={`rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors ${
+              comparison.mode === mode.id
+                ? 'border-[#67676f] bg-[#35353a] text-ink'
+                : 'border-[#424248] bg-[#26262a] text-[#dedee1] hover:border-[#5a5a61]'
+            }`}
+          >
+            {mode.label}
+          </button>
+        ))}
+      </div>
+
+      {custom && (
+        <div className="mt-2 flex items-center gap-1.5">
+          <DatePicker
+            label="Comparison start date"
+            value={custom.start}
+            onChange={(iso) => setBound('start', iso)}
+            className="flex-1"
+          />
+          <span className="text-muted">–</span>
+          <DatePicker
+            label="Comparison end date"
+            value={custom.end}
+            min={custom.start}
+            onChange={(iso) => setBound('end', iso)}
+            className="flex-1"
+          />
+        </div>
+      )}
+
+      <p className="mt-2 text-[11px] text-muted">
+        {against
+          ? `Every change on the dashboard is measured against ${formatRangeLabel(against)}.`
+          : 'Comparison off — figures are shown without a change.'}
+      </p>
     </div>
   )
 }

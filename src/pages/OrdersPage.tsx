@@ -14,12 +14,12 @@ import type { OrderSortField, SortDirection } from '../lib/types'
 const PER_PAGE = 25
 
 export function OrdersPage() {
-  const { range } = useRange()
+  const { range, against } = useRange()
   const [page, setPage] = useState(1)
   const [sort, setSort] = useState<OrderSortField>('date')
   const [direction, setDirection] = useState<SortDirection>('desc')
 
-  const woo = useWooMetrics(range)
+  const woo = useWooMetrics(range, against)
   const orders = useOrders(range, { page, perPage: PER_PAGE, sort, direction })
 
   const onSortChange = (field: OrderSortField) => {

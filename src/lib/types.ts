@@ -20,8 +20,27 @@ export type PresetId =
   | 'custom'
 
 /**
- * A single number plus its change against the immediately preceding period of
- * equal length. `deltaPct` is null when there is no comparable prior value.
+ * Which window the selected range is measured against. Every delta on the
+ * dashboard is a change from this one, so it is chosen once beside the range
+ * rather than per card.
+ *
+ * `period` is the equal-length window immediately before — the older behaviour
+ * and still the default. `week`, `month` and `year` shift the same range back
+ * by one of those instead, which is what "the same fortnight last year" means.
+ * `custom` names two dates outright, for anything further back.
+ */
+export type CompareMode = 'none' | 'period' | 'week' | 'month' | 'year' | 'custom'
+
+export interface Comparison {
+  mode: CompareMode
+  /** Read only when `mode` is `custom`; the other modes derive their window. */
+  range?: DateRange
+}
+
+/**
+ * A single number plus its change against the comparison window. `deltaPct` is
+ * null when there is no comparable prior value, and whenever the comparison is
+ * turned off.
  */
 export interface Metric {
   value: number
@@ -224,6 +243,21 @@ export interface Campaign {
   cpc: number
 }
 
+/**
+ * The raw counters a platform reports, before any ratio is derived.
+ *
+ * Platforms only combine at this level. Two CTRs cannot be added, and the CTR
+ * of Meta and Google together is their summed clicks over their summed
+ * impressions — not the mean of the two figures.
+ */
+export interface AdsCounters {
+  spend: number
+  impressions: number
+  clicks: number
+  conversions: number
+  conversionValue: number
+}
+
 export interface AdsMetrics {
   spend: Metric
   impressions: Metric
@@ -236,6 +270,10 @@ export interface AdsMetrics {
   conversions: Metric
   /** Every campaign that spent or served in the period, largest spend first. */
   campaigns: Campaign[]
+  /** What the metrics above were derived from, kept so platforms can be summed. */
+  totals: AdsCounters
+  /** The same over the comparison window, or null when it is off. */
+  previousTotals: AdsCounters | null
 }
 
 export interface Order {

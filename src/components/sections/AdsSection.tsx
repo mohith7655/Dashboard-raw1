@@ -24,6 +24,13 @@ interface AdsSectionProps {
   metrics: AdsMetrics | undefined
   loading: boolean
   failed: boolean
+  /** Sits under the title, for a section whose scope needs saying. */
+  subtitle?: string
+  /**
+   * Cards appended after the eight standard ones. The combined view adds the
+   * two figures that only exist once several platforms are added together.
+   */
+  extra?: React.ReactNode
 }
 
 const GRID = 'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'
@@ -35,12 +42,15 @@ export function AdsSection({
   metrics,
   loading,
   failed,
+  subtitle,
+  extra,
 }: AdsSectionProps) {
   const shared = { loading, unavailable: failed }
 
   return (
     <section>
       <SectionLabel glyph={glyph}>{title}</SectionLabel>
+      {subtitle && <p className="-mt-1 mb-3 text-[12px] text-muted">{subtitle}</p>}
 
       <div className={GRID}>
         <KpiCard
@@ -106,6 +116,8 @@ export function AdsSection({
           {...shared}
         />
       </div>
+
+      {extra && <div className={`${GRID} mt-4`}>{extra}</div>}
     </section>
   )
 }

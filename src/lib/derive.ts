@@ -1,4 +1,4 @@
-import type { AdsMetrics, Campaign, Metric, WooMetrics } from './types'
+import type { AdsCounters, AdsMetrics, Campaign, Metric, WooMetrics } from './types'
 
 export function metric(value: number, deltaPct: number | null): Metric {
   return { value, deltaPct }
@@ -47,10 +47,16 @@ export function deriveWoo(t: WooTotals): WooDerived {
   }
 }
 
-/** Builds the full metric set from a current and a previous-period total. */
+/**
+ * Builds the full metric set from a current and a comparison total.
+ *
+ * `previous` is null when the comparison is turned off, and every delta then
+ * reads as absent rather than as no change — which is the same state a metric
+ * with nothing to divide by was always in.
+ */
 export function buildWooMetrics(
   current: WooDerived,
-  previous: WooDerived,
+  previous: WooDerived | null,
   rest: Pick<
     WooMetrics,
     | 'revenueSeries'
@@ -63,30 +69,30 @@ export function buildWooMetrics(
     | 'orderCount'
   >,
 ): WooMetrics {
+  const of = <K extends keyof WooDerived>(key: K): Metric =>
+    metric(current[key], previous ? deltaPct(current[key], previous[key]) : null)
+
   return {
-    totalRevenue: metric(current.totalRevenue, deltaPct(current.totalRevenue, previous.totalRevenue)),
-    newCustomers: metric(current.newCustomers, deltaPct(current.newCustomers, previous.newCustomers)),
-    avgOrderValue: metric(current.avgOrderValue, deltaPct(current.avgOrderValue, previous.avgOrderValue)),
-    totalOrders: metric(current.totalOrders, deltaPct(current.totalOrders, previous.totalOrders)),
-    totalCost: metric(current.totalCost, deltaPct(current.totalCost, previous.totalCost)),
-    productCost: metric(current.productCost, deltaPct(current.productCost, previous.productCost)),
-    shippingCost: metric(current.shippingCost, deltaPct(current.shippingCost, previous.shippingCost)),
-    transactionCost: metric(current.transactionCost, deltaPct(current.transactionCost, previous.transactionCost)),
-    grossProfit: metric(current.grossProfit, deltaPct(current.grossProfit, previous.grossProfit)),
+    totalRevenue: of('totalRevenue'),
+    newCustomers: of('newCustomers'),
+    avgOrderValue: of('avgOrderValue'),
+    totalOrders: of('totalOrders'),
+    totalCost: of('totalCost'),
+    productCost: of('productCost'),
+    shippingCost: of('shippingCost'),
+    transactionCost: of('transactionCost'),
+    grossProfit: of('grossProfit'),
     // Margin is a ratio of ratios; the reference design shows it without a delta.
     grossMargin: metric(current.grossMargin, null),
     ...rest,
   }
 }
 
-/** Raw counters an ad platform reports; everything else is derived from these. */
-export interface AdsTotals {
-  spend: number
-  impressions: number
-  clicks: number
-  conversions: number
-  conversionValue: number
-}
+/**
+ * Raw counters an ad platform reports; everything else is derived from these.
+ * Named in `types.ts` because a built `AdsMetrics` carries them too.
+ */
+export type AdsTotals = AdsCounters
 
 export interface AdsDerived extends AdsTotals {
   ctr: number
@@ -105,23 +111,38 @@ export function deriveAds(t: AdsTotals): AdsDerived {
   }
 }
 
+/** As above: a null `previous` means the comparison is off, not that it was flat. */
 export function buildAdsMetrics(
   current: AdsDerived,
-  previous: AdsDerived,
+  previous: AdsDerived | null,
   campaigns: Campaign[] = [],
 ): AdsMetrics {
+  const of = <K extends keyof AdsDerived>(key: K): Metric =>
+    metric(current[key], previous ? deltaPct(current[key], previous[key]) : null)
+
   return {
-    spend: metric(current.spend, deltaPct(current.spend, previous.spend)),
-    impressions: metric(current.impressions, deltaPct(current.impressions, previous.impressions)),
-    clicks: metric(current.clicks, deltaPct(current.clicks, previous.clicks)),
-    ctr: metric(current.ctr, deltaPct(current.ctr, previous.ctr)),
-    roas: metric(current.roas, deltaPct(current.roas, previous.roas)),
-    cpc: metric(current.cpc, deltaPct(current.cpc, previous.cpc)),
-    cpm: metric(current.cpm, deltaPct(current.cpm, previous.cpm)),
-    conversions: metric(current.conversions, deltaPct(current.conversions, previous.conversions)),
+    spend: of('spend'),
+    impressions: of('impressions'),
+    clicks: of('clicks'),
+    ctr: of('ctr'),
+    roas: of('roas'),
+    cpc: of('cpc'),
+    cpm: of('cpm'),
+    conversions: of('conversions'),
     campaigns,
+    totals: counters(current),
+    previousTotals: previous && counters(previous),
   }
 }
+
+/** Strips the derived ratios back off, leaving only what is safe to add up. */
+const counters = (t: AdsTotals): AdsCounters => ({
+  spend: t.spend,
+  impressions: t.impressions,
+  clicks: t.clicks,
+  conversions: t.conversions,
+  conversionValue: t.conversionValue,
+})
 
 /** Campaign ratios come from the same derivation the account totals use. */
 export function buildCampaign(

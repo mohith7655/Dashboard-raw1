@@ -1,13 +1,20 @@
 import { Database, Settings, ShoppingCart } from 'lucide-react'
-import type { DateRange } from '../lib/types'
+import type { Comparison, DateRange } from '../lib/types'
 import { DateRangePicker } from './DateRangePicker'
 
 interface HeaderProps {
   range: DateRange
   onRangeChange: (range: DateRange) => void
+  comparison: Comparison
+  onComparisonChange: (comparison: Comparison) => void
 }
 
-export function Header({ range, onRangeChange }: HeaderProps) {
+export function Header({
+  range,
+  onRangeChange,
+  comparison,
+  onComparisonChange,
+}: HeaderProps) {
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-bg/85 backdrop-blur">
       <div className="mx-auto flex max-w-[1280px] flex-wrap items-center gap-3 px-4 py-3">
@@ -32,7 +39,12 @@ export function Header({ range, onRangeChange }: HeaderProps) {
           <OutlineButton icon={<Settings size={14} className="text-muted" />}>
             Customize
           </OutlineButton>
-          <DateRangePicker value={range} onChange={onRangeChange} />
+          <DateRangePicker
+            value={range}
+            onChange={onRangeChange}
+            comparison={comparison}
+            onComparisonChange={onComparisonChange}
+          />
         </div>
       </div>
     </header>

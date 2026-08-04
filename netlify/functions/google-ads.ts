@@ -7,12 +7,12 @@ import {
   rankCampaigns,
   type AdsTotals,
 } from '../../src/lib/derive'
-import { previousRange } from '../../src/lib/dateRange'
 import {
   asArray,
   isRecord,
   json,
   num,
+  readComparison,
   readRange,
   requireEnv,
   toErrorResponse,
@@ -30,7 +30,9 @@ const HINT =
 /** Google Ads API. All OAuth material stays server-side. */
 export default async function handler(request: Request): Promise<Response> {
   try {
-    const range = readRange(new URL(request.url))
+    const url = new URL(request.url)
+    const range = readRange(url)
+    const against = readComparison(url, range)
     const customerId = digitsOnly(requireEnv('GOOGLE_ADS_CUSTOMER_ID'))
     const developerToken = requireEnv('GOOGLE_ADS_DEVELOPER_TOKEN')
     const accessToken = await getAccessToken()
@@ -40,13 +42,15 @@ export default async function handler(request: Request): Promise<Response> {
 
     const [current, previous, campaigns] = await Promise.all([
       fetchTotals(search, range),
-      fetchTotals(search, previousRange(range)),
+      // With no comparison chosen there is nothing to divide by, so the second
+      // window is never fetched rather than fetched and discarded.
+      against ? fetchTotals(search, against) : null,
       fetchCampaigns(search, range),
     ])
 
     const metrics: AdsMetrics = buildAdsMetrics(
       deriveAds(current),
-      deriveAds(previous),
+      previous && deriveAds(previous),
       campaigns,
     )
     return json(metrics)

@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
+import { Megaphone, Percent, TrendingUp } from 'lucide-react'
 import { Header } from './components/Header'
+import { KpiCard } from './components/KpiCard'
 import { ErrorBanner } from './components/ErrorBanner'
 import { FacebookGlyph, GoogleGlyph } from './components/SectionLabel'
 import { DashboardTabs } from './components/DashboardTabs'
@@ -15,8 +17,15 @@ import { RevenueOverTime } from './components/charts/RevenueOverTime'
 import { OrdersByStatus } from './components/charts/OrdersByStatus'
 import { RevenueByTrafficSource } from './components/charts/RevenueByTrafficSource'
 import { RecentOrders } from './components/RecentOrders'
-import { formatRangeLabel, rangeFromPreset } from './lib/dateRange'
+import {
+  DEFAULT_COMPARISON,
+  formatRangeLabel,
+  rangeFromPreset,
+  resolveComparison,
+} from './lib/dateRange'
 import { buildSnapshot } from './lib/insightsSnapshot'
+import { blendedAds, combinedAds } from './lib/pnl'
+import { formatPercent, formatRoas } from './lib/format'
 import { costLines } from './lib/operatingCosts'
 import type { DashboardView } from './lib/navigation'
 import {
@@ -32,6 +41,7 @@ import {
 } from './lib/queries'
 import type {
   AdsMetrics,
+  Comparison,
   DateRange,
   Ga4Dimension,
   OrderSortField,
@@ -43,6 +53,7 @@ const PER_PAGE = 10
 
 export default function App() {
   const [range, setRange] = useState<DateRange>(() => rangeFromPreset('thisMonth'))
+  const [comparison, setComparison] = useState<Comparison>(DEFAULT_COMPARISON)
   const [view, setView] = useState<DashboardView>('overview')
   const [page, setPage] = useState(1)
   const [sort, setSort] = useState<OrderSortField>('date')
@@ -50,13 +61,20 @@ export default function App() {
   const [dismissed, setDismissed] = useState<string[]>([])
   const [ga4Dimension, setGa4Dimension] = useState<Ga4Dimension>('country')
 
-  const woo = useWooMetrics(range)
-  const meta = useMetaMetrics(range)
-  const google = useGoogleAdsMetrics(range)
+  // Resolved once here rather than inside each hook: the modes are relative to
+  // the range, so every source has to be asking about the same window.
+  const against = useMemo(
+    () => resolveComparison(range, comparison),
+    [range, comparison],
+  )
+
+  const woo = useWooMetrics(range, against)
+  const meta = useMetaMetrics(range, against)
+  const google = useGoogleAdsMetrics(range, against)
   const orders = useOrders(range, { page, perPage: PER_PAGE, sort, direction })
   const costs = useOperatingCosts()
   const saveCosts = useSaveOperatingCosts()
-  const traffic = useTrafficMetrics(range)
+  const traffic = useTrafficMetrics(range, against)
   const ga4 = useGa4Report(range, ga4Dimension)
   const insights = useInsights()
 
@@ -140,9 +158,31 @@ export default function App() {
 
   const adsLoading = meta.isLoading || google.isLoading
 
+  // Meta and Google as one account, plus the two figures that only mean
+  // anything once spend is set against store revenue.
+  const combined = useMemo(() => combinedAds(reportedAds), [reportedAds])
+  const blended = useMemo(
+    () => blendedAds(woo.data, reportedAds),
+    [woo.data, reportedAds],
+  )
+
+  // Named rather than implied: with one connector down the totals are still
+  // real, but they are not everything that was spent.
+  const combinedScope =
+    reportedAds.length > 1
+      ? 'Facebook Meta Ads and Google Ads added together.'
+      : reportedAds.length === 1
+        ? `${reportedAds[0].name} only — the other platform did not report.`
+        : ''
+
   return (
     <div className="min-h-screen bg-bg">
-      <Header range={range} onRangeChange={onRangeChange} />
+      <Header
+        range={range}
+        onRangeChange={onRangeChange}
+        comparison={comparison}
+        onComparisonChange={setComparison}
+      />
 
       <main className="mx-auto max-w-[1280px] px-4 py-6">
         {banners.length > 0 && (
@@ -236,6 +276,36 @@ export default function App() {
               metrics={woo.data}
               loading={woo.isLoading}
               failed={!!woo.error}
+            />
+
+            <AdsSection
+              title="All Ads"
+              glyph={<Megaphone size={14} className="text-muted" />}
+              metrics={combined ?? undefined}
+              loading={adsLoading}
+              // Only when neither platform answered; one that did still has
+              // real figures to show.
+              failed={!adsLoading && !combined}
+              subtitle={combinedScope}
+              extra={
+                <>
+                  <KpiCard
+                    label="Blended ROAS"
+                    value={blended ? formatRoas(blended.blendedRoas) : '—'}
+                    icon={TrendingUp}
+                    loading={adsLoading || woo.isLoading}
+                    unavailable={!blended || !!woo.error}
+                  />
+                  <KpiCard
+                    label="Spend % of Revenue"
+                    value={blended ? formatPercent(blended.shareOfRevenue) : '—'}
+                    polarity="down-good"
+                    icon={Percent}
+                    loading={adsLoading || woo.isLoading}
+                    unavailable={!blended || !!woo.error}
+                  />
+                </>
+              }
             />
 
             <AdsSection

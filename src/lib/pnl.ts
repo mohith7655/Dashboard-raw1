@@ -2,8 +2,8 @@
  * Views that are built entirely from figures the dashboard already loads —
  * no extra upstream calls, so every tab answers its question at a glance.
  */
-import type { AdsMetrics, Campaign, WooMetrics } from './types'
-import { round2 } from './derive'
+import type { AdsCounters, AdsMetrics, Campaign, WooMetrics } from './types'
+import { buildAdsMetrics, deriveAds, emptyAdsTotals, round2 } from './derive'
 import { formatCurrency } from './format'
 
 /* ----------------------------- Profit & loss ---------------------------- */
@@ -206,6 +206,51 @@ export function campaignRows(
   return rows.sort(
     (a, b) => sign * (a[sort] - b[sort]) || a.name.localeCompare(b.name),
   )
+}
+
+const addCounters = (a: AdsCounters, b: AdsCounters): AdsCounters => ({
+  spend: a.spend + b.spend,
+  impressions: a.impressions + b.impressions,
+  clicks: a.clicks + b.clicks,
+  conversions: a.conversions + b.conversions,
+  conversionValue: a.conversionValue + b.conversionValue,
+})
+
+/**
+ * Every reported platform as a single account.
+ *
+ * Built by summing the raw counters and then deriving, which is exactly how one
+ * platform's own figures are built — so the combined CTR is total clicks over
+ * total impressions, and the combined CPC is total spend over total clicks,
+ * rather than an average of two ratios that would weight a tiny account the
+ * same as a large one.
+ *
+ * The comparison window is summed the same way, and only from platforms that
+ * reported one; deltas come out of the same builder the per-platform cards use.
+ * Returns null when no platform answered, so the block is absent rather than
+ * reading as a genuine zero.
+ */
+export function combinedAds(
+  reported: { name: string; metrics: AdsMetrics }[],
+): AdsMetrics | null {
+  if (reported.length === 0) return null
+
+  const current = reported.reduce(
+    (sum, { metrics }) => addCounters(sum, metrics.totals),
+    emptyAdsTotals(),
+  )
+
+  // A platform with no comparison figures contributes nothing rather than
+  // zeroes, which would drag the combined baseline down and invent growth.
+  const withPrevious = reported.filter((r) => r.metrics.previousTotals)
+  const previous = withPrevious.length
+    ? withPrevious.reduce(
+        (sum, { metrics }) => addCounters(sum, metrics.previousTotals as AdsCounters),
+        emptyAdsTotals(),
+      )
+    : null
+
+  return buildAdsMetrics(deriveAds(current), previous && deriveAds(previous))
 }
 
 /**

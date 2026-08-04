@@ -20,9 +20,9 @@ const TYPE_COLOR: Record<ReportType, string> = {
 }
 
 export function ReportsPage() {
-  const { range } = useRange()
+  const { range, against } = useRange()
   const reports = useReports(range)
-  const woo = useWooMetrics(range)
+  const woo = useWooMetrics(range, against)
 
   return (
     <>

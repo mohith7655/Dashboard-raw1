@@ -4,18 +4,32 @@ import { Database, Menu, Settings } from 'lucide-react'
 import { Sidebar } from './Sidebar'
 import { DateRangePicker } from '../DateRangePicker'
 import { RangeContext } from '../../lib/rangeContext'
-import { rangeFromPreset } from '../../lib/dateRange'
+import {
+  DEFAULT_COMPARISON,
+  rangeFromPreset,
+  resolveComparison,
+} from '../../lib/dateRange'
 import { NAV_GROUPS } from '../../lib/navigation'
-import type { DateRange } from '../../lib/types'
+import type { Comparison, DateRange } from '../../lib/types'
 
 const STORE_NAME = 'Rawwgear.com'
 
 export function AppShell() {
   const [range, setRange] = useState<DateRange>(() => rangeFromPreset('thisMonth'))
+  const [comparison, setComparison] = useState<Comparison>(DEFAULT_COMPARISON)
   const [navOpen, setNavOpen] = useState(false)
   const { pathname } = useLocation()
 
-  const rangeValue = useMemo(() => ({ range, setRange }), [range])
+  const rangeValue = useMemo(
+    () => ({
+      range,
+      setRange,
+      comparison,
+      setComparison,
+      against: resolveComparison(range, comparison),
+    }),
+    [range, comparison],
+  )
 
   const title =
     NAV_GROUPS.flatMap((g) => g.items).find((i) => i.to === pathname)?.label ??
@@ -58,7 +72,12 @@ export function AppShell() {
                 <OutlineButton icon={<Settings size={14} className="text-muted" />}>
                   Customize
                 </OutlineButton>
-                <DateRangePicker value={range} onChange={setRange} />
+                <DateRangePicker
+                  value={range}
+                  onChange={setRange}
+                  comparison={comparison}
+                  onComparisonChange={setComparison}
+                />
               </div>
             </div>
           </header>

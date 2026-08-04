@@ -6,7 +6,7 @@ import type {
   TrafficMetrics,
   WooMetrics,
 } from '../types'
-import { callFunction, toResult } from './client'
+import { callFunction, compareParams, toResult } from './client'
 
 const SOURCE = 'Metorik'
 const HINT =
@@ -14,15 +14,24 @@ const HINT =
 const TRAFFIC_HINT =
   'Traffic comes from the analytics provider connected to Metorik. Check that integration, then click Retry.'
 
-export async function fetchMetrics(range: DateRange): Promise<AdapterResult<WooMetrics>> {
-  return toResult(SOURCE, HINT, () => callFunction<WooMetrics>('metorik', range))
+export async function fetchMetrics(
+  range: DateRange,
+  against: DateRange | null,
+): Promise<AdapterResult<WooMetrics>> {
+  return toResult(SOURCE, HINT, () =>
+    callFunction<WooMetrics>('metorik', range, compareParams(against)),
+  )
 }
 
 export async function fetchTraffic(
   range: DateRange,
+  against: DateRange | null,
 ): Promise<AdapterResult<TrafficMetrics>> {
   return toResult(SOURCE, TRAFFIC_HINT, () =>
-    callFunction<TrafficMetrics>('metorik', range, { resource: 'traffic' }),
+    callFunction<TrafficMetrics>('metorik', range, {
+      resource: 'traffic',
+      ...compareParams(against),
+    }),
   )
 }
 

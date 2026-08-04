@@ -1,4 +1,5 @@
 import type { DateRange } from '../../src/lib/types'
+import { previousRange } from '../../src/lib/dateRange'
 
 /** Error body contract shared by every function; the client reads `error.message`. */
 export interface ErrorBody {
@@ -50,6 +51,31 @@ export function readRange(url: URL): DateRange {
     throw new BadRequest('`start` and `end` are required and must be yyyy-MM-dd')
   }
   if (start > end) throw new BadRequest('`start` must not be after `end`')
+  return { start, end, preset: 'custom' }
+}
+
+/**
+ * Reads the window every delta is measured against off `?compareStart=&compareEnd=`.
+ *
+ * Absent, it falls back to the period immediately before `range` — what every
+ * caller computed for itself before the comparison became selectable, so an
+ * older client and a cached URL both keep working. `?compare=none` turns it off
+ * and returns null, and the function then skips its second upstream call
+ * entirely rather than fetching a window nothing will display.
+ */
+export function readComparison(url: URL, range: DateRange): DateRange | null {
+  if (url.searchParams.get('compare') === 'none') return null
+
+  const start = url.searchParams.get('compareStart')
+  const end = url.searchParams.get('compareEnd')
+  if (!start && !end) return previousRange(range)
+
+  if (!start || !ISO_DATE.test(start) || !end || !ISO_DATE.test(end)) {
+    throw new BadRequest(
+      '`compareStart` and `compareEnd` must both be yyyy-MM-dd when either is given',
+    )
+  }
+  if (start > end) throw new BadRequest('`compareStart` must not be after `compareEnd`')
   return { start, end, preset: 'custom' }
 }
 
