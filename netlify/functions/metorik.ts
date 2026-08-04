@@ -947,6 +947,7 @@ async function aggregate(
     totalRevenue: 0,
     totalOrders: 0,
     newCustomers: 0,
+    totalCustomers: 0,
     productCost: 0,
     shippingCost: 0,
     transactionCost: 0,
@@ -958,6 +959,10 @@ async function aggregate(
     byCurrency: new Map(),
     orderCount: 0,
   }
+
+  // Counted here rather than from `/customers`, so "customers this period"
+  // is scoped to exactly the orders the revenue figures came from.
+  const buyers = new Set<string>()
 
   for (let page = 1; page <= MAX_PAGES; page++) {
     const body = await metorik(apiKey, '/orders', {
@@ -984,6 +989,8 @@ async function aggregate(
       agg.transactionCost += pick(row, ['transaction_cogs', 'transaction_fee', 'transaction_fees', 'fees_total'])
       agg.otherCost += pick(row, ['extra_cogs'])
 
+      buyers.add(buyerKey(row, order))
+
       const source = readSource(row)
       if (source) agg.bySource.set(source, (agg.bySource.get(source) ?? 0) + order.total)
 
@@ -1006,7 +1013,25 @@ async function aggregate(
   agg.shippingCost = round2(agg.shippingCost)
   agg.transactionCost = round2(agg.transactionCost)
   agg.otherCost = round2(agg.otherCost)
+  agg.totalCustomers = buyers.size
   return agg
+}
+
+/**
+ * What counts as one buyer across several orders.
+ *
+ * A registered customer id is the only identifier the store itself guarantees;
+ * email is the next best, and matches a guest who checked out twice with the
+ * same address. Failing both, the order stands alone rather than collapsing
+ * every anonymous order in the period into a single phantom customer.
+ */
+function buyerKey(row: Record<string, unknown>, order: Order): string {
+  const id = row.customer_id
+  if (typeof id === 'number' && id > 0) return `id:${id}`
+  if (typeof id === 'string' && id && id !== '0') return `id:${id}`
+
+  const email = order.email.trim().toLowerCase()
+  return email ? `email:${email}` : `order:${order.id}`
 }
 
 function tally(

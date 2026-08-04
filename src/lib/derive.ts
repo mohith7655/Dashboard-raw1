@@ -19,6 +19,8 @@ export interface WooTotals {
   totalRevenue: number
   totalOrders: number
   newCustomers: number
+  /** Distinct buyers behind `totalOrders`. */
+  totalCustomers: number
   productCost: number
   shippingCost: number
   transactionCost: number
@@ -31,6 +33,7 @@ export interface WooDerived extends WooTotals {
   grossProfit: number
   grossMargin: number
   avgOrderValue: number
+  returningCustomers: number
 }
 
 export function deriveWoo(t: WooTotals): WooDerived {
@@ -44,6 +47,11 @@ export function deriveWoo(t: WooTotals): WooDerived {
     grossProfit,
     grossMargin: safeDiv(grossProfit, t.totalRevenue),
     avgOrderValue: round2(safeDiv(t.totalRevenue, t.totalOrders)),
+    // The two counts come from different questions — new is "first ever order
+    // in this period" across all statuses, total is "placed a paid order in
+    // this period" — so a first order that was later cancelled can make new
+    // exceed total. Clamping keeps the card from reading a negative.
+    returningCustomers: Math.max(0, t.totalCustomers - t.newCustomers),
   }
 }
 
@@ -75,6 +83,8 @@ export function buildWooMetrics(
   return {
     totalRevenue: of('totalRevenue'),
     newCustomers: of('newCustomers'),
+    totalCustomers: of('totalCustomers'),
+    returningCustomers: of('returningCustomers'),
     avgOrderValue: of('avgOrderValue'),
     totalOrders: of('totalOrders'),
     totalCost: of('totalCost'),

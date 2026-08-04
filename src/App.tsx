@@ -6,6 +6,7 @@ import { ErrorBanner } from './components/ErrorBanner'
 import { FacebookGlyph, GoogleGlyph } from './components/SectionLabel'
 import { DashboardTabs } from './components/DashboardTabs'
 import { WooCommerceSection } from './components/sections/WooCommerceSection'
+import { ProfitSummaryCard } from './components/sections/ProfitSummaryCard'
 import { AdsSection } from './components/sections/AdsSection'
 import { AdSpendSection } from './components/sections/AdSpendSection'
 import { MarketsSection } from './components/sections/MarketsSection'
@@ -175,6 +176,7 @@ export default function App() {
         ? `${reportedAds[0].name} only — the other platform did not report.`
         : ''
 
+
   return (
     <div className="min-h-screen bg-bg">
       <Header
@@ -276,6 +278,16 @@ export default function App() {
               metrics={woo.data}
               loading={woo.isLoading}
               failed={!!woo.error}
+              summary={
+                <ProfitSummaryCard
+                  woo={woo.data}
+                  reportedAds={reportedAds}
+                  costs={costs.data}
+                  range={range}
+                  loading={woo.isLoading || adsLoading || costs.isLoading}
+                  failed={!!woo.error}
+                />
+              }
             />
 
             <AdsSection
@@ -287,6 +299,7 @@ export default function App() {
               // real figures to show.
               failed={!adsLoading && !combined}
               subtitle={combinedScope}
+              platforms={reportedAds}
               extra={
                 <>
                   <KpiCard

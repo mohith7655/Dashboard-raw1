@@ -114,7 +114,15 @@ export interface ProfitAndLoss {
 
 export interface WooMetrics {
   totalRevenue: Metric
+  /** Customers whose very first order falls in the period. */
   newCustomers: Metric
+  /**
+   * Distinct customers who placed a paid order in the period — counted from
+   * the orders themselves, so it is scoped exactly like the revenue figures.
+   */
+  totalCustomers: Metric
+  /** Those who had bought before: total less new, never below zero. */
+  returningCustomers: Metric
   avgOrderValue: Metric
   totalOrders: Metric
   totalCost: Metric

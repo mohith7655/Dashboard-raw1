@@ -5,6 +5,7 @@ import { KpiCard } from '../components/KpiCard'
 import { FacebookGlyph, GoogleGlyph } from '../components/SectionLabel'
 import { DashboardTabs } from '../components/DashboardTabs'
 import { WooCommerceSection } from '../components/sections/WooCommerceSection'
+import { ProfitSummaryCard } from '../components/sections/ProfitSummaryCard'
 import { AdsSection } from '../components/sections/AdsSection'
 import { AdSpendSection } from '../components/sections/AdSpendSection'
 import { ProfitLossSection } from '../components/sections/ProfitLossSection'
@@ -116,6 +117,7 @@ export function DashboardPage() {
         ? `${reportedAds[0].name} only — the other platform did not report.`
         : ''
 
+
   return (
     <>
       {banners.length > 0 && (
@@ -174,6 +176,16 @@ export function DashboardPage() {
             metrics={woo.data}
             loading={woo.isLoading}
             failed={!!woo.error}
+            summary={
+              <ProfitSummaryCard
+                woo={woo.data}
+                reportedAds={reportedAds}
+                costs={costs.data}
+                range={range}
+                loading={woo.isLoading || adsLoading || costs.isLoading}
+                failed={!!woo.error}
+              />
+            }
           />
 
           <AdsSection
@@ -185,6 +197,7 @@ export function DashboardPage() {
             // figures to show.
             failed={!adsLoading && !combined}
             subtitle={combinedScope}
+            platforms={reportedAds}
             extra={
               <>
                 <KpiCard

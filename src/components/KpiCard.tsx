@@ -1,7 +1,20 @@
 import { ArrowDown, ArrowUp, type LucideIcon } from 'lucide-react'
 import type { Metric, Polarity } from '../lib/types'
-import { formatDeltaPercent } from '../lib/format'
+import { formatDeltaPercent, formatPercent } from '../lib/format'
 import { Skeleton } from './Skeleton'
+
+/** One line of the smaller figures under a headline value. */
+export interface KpiPart {
+  label: string
+  /** Already formatted, like `value`. */
+  value: string
+  /**
+   * Share of the headline as a ratio in 0..1, shown at the end of the line.
+   * Omitted where a part is not a fraction of the total — gross sales is
+   * larger than the revenue below it, and `112%` would read as an error.
+   */
+  share?: number
+}
 
 interface KpiCardProps {
   label: string
@@ -14,7 +27,20 @@ interface KpiCardProps {
   loading?: boolean
   /** Renders an em-dash placeholder instead of a value. */
   unavailable?: boolean
+  /**
+   * What the headline is made of, in smaller type inside the same card —
+   * gross and net under revenue, Meta and Google under total spend.
+   *
+   * Kept here rather than as sibling cards because these are parts of one
+   * figure, and a row of equal-sized cards says they are peers of it.
+   */
+  parts?: KpiPart[]
 }
+
+/** `flat` rather than `up`, because zero has no direction and the arrow beside
+ *  it can only point one way or the other. */
+const directionWord = (deltaPct: number): string =>
+  deltaPct === 0 ? 'flat' : deltaPct > 0 ? 'up' : 'down'
 
 function deltaColor(deltaPct: number, polarity: Polarity): string {
   if (polarity === 'neutral' || deltaPct === 0) return 'text-muted'
@@ -30,36 +56,69 @@ export function KpiCard({
   polarity = 'up-good',
   loading = false,
   unavailable = false,
+  parts,
 }: KpiCardProps) {
   const delta = metric?.deltaPct ?? null
+  const showParts = !loading && !unavailable && parts && parts.length > 0
 
   return (
     <div className="card flex items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
         <div className="kpi-label truncate">{label}</div>
 
-        {loading ? (
-          <Skeleton className="mt-2.5 h-[30px] w-32" />
-        ) : (
-          <div className="kpi-value mt-2 truncate">{unavailable ? '—' : value}</div>
-        )}
+        {/* Value and change share a line: the change is a property of the
+            figure, and stacking it underneath cost a row of height on every
+            card in the grid. Wraps rather than truncating where a long value
+            and a long delta will not both fit. */}
+        <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          {loading ? (
+            <Skeleton className="h-[30px] w-32" />
+          ) : (
+            <div className="kpi-value truncate">{unavailable ? '—' : value}</div>
+          )}
 
-        {loading ? (
-          <Skeleton className="mt-3 h-3.5 w-40" />
-        ) : delta !== null ? (
-          <div className="mt-2.5 flex items-center gap-1 text-[12px]">
-            {delta < 0 ? (
-              <ArrowDown size={13} className={deltaColor(delta, polarity)} strokeWidth={2.5} />
-            ) : (
-              <ArrowUp size={13} className={deltaColor(delta, polarity)} strokeWidth={2.5} />
-            )}
-            <span className={`font-medium tabular-nums ${deltaColor(delta, polarity)}`}>
-              {formatDeltaPercent(delta)}
-            </span>
-            <span className="text-muted">vs prev period</span>
-          </div>
-        ) : (
-          <div className="mt-2.5 h-[18px]" />
+          {loading ? (
+            <Skeleton className="h-3.5 w-28" />
+          ) : (
+            delta !== null && (
+              <div className="flex items-center gap-1 text-[12px]">
+                {delta < 0 ? (
+                  <ArrowDown size={13} className={deltaColor(delta, polarity)} strokeWidth={2.5} />
+                ) : (
+                  <ArrowUp size={13} className={deltaColor(delta, polarity)} strokeWidth={2.5} />
+                )}
+                <span className={`font-medium tabular-nums ${deltaColor(delta, polarity)}`}>
+                  {formatDeltaPercent(delta)}
+                </span>
+                {/* The window compared against is now chosen in the picker and
+                    named on it, so naming it again on forty cards said less
+                    than the direction of the move does. */}
+                <span className="text-muted">{directionWord(delta)}</span>
+              </div>
+            )
+          )}
+        </div>
+
+        {showParts && (
+          <dl className="mt-3 flex flex-col gap-1.5 border-t border-row-line pt-2.5">
+            {parts.map((part) => (
+              <div key={part.label} className="flex items-baseline justify-between gap-2">
+                <dt className="truncate text-[11px] text-muted">{part.label}</dt>
+                <dd className="flex shrink-0 items-baseline gap-2">
+                  <span className="text-[12px] font-medium tabular-nums text-ink">
+                    {part.value}
+                  </span>
+                  {part.share !== undefined && (
+                    // Fixed width so the column of shares lines up down the card
+                    // however wide the figures beside it are.
+                    <span className="w-11 text-right text-[11px] tabular-nums text-muted">
+                      {formatPercent(part.share)}
+                    </span>
+                  )}
+                </dd>
+              </div>
+            ))}
+          </dl>
         )}
       </div>
 

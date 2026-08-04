@@ -15,7 +15,7 @@ import {
   formatInteger,
   formatRoas,
 } from '../../lib/format'
-import { KpiCard } from '../KpiCard'
+import { KpiCard, type KpiPart } from '../KpiCard'
 import { SectionLabel } from '../SectionLabel'
 
 interface AdsSectionProps {
@@ -27,6 +27,12 @@ interface AdsSectionProps {
   /** Sits under the title, for a section whose scope needs saying. */
   subtitle?: string
   /**
+   * The platforms rolled into `metrics`. Given them, every card splits its
+   * headline by platform inside the card. Omitted on a section that already
+   * shows one platform, where the split would just restate the figure.
+   */
+  platforms?: { name: string; metrics: AdsMetrics }[]
+  /**
    * Cards appended after the eight standard ones. The combined view adds the
    * two figures that only exist once several platforms are added together.
    */
@@ -34,6 +40,31 @@ interface AdsSectionProps {
 }
 
 const GRID = 'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'
+
+type AdsMetricKey =
+  | 'spend'
+  | 'impressions'
+  | 'clicks'
+  | 'ctr'
+  | 'roas'
+  | 'cpc'
+  | 'cpm'
+  | 'conversions'
+
+/**
+ * Which figures are sums of the platforms, and which are ratios of those sums.
+ *
+ * Only a sum can be apportioned. Meta's 1.3% CTR and Google's 1.55% do not
+ * make up the combined 4.45% in any share sense, and printing `50%` beside one
+ * of them would invite exactly that reading — so the ratio cards show each
+ * platform's own figure with no percentage at all.
+ */
+const ADDITIVE: ReadonlySet<AdsMetricKey> = new Set<AdsMetricKey>([
+  'spend',
+  'impressions',
+  'clicks',
+  'conversions',
+])
 
 /** Meta and Google Ads report the same shape, so they share one section. */
 export function AdsSection({
@@ -43,9 +74,27 @@ export function AdsSection({
   loading,
   failed,
   subtitle,
+  platforms,
   extra,
 }: AdsSectionProps) {
   const shared = { loading, unavailable: failed }
+
+  const partsFor = (
+    key: AdsMetricKey,
+    format: (n: number) => string,
+  ): KpiPart[] | undefined => {
+    if (!platforms || platforms.length === 0) return undefined
+    const total = metrics?.[key].value ?? 0
+    return platforms.map((platform) => ({
+      label: platform.name,
+      value: format(platform.metrics[key].value),
+      share: ADDITIVE.has(key)
+        ? total
+          ? platform.metrics[key].value / total
+          : 0
+        : undefined,
+    }))
+  }
 
   return (
     <section>
@@ -59,6 +108,7 @@ export function AdsSection({
           metric={metrics?.spend}
           polarity="down-good"
           icon={Wallet}
+          parts={partsFor('spend', formatCurrency)}
           {...shared}
         />
         <KpiCard
@@ -66,6 +116,7 @@ export function AdsSection({
           value={metrics ? formatInteger(metrics.impressions.value) : '—'}
           metric={metrics?.impressions}
           icon={Eye}
+          parts={partsFor('impressions', formatInteger)}
           {...shared}
         />
         <KpiCard
@@ -73,6 +124,7 @@ export function AdsSection({
           value={metrics ? formatInteger(metrics.clicks.value) : '—'}
           metric={metrics?.clicks}
           icon={MousePointerClick}
+          parts={partsFor('clicks', formatInteger)}
           {...shared}
         />
         <KpiCard
@@ -80,6 +132,7 @@ export function AdsSection({
           value={metrics ? formatCtr(metrics.ctr.value) : '—'}
           metric={metrics?.ctr}
           icon={Percent}
+          parts={partsFor('ctr', formatCtr)}
           {...shared}
         />
       </div>
@@ -90,6 +143,7 @@ export function AdsSection({
           value={metrics ? formatRoas(metrics.roas.value) : '—'}
           metric={metrics?.roas}
           icon={TrendingUp}
+          parts={partsFor('roas', formatRoas)}
           {...shared}
         />
         <KpiCard
@@ -98,6 +152,7 @@ export function AdsSection({
           metric={metrics?.cpc}
           polarity="down-good"
           icon={Gauge}
+          parts={partsFor('cpc', formatCurrency)}
           {...shared}
         />
         <KpiCard
@@ -106,6 +161,7 @@ export function AdsSection({
           metric={metrics?.cpm}
           polarity="down-good"
           icon={BarChart3}
+          parts={partsFor('cpm', formatCurrency)}
           {...shared}
         />
         <KpiCard
@@ -113,6 +169,7 @@ export function AdsSection({
           value={metrics ? formatInteger(metrics.conversions.value) : '—'}
           metric={metrics?.conversions}
           icon={Target}
+          parts={partsFor('conversions', formatInteger)}
           {...shared}
         />
       </div>
