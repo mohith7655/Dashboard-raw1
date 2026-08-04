@@ -16,6 +16,7 @@ import {
 } from '../../lib/format'
 import { DataTable, paginateRows, type Column } from '../DataTable'
 import { KpiCard } from '../KpiCard'
+import { CardRow } from '../CardRow'
 import { SectionLabel } from '../SectionLabel'
 import { Skeleton } from '../Skeleton'
 
@@ -27,7 +28,6 @@ interface AdSpendSectionProps {
   wooFailed: boolean
 }
 
-const GRID = 'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'
 const PER_PAGE = 10
 
 export function AdSpendSection({
@@ -68,7 +68,7 @@ export function AdSpendSection({
       <div>
         <SectionLabel>Ad Spend</SectionLabel>
 
-        <div className={GRID}>
+        <CardRow>
           <KpiCard
             label="Total Ad Spend"
             value={blended ? formatCurrency(blended.spend) : '—'}
@@ -96,7 +96,7 @@ export function AdSpendSection({
             icon={ShoppingCart}
             {...shared}
           />
-        </div>
+        </CardRow>
       </div>
 
       <div className="card p-0">

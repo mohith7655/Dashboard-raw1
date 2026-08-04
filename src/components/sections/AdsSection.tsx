@@ -16,6 +16,7 @@ import {
   formatRoas,
 } from '../../lib/format'
 import { KpiCard, type KpiPart } from '../KpiCard'
+import { CardRow } from '../CardRow'
 import { SectionLabel } from '../SectionLabel'
 
 interface AdsSectionProps {
@@ -38,8 +39,6 @@ interface AdsSectionProps {
    */
   extra?: React.ReactNode
 }
-
-const GRID = 'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'
 
 type AdsMetricKey =
   | 'spend'
@@ -101,7 +100,7 @@ export function AdsSection({
       <SectionLabel glyph={glyph}>{title}</SectionLabel>
       {subtitle && <p className="-mt-1 mb-3 text-[12px] text-muted">{subtitle}</p>}
 
-      <div className={GRID}>
+      <CardRow>
         <KpiCard
           label="Spend"
           value={metrics ? formatCurrency(metrics.spend.value) : '—'}
@@ -135,9 +134,9 @@ export function AdsSection({
           parts={partsFor('ctr', formatCtr)}
           {...shared}
         />
-      </div>
+      </CardRow>
 
-      <div className={`${GRID} mt-4`}>
+      <CardRow className="mt-4">
         <KpiCard
           label="ROAS"
           value={metrics ? formatRoas(metrics.roas.value) : '—'}
@@ -172,9 +171,9 @@ export function AdsSection({
           parts={partsFor('conversions', formatInteger)}
           {...shared}
         />
-      </div>
+      </CardRow>
 
-      {extra && <div className={`${GRID} mt-4`}>{extra}</div>}
+      {extra && <CardRow className="mt-4">{extra}</CardRow>}
     </section>
   )
 }

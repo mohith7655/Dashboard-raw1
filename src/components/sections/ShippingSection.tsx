@@ -3,6 +3,7 @@ import type { WooMetrics } from '../../lib/types'
 import { shippingEconomics } from '../../lib/pnl'
 import { formatCurrency, formatPercent } from '../../lib/format'
 import { KpiCard } from '../KpiCard'
+import { CardRow } from '../CardRow'
 import { SectionLabel } from '../SectionLabel'
 import { CostMix } from '../charts/CostMix'
 import { MarketTable } from '../charts/MarketTable'
@@ -13,8 +14,6 @@ interface ShippingSectionProps {
   failed: boolean
 }
 
-const GRID = 'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'
-
 export function ShippingSection({ woo, loading, failed }: ShippingSectionProps) {
   const shared = { loading, unavailable: failed }
   const shipping = woo ? shippingEconomics(woo) : null
@@ -24,7 +23,7 @@ export function ShippingSection({ woo, loading, failed }: ShippingSectionProps) 
       <div>
         <SectionLabel>Shipping Costs</SectionLabel>
 
-        <div className={GRID}>
+        <CardRow>
           <KpiCard
             label="Shipping Cost"
             value={shipping ? formatCurrency(shipping.cost) : '—'}
@@ -54,7 +53,7 @@ export function ShippingSection({ woo, loading, failed }: ShippingSectionProps) 
             icon={Coins}
             {...shared}
           />
-        </div>
+        </CardRow>
       </div>
 
       <CostMix

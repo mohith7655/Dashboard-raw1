@@ -2,6 +2,7 @@ import { MousePointerClick, Percent, ShoppingCart, Users } from 'lucide-react'
 import type { Ga4Dimension, Ga4Report, TrafficMetrics, WooMetrics } from '../../lib/types'
 import { formatCurrency, formatInteger, formatPercent } from '../../lib/format'
 import { KpiCard } from '../KpiCard'
+import { CardRow } from '../CardRow'
 import { SectionLabel } from '../SectionLabel'
 import {
   ConversionRateOverTime,
@@ -23,8 +24,6 @@ interface TrafficSectionProps {
   ga4Fetching: boolean
   ga4Error: string | null
 }
-
-const GRID = 'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'
 
 export function TrafficSection({
   traffic,
@@ -74,7 +73,7 @@ export function TrafficSection({
       <div>
         <SectionLabel>Traffic</SectionLabel>
 
-        <div className={GRID}>
+        <CardRow>
           <KpiCard
             label="Visitors"
             value={traffic ? formatInteger(traffic.visitors.value) : '—'}
@@ -107,7 +106,7 @@ export function TrafficSection({
             icon={ShoppingCart}
             {...shared}
           />
-        </div>
+        </CardRow>
 
         {traffic?.visitorDefinition && (
           <p className="mt-3 text-[12px] text-muted">

@@ -12,6 +12,7 @@ import type { WooMetrics } from '../../lib/types'
 import { formatCurrency, formatInteger, formatPercent } from '../../lib/format'
 import { round2 } from '../../lib/derive'
 import { KpiCard, type KpiPart } from '../KpiCard'
+import { CardRow } from '../CardRow'
 import { SectionLabel } from '../SectionLabel'
 
 interface WooCommerceSectionProps {
@@ -21,8 +22,6 @@ interface WooCommerceSectionProps {
   /** Leads the section, above the KPI grid — the statement in full. */
   summary?: React.ReactNode
 }
-
-const GRID = 'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'
 
 export function WooCommerceSection({
   metrics,
@@ -70,7 +69,7 @@ export function WooCommerceSection({
 
       {summary && <div className="mb-4">{summary}</div>}
 
-      <div className={GRID}>
+      <CardRow>
         <KpiCard
           label="Total Revenue"
           value={metrics ? formatCurrency(metrics.totalRevenue.value) : '—'}
@@ -101,10 +100,10 @@ export function WooCommerceSection({
           icon={Package}
           {...shared}
         />
-      </div>
+      </CardRow>
 
       {/* Costs: a rise is bad, so the delta inverts. */}
-      <div className={`${GRID} mt-4`}>
+      <CardRow className="mt-4">
         <KpiCard
           label="Total Cost"
           value={metrics ? formatCurrency(metrics.totalCost.value) : '—'}
@@ -137,10 +136,10 @@ export function WooCommerceSection({
           icon={CreditCard}
           {...shared}
         />
-      </div>
+      </CardRow>
 
       {/* Three columns with a wider middle, per the reference layout. */}
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_2fr_1fr]">
+      <CardRow className="mt-4" cols="sm:grid-cols-2 lg:grid-cols-[1fr_2fr_1fr]">
         <KpiCard
           label="Gross Profit"
           value={metrics ? formatCurrency(metrics.grossProfit.value) : '—'}
@@ -163,7 +162,7 @@ export function WooCommerceSection({
           parts={revenueParts}
           {...shared}
         />
-      </div>
+      </CardRow>
     </section>
   )
 }

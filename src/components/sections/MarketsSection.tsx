@@ -3,6 +3,7 @@ import type { WooMetrics } from '../../lib/types'
 import { marketSummary } from '../../lib/pnl'
 import { formatInteger, formatPercent } from '../../lib/format'
 import { KpiCard } from '../KpiCard'
+import { CardRow } from '../CardRow'
 import { SectionLabel } from '../SectionLabel'
 import { MarketTable } from '../charts/MarketTable'
 
@@ -11,8 +12,6 @@ interface MarketsSectionProps {
   loading: boolean
   failed: boolean
 }
-
-const GRID = 'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'
 
 export function MarketsSection({ woo, loading, failed }: MarketsSectionProps) {
   const shared = { loading, unavailable: failed }
@@ -24,7 +23,7 @@ export function MarketsSection({ woo, loading, failed }: MarketsSectionProps) {
       <div>
         <SectionLabel>Markets</SectionLabel>
 
-        <div className={GRID}>
+        <CardRow>
           <KpiCard
             label="Countries Selling"
             value={summary ? formatInteger(summary.countries) : '—'}
@@ -49,7 +48,7 @@ export function MarketsSection({ woo, loading, failed }: MarketsSectionProps) {
             icon={Coins}
             {...shared}
           />
-        </div>
+        </CardRow>
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">

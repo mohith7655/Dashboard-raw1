@@ -5,6 +5,7 @@ import { profitWaterfall } from '../../lib/pnl'
 import { costLines, totalOperatingCost } from '../../lib/operatingCosts'
 import { formatCurrency, formatPercent } from '../../lib/format'
 import { KpiCard } from '../KpiCard'
+import { CardRow } from '../CardRow'
 import { SectionLabel } from '../SectionLabel'
 import { ProfitWaterfall } from '../charts/ProfitWaterfall'
 import { OperatingCostsCard } from './OperatingCostsCard'
@@ -22,8 +23,6 @@ interface ProfitLossSectionProps {
   savingCosts: boolean
   onSaveCosts: (costs: OperatingCost[]) => void
 }
-
-const GRID = 'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'
 
 export function ProfitLossSection({
   woo,
@@ -67,7 +66,7 @@ export function ProfitLossSection({
       <div>
         <SectionLabel>Profit &amp; Loss</SectionLabel>
 
-        <div className={GRID}>
+        <CardRow>
           <KpiCard
             label="Total Revenue"
             value={woo ? formatCurrency(woo.totalRevenue.value) : '—'}
@@ -97,7 +96,7 @@ export function ProfitLossSection({
             icon={Percent}
             {...shared}
           />
-        </div>
+        </CardRow>
       </div>
 
       <ProfitWaterfall
@@ -107,7 +106,7 @@ export function ProfitLossSection({
       />
 
       {showNet && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <CardRow cols="sm:grid-cols-3">
           <KpiCard
             label="Operating Costs"
             value={formatCurrency(operatingCost)}
@@ -128,7 +127,7 @@ export function ProfitLossSection({
             icon={Percent}
             {...shared}
           />
-        </div>
+        </CardRow>
       )}
 
       <OperatingCostsCard
