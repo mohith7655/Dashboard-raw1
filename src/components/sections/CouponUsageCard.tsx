@@ -123,8 +123,16 @@ function headline(
   return `${uses}, ${direction}${move} ${delta === 0 ? '' : 'on '}${formatRangeLabel(against)}.`
 }
 
-/** `20% off` or `$10.00 off` — what the code is set to take, not what it took. */
+/**
+ * `20% off` or `$10.00 off` — what the code is set to take, not what it took.
+ *
+ * Empty when the figure is missing rather than printed as `undefined% off`.
+ * The function's responses are CDN-cached for a few minutes, so the first
+ * loads after a deploy that adds a field can still be served a payload encoded
+ * without it, and a card should degrade to saying less rather than to nonsense.
+ */
 function faceValue(coupon: CouponUsage): string {
+  if (!Number.isFinite(coupon.amount)) return ''
   return coupon.type === 'percent'
     ? `${coupon.amount}% off`
     : `${formatCurrency(coupon.amount)} off`
@@ -158,9 +166,7 @@ function UsageRow({
           than claiming a column of its own. */}
       <span
         className="relative flex min-w-0 flex-1 items-baseline gap-1.5 truncate"
-        title={`${coupon.code} — ${faceValue(coupon)}, ${formatCurrency(
-          coupon.revenue,
-        )} revenue`}
+        title={`${coupon.code} — ${formatCurrency(coupon.revenue)} revenue`}
       >
         <span className="truncate font-mono text-[12px] text-ink">{coupon.code}</span>
         <span className="shrink-0 text-[10px] text-label">{faceValue(coupon)}</span>
