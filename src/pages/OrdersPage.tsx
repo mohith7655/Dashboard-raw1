@@ -8,6 +8,7 @@ import { OrdersByStatus } from '../components/charts/OrdersByStatus'
 import { useRange } from '../lib/rangeContext'
 import { useOrders, useWooMetrics } from '../lib/queries'
 import { formatCurrency, formatInteger } from '../lib/format'
+import { failedOrderCount } from '../lib/derive'
 import { formatRangeLabel } from '../lib/dateRange'
 import type { OrderSortField, SortDirection } from '../lib/types'
 
@@ -21,6 +22,7 @@ export function OrdersPage() {
 
   const woo = useWooMetrics(range, against)
   const orders = useOrders(range, { page, perPage: PER_PAGE, sort, direction })
+  const failedOrders = failedOrderCount(woo.data)
 
   const onSortChange = (field: OrderSortField) => {
     if (field === sort) setDirection((d) => (d === 'asc' ? 'desc' : 'asc'))
@@ -74,6 +76,7 @@ export function OrdersPage() {
           loading={orders.isLoading}
           fetching={orders.isFetching}
           unavailable={orders.error ? 'Orders unavailable' : undefined}
+          failedOrders={failedOrders}
         />
       </div>
     </>

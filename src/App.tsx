@@ -29,6 +29,7 @@ import {
 import { buildSnapshot } from './lib/insightsSnapshot'
 import { blendedAds, combinedAds } from './lib/pnl'
 import { formatPercent, formatRoas } from './lib/format'
+import { failedOrderCount } from './lib/derive'
 import { costLines } from './lib/operatingCosts'
 import type { DashboardView } from './lib/navigation'
 import {
@@ -82,6 +83,7 @@ export default function App() {
   const traffic = useTrafficMetrics(range, against)
   const ga4 = useGa4Report(range, ga4Dimension)
   const insights = useInsights()
+  const failedOrders = failedOrderCount(woo.data)
 
   // Every connector has answered one way or the other. Analysing before this
   // would describe a half-loaded period and read the gaps as zeroes.
@@ -395,6 +397,7 @@ export default function App() {
               loading={orders.isLoading}
               fetching={orders.isFetching}
               unavailable={orders.error ? 'Orders unavailable' : undefined}
+              failedOrders={failedOrders}
             />
           </div>
         )}

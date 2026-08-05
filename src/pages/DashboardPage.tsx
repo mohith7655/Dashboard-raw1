@@ -18,6 +18,7 @@ import { RecentOrders } from '../components/RecentOrders'
 import { useRange } from '../lib/rangeContext'
 import { blendedAds, combinedAds } from '../lib/pnl'
 import { formatPercent, formatRoas } from '../lib/format'
+import { failedOrderCount } from '../lib/derive'
 import type { DashboardView } from '../lib/navigation'
 import {
   useGoogleAdsMetrics,
@@ -52,6 +53,7 @@ export function DashboardPage() {
   const costs = useOperatingCosts()
   const saveCosts = useSaveOperatingCosts()
   const coupons = useCoupons(range, COUPON_OVERVIEW_QUERY, against)
+  const failedOrders = failedOrderCount(woo.data)
 
   const onSortChange = (field: OrderSortField) => {
     if (field === sort) {
@@ -289,6 +291,7 @@ export function DashboardPage() {
             loading={orders.isLoading}
             fetching={orders.isFetching}
             unavailable={orders.error ? 'Orders unavailable' : undefined}
+            failedOrders={failedOrders}
           />
         </div>
       )}

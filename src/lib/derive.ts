@@ -14,6 +14,17 @@ const safeDiv = (a: number, b: number): number => (b === 0 ? 0 : a / b)
 
 export const round2 = (n: number): number => Math.round(n * 100) / 100
 
+/**
+ * Orders that failed in the period, or null when the metric set has not
+ * loaded — which is not the same as none having failed.
+ *
+ * Read from the status counts rather than from a page of orders: the page
+ * holds ten rows and the question is about the whole period. Statuses with no
+ * orders are dropped upstream, so an absent entry means zero.
+ */
+export const failedOrderCount = (woo: WooMetrics | undefined): number | null =>
+  woo ? (woo.ordersByStatus.find((s) => s.status === 'failed')?.count ?? 0) : null
+
 /** Totals + ratios that are always derived, never taken from upstream. */
 export interface WooTotals {
   totalRevenue: number

@@ -20,6 +20,12 @@ interface RecentOrdersProps {
   /** Refetching with a page already on screen — dim it instead of blanking it. */
   fetching?: boolean
   unavailable?: string
+  /**
+   * Failed orders across the whole period, not merely the page on screen.
+   * Null where the metric set that counts them has not loaded, which is not
+   * the same as none having failed.
+   */
+  failedOrders?: number | null
 }
 
 export function RecentOrders({
@@ -31,6 +37,7 @@ export function RecentOrders({
   loading,
   fetching,
   unavailable,
+  failedOrders = null,
 }: RecentOrdersProps) {
   const total = page?.total ?? 0
   const perPage = page?.perPage ?? 10
@@ -44,9 +51,24 @@ export function RecentOrders({
       <div className="px-5 pb-4 pt-5">
         <h3 className="text-[15px] font-semibold text-ink">Recent Orders</h3>
         <p className="mt-0.5 text-[12px] text-muted">
-          {loading && !page
-            ? 'Loading orders…'
-            : `${formatInteger(total)} orders in selected period`}
+          {loading && !page ? (
+            'Loading orders…'
+          ) : (
+            <>
+              {formatInteger(total)} orders in selected period
+              {/* Stated even at zero: a count that vanishes when nothing failed
+                  cannot be told apart from one that never loaded, and "none
+                  failed" is the reassurance being looked for. */}
+              {failedOrders !== null && (
+                <>
+                  {' · '}
+                  <span className={failedOrders > 0 ? 'text-neg' : undefined}>
+                    {formatInteger(failedOrders)} failed
+                  </span>
+                </>
+              )}
+            </>
+          )}
         </p>
       </div>
 
