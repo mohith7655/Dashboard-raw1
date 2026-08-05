@@ -21,7 +21,7 @@ import type {
   ReportRow,
   SentEmailsPayload,
 } from '../data/types'
-import { callFunction, toResult } from './client'
+import { callFunction, compareParams, toResult } from './client'
 
 const METORIK = 'Metorik'
 const METORIK_HINT =
@@ -68,8 +68,16 @@ export const fetchCustomers = (range: DateRange, query: ListQuery) =>
 export const fetchProducts = (range: DateRange, query: ListQuery) =>
   metorikResource<ProductsPayload>('products', range, listParams(query))
 
-export const fetchCoupons = (range: DateRange, query: ListQuery) =>
-  metorikResource<CouponsPayload>('coupons', range, listParams(query))
+/**
+ * Alone among the list resources in carrying a comparison window: the coupon
+ * page is read as a usage report — is a code being reached for more or less
+ * than before — and that question needs the other window fetched.
+ */
+export const fetchCoupons = (range: DateRange, query: ListQuery, against: DateRange | null) =>
+  metorikResource<CouponsPayload>('coupons', range, {
+    ...listParams(query),
+    ...compareParams(against),
+  })
 
 export const fetchCarts = (range: DateRange, query: ListQuery) =>
   metorikResource<CartsPayload>('carts', range, listParams(query))

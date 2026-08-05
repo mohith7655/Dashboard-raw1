@@ -7,6 +7,7 @@ import { FacebookGlyph, GoogleGlyph } from './components/SectionLabel'
 import { DashboardTabs } from './components/DashboardTabs'
 import { WooCommerceSection } from './components/sections/WooCommerceSection'
 import { ProfitSummaryCard } from './components/sections/ProfitSummaryCard'
+import { CouponUsageCard } from './components/sections/CouponUsageCard'
 import { AdsSection } from './components/sections/AdsSection'
 import { AdSpendSection } from './components/sections/AdSpendSection'
 import { MarketsSection } from './components/sections/MarketsSection'
@@ -40,6 +41,7 @@ import {
   useTrafficMetrics,
   useWooMetrics,
 } from './lib/queries'
+import { COUPON_OVERVIEW_QUERY, useCoupons } from './lib/resourceQueries'
 import type {
   AdsMetrics,
   Comparison,
@@ -75,6 +77,7 @@ export default function App() {
   const orders = useOrders(range, { page, perPage: PER_PAGE, sort, direction })
   const costs = useOperatingCosts()
   const saveCosts = useSaveOperatingCosts()
+  const coupons = useCoupons(range, COUPON_OVERVIEW_QUERY, against)
   const traffic = useTrafficMetrics(range, against)
   const ga4 = useGa4Report(range, ga4Dimension)
   const insights = useInsights()
@@ -279,15 +282,29 @@ export default function App() {
               loading={woo.isLoading}
               failed={!!woo.error}
               summary={
-                <ProfitSummaryCard
-                  woo={woo.data}
-                  reportedAds={reportedAds}
-                  costs={costs.data}
-                  range={range}
-                  against={against}
-                  loading={woo.isLoading || adsLoading || costs.isLoading}
-                  failed={!!woo.error}
-                />
+                // The statement names coupons as one line — a single figure
+                // come off gross sales. Which codes that figure was, and
+                // whether they are being reached for more than before, reads
+                // directly beneath it.
+                <div className="flex flex-col gap-4">
+                  <ProfitSummaryCard
+                    woo={woo.data}
+                    reportedAds={reportedAds}
+                    costs={costs.data}
+                    range={range}
+                    against={against}
+                    loading={woo.isLoading || adsLoading || costs.isLoading}
+                    failed={!!woo.error}
+                  />
+                  <CouponUsageCard
+                    couponsUsed={coupons.data?.couponsUsed}
+                    coupons={coupons.data?.topCoupons ?? []}
+                    lapsedCodes={coupons.data?.lapsedCodes}
+                    against={against}
+                    loading={coupons.isLoading}
+                    failed={!!coupons.error}
+                  />
+                </div>
               }
             />
 

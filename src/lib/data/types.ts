@@ -228,11 +228,41 @@ export interface ProductsPayload extends ResourcePage<ProductRow> {
   refundRate: Metric
 }
 
+/**
+ * One code's standing in the period: how much it was used, what that cost, and
+ * whether it is being reached for more or less than before.
+ */
+export interface CouponUsage {
+  code: string
+  type: CouponType
+  /** Redemptions inside the period. */
+  used: number
+  discount: number
+  revenue: number
+  /** Fraction of every redemption in the period, 0..1. */
+  share: number
+  /**
+   * Redemptions in the comparison window, or null when the comparison is off.
+   * Zero is meaningful and distinct from null: the code is new this period.
+   */
+  previousUsed: number | null
+  /** Null where there is no baseline to divide by — see `previousUsed`. */
+  usedDeltaPct: number | null
+}
+
 export interface CouponsPayload extends ResourcePage<CouponRow> {
   couponsUsed: Metric
   discountTotal: Metric
   couponRevenue: Metric
   avgDiscount: Metric
+  /** Ranked by redemptions in the period, longest-used first. */
+  topCoupons: CouponUsage[]
+  /**
+   * Codes redeemed in the comparison window and not at all in this one. They
+   * cannot appear in `topCoupons`, which is built from this period's usage, yet
+   * they are often the whole reason usage fell. Null when the comparison is off.
+   */
+  lapsedCodes: number | null
 }
 
 export interface CartsPayload extends ResourcePage<CartRow> {

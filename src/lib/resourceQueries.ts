@@ -1,5 +1,6 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import type { AdapterResult, DateRange, SourceError } from './types'
+import type { CouponsPayload } from './data/types'
 import { SourceFailure } from './adapters/client'
 import type { ListQuery } from './adapters/resources'
 import * as api from './adapters/resources'
@@ -77,8 +78,43 @@ export const useCustomers = (range: DateRange, q: ListQuery) =>
 export const useProducts = (range: DateRange, q: ListQuery) =>
   useListResource('products', range, q, api.fetchProducts)
 
-export const useCoupons = (range: DateRange, q: ListQuery) =>
-  useListResource('coupons', range, q, api.fetchCoupons)
+/**
+ * The query the Coupons page opens on.
+ *
+ * The dashboard's usage card asks for exactly this one so the two share a
+ * single cache entry rather than making the same upstream sweep twice. The card
+ * reads only the summary fields, which every page of rows carries.
+ */
+export const COUPON_OVERVIEW_QUERY: ListQuery = {
+  page: 1,
+  perPage: 25,
+  sort: 'revenue',
+  direction: 'desc',
+}
+
+/**
+ * The one list resource whose response depends on a second window, so the
+ * window is part of its cache key: the same page compared against last month
+ * and against last year are two different payloads, and keying only on the
+ * range would serve the second one the first one's deltas.
+ */
+export const useCoupons = (
+  range: DateRange,
+  q: ListQuery,
+  against: DateRange | null,
+): SourceQuery<CouponsPayload> =>
+  toSourceQuery(
+    useQuery({
+      queryKey: [
+        'coupons',
+        ...rangeKey(range),
+        ...listKey(q),
+        against ? `${against.start}:${against.end}` : 'none',
+      ],
+      queryFn: () => unwrap(api.fetchCoupons(range, q, against)),
+      placeholderData: (prev) => prev,
+    }),
+  )
 
 export const useCarts = (range: DateRange, q: ListQuery) =>
   useListResource('carts', range, q, api.fetchCarts)

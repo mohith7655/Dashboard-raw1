@@ -1,0 +1,199 @@
+import { ArrowDown, ArrowRight, ArrowUp, TicketPercent } from 'lucide-react'
+import type { CouponUsage } from '../../lib/data/types'
+import type { DateRange, Metric } from '../../lib/types'
+import { formatCurrency, formatDeltaPercent, formatInteger, formatPercent } from '../../lib/format'
+import { formatRangeLabel } from '../../lib/dateRange'
+import { Skeleton } from '../Skeleton'
+
+interface CouponUsageCardProps {
+  /** Total redemptions in the period, carrying its own movement. */
+  couponsUsed: Metric | undefined
+  coupons: CouponUsage[]
+  /** Codes used in the comparison window and not in this one; null when off. */
+  lapsedCodes: number | null | undefined
+  /** The window every movement here is measured against, or null when off. */
+  against: DateRange | null
+  loading: boolean
+  failed: boolean
+}
+
+/**
+ * How coupon usage moved, and which codes moved it.
+ *
+ * The KPI strip above already states the totals. What it cannot say is whether
+ * a fall came from every code slowing down or from one code being switched off,
+ * and those call for opposite responses — so the codes are ranked here, each
+ * carrying its own movement rather than only its share of the total.
+ */
+export function CouponUsageCard({
+  couponsUsed,
+  coupons,
+  lapsedCodes,
+  against,
+  loading,
+  failed,
+}: CouponUsageCardProps) {
+  const delta = couponsUsed?.deltaPct ?? null
+
+  return (
+    <div className="card">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="kpi-label truncate">Coupon usage</div>
+          <p className="mt-1 text-[12px] text-muted">{headline(couponsUsed, delta, against)}</p>
+        </div>
+
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-icon-btn text-muted">
+          <TicketPercent size={15} strokeWidth={2} />
+        </span>
+      </div>
+
+      {loading ? (
+        <div className="mt-4 flex flex-col gap-2.5 border-t border-row-line pt-3">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-full" />
+        </div>
+      ) : failed ? (
+        <p className="mt-4 border-t border-row-line pt-3 text-[12px] text-muted">
+          Coupon usage unavailable for this period.
+        </p>
+      ) : coupons.length === 0 ? (
+        <p className="mt-4 border-t border-row-line pt-3 text-[12px] text-muted">
+          No coupon was redeemed in this period.
+        </p>
+      ) : (
+        // Rank, code and figures cannot all fit a phone; the rows scroll
+        // sideways rather than wrapping a leaderboard into unreadable shapes.
+        <div className="mt-4 overflow-x-auto border-t border-row-line pt-2">
+          <ol className={`flex min-w-[24rem] flex-col ${against ? 'sm:min-w-[30rem]' : ''}`}>
+            {coupons.map((coupon, index) => (
+              <UsageRow key={coupon.code} coupon={coupon} rank={index + 1} compared={!!against} />
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {!loading && !failed && !!lapsedCodes && (
+        <p className="mt-3 border-t border-row-line pt-2.5 text-[11px] text-muted">
+          {lapsedCodes === 1 ? '1 code that was' : `${formatInteger(lapsedCodes)} codes that were`}{' '}
+          redeemed in the compared window {lapsedCodes === 1 ? 'was' : 'were'} not redeemed at all
+          in this one.
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The one-line answer to "did usage go up or down", in words rather than in a
+ * coloured arrow — this sits under a label, not beside a figure.
+ */
+function headline(
+  couponsUsed: Metric | undefined,
+  delta: number | null,
+  against: DateRange | null,
+): string {
+  if (!couponsUsed) return 'Redemptions across every code in the period.'
+
+  const uses = `${formatInteger(couponsUsed.value)} ${
+    couponsUsed.value === 1 ? 'redemption' : 'redemptions'
+  }`
+  if (!against) return `${uses}. Turn on a comparison to see how that moved.`
+  if (delta === null) {
+    // No baseline to divide by: the compared window had no coupon usage at all,
+    // which is a rise from nothing rather than an unknown, and saying so beats
+    // showing an empty delta the reader has to interpret.
+    return couponsUsed.value > 0
+      ? `${uses}, against none at all in ${formatRangeLabel(against)}.`
+      : `${uses}, the same as ${formatRangeLabel(against)}.`
+  }
+
+  const direction = delta === 0 ? 'level with' : delta > 0 ? 'up' : 'down'
+  const move = delta === 0 ? '' : ` ${formatDeltaPercent(delta)}`
+  return `${uses}, ${direction}${move} ${delta === 0 ? '' : 'on '}${formatRangeLabel(against)}.`
+}
+
+/**
+ * A code's own line. The bar behind it is its share of every redemption, so the
+ * shape of the list reads before any figure does — one dominant code and a long
+ * tail look different from five codes splitting the period evenly.
+ */
+function UsageRow({
+  coupon,
+  rank,
+  compared,
+}: {
+  coupon: CouponUsage
+  rank: number
+  compared: boolean
+}) {
+  return (
+    <li className="relative flex items-center gap-2 py-1.5">
+      <span
+        className="pointer-events-none absolute inset-y-0.5 left-0 rounded-[3px] bg-[#ffffff0a]"
+        style={{ width: `${Math.max(1.5, coupon.share * 100)}%` }}
+        aria-hidden
+      />
+
+      <span className="relative w-4 shrink-0 text-[11px] tabular-nums text-label">{rank}</span>
+      {/* What each redemption was worth stays on hover: the table below the
+          card already carries discount and revenue as sortable columns, and
+          repeating them here would cost the leaderboard its shape. */}
+      <span
+        className="relative min-w-0 flex-1 truncate font-mono text-[12px] text-ink"
+        title={`${coupon.code} — ${formatCurrency(coupon.discount)} discounted, ${formatCurrency(
+          coupon.revenue,
+        )} revenue`}
+      >
+        {coupon.code}
+      </span>
+
+      <span className="relative shrink-0 text-[12px] font-semibold tabular-nums text-ink">
+        {formatInteger(coupon.used)}
+      </span>
+      <span className="relative w-12 shrink-0 text-right text-[11px] tabular-nums text-muted">
+        {formatPercent(coupon.share)}
+      </span>
+
+      {/* Holds its width even when a code has no movement to show, so one gap
+          cannot shunt the column out of alignment down the list. */}
+      {compared && (
+        <span className="relative flex w-[4.5rem] shrink-0 items-center justify-end gap-0.5 text-[11px] tabular-nums">
+          <Movement coupon={coupon} />
+        </span>
+      )}
+    </li>
+  )
+}
+
+/**
+ * More redemptions is not plainly good — a coupon both wins the sale and pays
+ * for it — so movement here is stated without the green/red the profit lines
+ * carry, and only the direction is coloured in.
+ */
+function Movement({ coupon }: { coupon: CouponUsage }) {
+  const { usedDeltaPct: delta, previousUsed } = coupon
+
+  // A code with no prior redemptions has no percentage to report; it is new,
+  // and `+∞%` would be both wrong and uninformative.
+  if (delta === null) {
+    return previousUsed === 0 ? <span className="text-pos">new</span> : <span className="text-muted">—</span>
+  }
+  if (delta === 0) {
+    return (
+      <span className="flex items-center gap-0.5 text-muted">
+        <ArrowRight size={10} strokeWidth={3} />
+        {formatDeltaPercent(delta)}
+      </span>
+    )
+  }
+
+  const Icon = delta < 0 ? ArrowDown : ArrowUp
+  return (
+    <span className={`flex items-center gap-0.5 ${delta < 0 ? 'text-neg' : 'text-pos'}`}>
+      <Icon size={10} strokeWidth={3} />
+      {formatDeltaPercent(delta)}
+    </span>
+  )
+}

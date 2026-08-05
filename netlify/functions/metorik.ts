@@ -15,7 +15,14 @@ import type {
 import { ORDER_STATUSES } from '../../src/lib/types'
 import { buildWooMetrics, deltaPct, deriveWoo, metric, round2, type WooTotals } from '../../src/lib/derive'
 import { eachDay } from '../../src/lib/dateRange'
-import type { CouponType, CouponsPayload, CustomerSegment, CustomersPayload, ProductsPayload } from '../../src/lib/data/types'
+import type {
+  CouponType,
+  CouponUsage,
+  CouponsPayload,
+  CustomerSegment,
+  CustomersPayload,
+  ProductsPayload,
+} from '../../src/lib/data/types'
 import {
   BadRequest,
   asArray,
@@ -66,14 +73,16 @@ export default async function handler(request: Request): Promise<Response> {
     if (resource === 'products') {
       return json(await loadProductsPage(apiKey, range, url))
     }
-    if (resource === 'coupons') {
-      return json(await loadCouponsPage(apiKey, range, url))
-    }
-    // Only the two metric views carry deltas; the paged resources above are
-    // lists, and have nothing to compare a row against. A hand-picked window
-    // gets the same clamp the range does — Metorik 422s on a future date.
+    // The window deltas are measured against. A hand-picked one gets the same
+    // clamp the range does — Metorik 422s on a future date. The resources above
+    // ignore it: they are lists, and a row has nothing to be compared against.
+    // Coupons are the exception, being read as a usage report as much as a list.
     const requested = readComparison(url, range)
     const against = requested && clampToAvailableData(requested)
+
+    if (resource === 'coupons') {
+      return json(await loadCouponsPage(apiKey, range, url, against))
+    }
     if (resource === 'traffic') {
       return json(await loadTraffic(apiKey, range, against))
     }
@@ -804,10 +813,74 @@ function couponSummary(rows: Record<string, unknown>[]): CouponSummary {
   )
 }
 
+/** How many codes the usage leaderboard names before the table takes over. */
+const TOP_COUPONS = 8
+
+/** Redemptions per code, summed in case upstream ever splits a code across rows. */
+function usesByCode(rows: Record<string, unknown>[]): Map<string, number> {
+  const uses = new Map<string, number>()
+  for (const row of rows) {
+    const code = String(row.code ?? '')
+    if (!code) continue
+    uses.set(code, (uses.get(code) ?? 0) + Math.max(0, Math.round(num(row.usage_count))))
+  }
+  return uses
+}
+
+/**
+ * The codes actually being redeemed in the period, most-used first.
+ *
+ * Coupons that went unused are dropped rather than listed at zero: a store
+ * accumulates dead codes forever, and a leaderboard of them answers nothing.
+ * That same filter is why `lapsedCodes` is counted separately — a code that
+ * fell from forty uses to none cannot appear here, and is often exactly what
+ * the operator is looking for.
+ */
+function usageLeaderboard(
+  rows: Record<string, unknown>[],
+  previousRows: Record<string, unknown>[] | null,
+): CouponUsage[] {
+  const before = previousRows ? usesByCode(previousRows) : null
+  const used = rows
+    .map(couponRow)
+    .filter((row) => row.used > 0)
+    .sort((a, b) => b.used - a.used || b.discount - a.discount)
+
+  const totalUses = used.reduce((sum, row) => sum + row.used, 0)
+
+  return used.slice(0, TOP_COUPONS).map((row) => {
+    const previousUsed = before ? (before.get(row.code) ?? 0) : null
+    return {
+      code: row.code,
+      type: row.type,
+      used: row.used,
+      discount: row.discount,
+      revenue: row.revenue,
+      share: totalUses > 0 ? row.used / totalUses : 0,
+      previousUsed,
+      usedDeltaPct: previousUsed === null ? null : deltaPct(row.used, previousUsed),
+    }
+  })
+}
+
+/** Codes redeemed in the comparison window that were not redeemed in this one. */
+function countLapsed(
+  rows: Record<string, unknown>[],
+  previousRows: Record<string, unknown>[],
+): number {
+  const now = usesByCode(rows)
+  let lapsed = 0
+  for (const [code, uses] of usesByCode(previousRows)) {
+    if (uses > 0 && (now.get(code) ?? 0) === 0) lapsed++
+  }
+  return lapsed
+}
+
 async function loadCouponsPage(
   apiKey: string,
   range: DateRange,
   url: URL,
+  against: DateRange | null,
 ): Promise<CouponsPayload> {
   const page = Math.max(1, Math.round(num(url.searchParams.get('page')) || 1))
   const perPage = clamp(Math.round(num(url.searchParams.get('perPage')) || 25), 1, 100)
@@ -839,23 +912,51 @@ async function loadCouponsPage(
   appendParam(summaryParams, url, 'has_usage')
   appendParam(summaryParams, url, 'order_filters')
 
-  const [body, allRows] = await Promise.all([
+  // The same sweep over the comparison window, and the only reason this
+  // endpoint costs a third upstream call — skipped entirely when the picker
+  // has the comparison turned off.
+  const [body, allRows, previousRows] = await Promise.all([
     metorik(apiKey, '/coupons', currentParams),
     collectAllRows(apiKey, '/coupons', summaryParams),
+    against
+      ? collectAllRows(apiKey, '/coupons', {
+          ...summaryParams,
+          start_date: against.start,
+          end_date: against.end,
+        })
+      : null,
   ])
 
   const parsed = readPage(body)
   const summary = couponSummary(allRows)
+  const previous = previousRows ? couponSummary(previousRows) : null
+
+  const change = (now: number, before: number): number | null =>
+    previous ? deltaPct(now, before) : null
+
+  const avgDiscount = (s: CouponSummary): number =>
+    s.couponsUsed > 0 ? s.discountTotal / s.couponsUsed : 0
 
   return {
     rows: parsed.rows.map(couponRow),
     total: allRows.length || parsed.total,
     page,
     perPage,
-    couponsUsed: metric(summary.couponsUsed, null),
-    discountTotal: metric(summary.discountTotal, null),
-    couponRevenue: metric(summary.couponRevenue, null),
-    avgDiscount: metric(summary.couponsUsed > 0 ? summary.discountTotal / summary.couponsUsed : 0, null),
+    couponsUsed: metric(summary.couponsUsed, change(summary.couponsUsed, previous?.couponsUsed ?? 0)),
+    discountTotal: metric(
+      summary.discountTotal,
+      change(summary.discountTotal, previous?.discountTotal ?? 0),
+    ),
+    couponRevenue: metric(
+      summary.couponRevenue,
+      change(summary.couponRevenue, previous?.couponRevenue ?? 0),
+    ),
+    avgDiscount: metric(
+      avgDiscount(summary),
+      change(avgDiscount(summary), previous ? avgDiscount(previous) : 0),
+    ),
+    topCoupons: usageLeaderboard(allRows, previousRows),
+    lapsedCodes: previousRows ? countLapsed(allRows, previousRows) : null,
   }
 }
 

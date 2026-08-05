@@ -3,9 +3,10 @@ import { PageHeader } from '../components/PageHeader'
 import { KpiGrid } from '../components/KpiGrid'
 import { SourceBanner } from '../components/SourceBanner'
 import { DataTable, type Column } from '../components/DataTable'
+import { CouponUsageCard } from '../components/sections/CouponUsageCard'
 import { Pill, PILL_COLORS } from '../components/Pill'
 import { useRange } from '../lib/rangeContext'
-import { useCoupons } from '../lib/resourceQueries'
+import { COUPON_OVERVIEW_QUERY, useCoupons } from '../lib/resourceQueries'
 import { useListState } from '../lib/useListState'
 import { formatCurrency, formatDate, formatInteger } from '../lib/format'
 import { formatRangeLabel } from '../lib/dateRange'
@@ -92,9 +93,15 @@ const columns: Column<CouponRow>[] = [
 ]
 
 export function CouponsPage() {
-  const { range } = useRange()
-  const { query, setPage, toggleSort } = useListState('revenue', 25)
-  const coupons = useCoupons(range, query)
+  const { range, against } = useRange()
+  // Opens on the same query the dashboard's usage card asks for, so arriving
+  // here from that card renders off the cache instead of re-sweeping.
+  const { query, setPage, toggleSort } = useListState(
+    COUPON_OVERVIEW_QUERY.sort,
+    COUPON_OVERVIEW_QUERY.perPage,
+    COUPON_OVERVIEW_QUERY.direction,
+  )
+  const coupons = useCoupons(range, query, against)
   const data = coupons.data
 
   return (
@@ -132,6 +139,15 @@ export function CouponsPage() {
               polarity: 'down-good',
             },
           ]}
+        />
+
+        <CouponUsageCard
+          couponsUsed={data?.couponsUsed}
+          coupons={data?.topCoupons ?? []}
+          lapsedCodes={data?.lapsedCodes}
+          against={against}
+          loading={coupons.isLoading}
+          failed={!!coupons.error}
         />
 
         <DataTable
