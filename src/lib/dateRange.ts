@@ -18,9 +18,19 @@ export function toIso(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
+/**
+ * Today's calendar date in UTC.
+ *
+ * The UTC parts are read deliberately. Reading the local ones and wrapping
+ * them in `Date.UTC` gives the viewer's own calendar date, which is a
+ * different day either side of midnight depending on where they are sitting —
+ * two people opening the same dashboard an ocean apart were offered date
+ * limits a full day apart, and the earlier one could not select a day the
+ * other could already see.
+ */
 function utcToday(): Date {
   const now = new Date()
-  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()))
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
 }
 
 function addDays(d: Date, days: number): Date {
@@ -30,6 +40,11 @@ function addDays(d: Date, days: number): Date {
 /**
  * Metorik reporting data is complete through the previous UTC day. Keeping the
  * picker one day behind prevents an in-progress day from producing a 422.
+ *
+ * Measured in UTC so every viewer is offered the same limit, and the same one
+ * the function itself clamps to — it reads true UTC when it decides which days
+ * it will answer for, and a picker on a different basis either offers a day
+ * the data does not cover or withholds one it does.
  */
 export function latestAvailableDate(): string {
   return toIso(addDays(utcToday(), -1))
