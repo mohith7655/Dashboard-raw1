@@ -275,7 +275,7 @@ export function ProfitSummaryCard({
         // fit; the rows scroll sideways rather than wrapping a statement into
         // unreadable shapes or truncating the figures themselves.
         <div className="mt-4 overflow-x-auto border-t border-row-line pt-1">
-          <dl className={`flex flex-col ${anyChange ? 'min-w-[26rem]' : 'min-w-[19rem]'}`}>
+          <dl className={`flex flex-col ${anyChange ? 'min-w-[23rem]' : 'min-w-[17rem]'}`}>
             {lines.map((line, index) => (
               <StatementRow
                 key={`${line.label}-${index}`}
@@ -319,21 +319,28 @@ function StatementRow({
   const strong = total || line.kind === 'subtotal'
 
   return (
+    // Columns are packed to the left rather than pushed to both edges. Spread
+    // across the card, a line's figure ended up an inch or more from the label
+    // that names it, and the eye had to cross an empty gap that grew with the
+    // width of the card. The slack now sits at the end of the row instead.
     <div
-      className={`flex items-baseline justify-between gap-2 py-1 ${
+      className={`flex items-baseline gap-2 py-1 ${
         total ? 'border-t border-row-line first:border-0' : ''
       }`}
     >
       <dt
-        className={`truncate ${total ? '' : 'pl-3'} ${
+        className={`w-[8.5rem] shrink-0 truncate ${total ? '' : 'pl-3'} ${
           strong ? 'text-[12px] font-medium text-ink' : 'text-[11px] text-muted'
         }`}
       >
         {line.label}
       </dt>
       <dd className="flex shrink-0 items-baseline gap-2">
+        {/* A floor rather than a fixed width: the figures line up at the
+            magnitudes a statement actually holds, and an unusually large one
+            widens its column instead of being clipped. */}
         <span
-          className={`tabular-nums ${
+          className={`min-w-[5.5rem] text-right tabular-nums ${
             strong ? 'text-[12px] font-semibold text-ink' : 'text-[11px] text-muted'
           }`}
         >
