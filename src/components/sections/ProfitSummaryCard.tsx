@@ -159,9 +159,14 @@ function buildStatement({
   part('Coupons', pnl.discounts, '−', 'down-good')
   part('Shipping charged', pnl.shippingCharged, '−', 'down-good')
   part('Tax collected', pnl.taxCollected, '−', 'down-good')
-  // Struck in the totals' ink because it is a figure to stop at, and sitting
-  // below the deductions that produce it rather than above them.
-  subtotal('Net sales', netSales)
+  // Only where something was returned. Total sales is net sales less returns,
+  // so with none the two are the same figure and printing both states it
+  // twice — the reader looks for the difference and there is none to find.
+  if (refunds !== 0) {
+    // Struck in the totals' ink because it is a figure to stop at, and sitting
+    // below the deductions that produce it rather than above them.
+    subtotal('Net sales', netSales)
+  }
   // A refund is money handed over and returned, not a cost of trading, so it
   // belongs to the sales section rather than down among the overheads.
   part('Refunds', refunds, '−', 'down-good', true)
