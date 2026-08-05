@@ -24,6 +24,11 @@ import type {
   ProductsPayload,
 } from '../../src/lib/data/types'
 import {
+  wooCouponPeriod,
+  wooCredentials,
+  type WooCouponPeriod,
+} from '../lib/woo'
+import {
   BadRequest,
   asArray,
   isRecord,
@@ -834,6 +839,50 @@ function couponSummary(rows: Record<string, unknown>[]): CouponSummary {
 /** How many codes the usage leaderboard names before the table takes over. */
 const TOP_COUPONS = 8
 
+/**
+ * The leaderboard built from the store's own orders, when the WooCommerce keys
+ * are configured.
+ *
+ * Preferred over the coupon report wherever it is available, because a coupon
+ * report can only describe coupons. This store applies most of its money
+ * through a discount plugin that leaves the coupon at 0% and puts the discount
+ * on a line of its own, so the report is right to say zero and useless for
+ * saying who took what.
+ */
+function wooLeaderboard(
+  current: WooCouponPeriod,
+  previous: WooCouponPeriod | null,
+): CouponUsage[] {
+  const used = [...current.byCode.values()]
+    .filter((row) => row.uses > 0)
+    .sort((a, b) => b.uses - a.uses || b.discount - a.discount)
+
+  return used.slice(0, TOP_COUPONS).map((row) => {
+    const before = previous ? (previous.byCode.get(row.code)?.uses ?? 0) : null
+    return {
+      code: row.code,
+      type: row.type,
+      amount: row.amount,
+      freeShipping: row.freeShipping,
+      used: row.uses,
+      discount: round2(row.discount),
+      revenue: round2(row.revenue),
+      share: current.totalUses > 0 ? row.uses / current.totalUses : 0,
+      previousUsed: before,
+      usedDeltaPct: before === null ? null : deltaPct(row.uses, before),
+    }
+  })
+}
+
+/** Codes redeemed in the comparison window and not at all in this one. */
+function wooLapsed(current: WooCouponPeriod, previous: WooCouponPeriod): number {
+  let lapsed = 0
+  for (const [code, row] of previous.byCode) {
+    if (row.uses > 0 && (current.byCode.get(code)?.uses ?? 0) === 0) lapsed++
+  }
+  return lapsed
+}
+
 /** Redemptions per code, summed in case upstream ever splits a code across rows. */
 function usesByCode(rows: Record<string, unknown>[]): Map<string, number> {
   const uses = new Map<string, number>()
@@ -872,6 +921,9 @@ function usageLeaderboard(
       code: row.code,
       type: row.type,
       amount: row.amount,
+      // The coupon report says nothing about shipping, so a code that only
+      // waives postage is indistinguishable here from one that does nothing.
+      freeShipping: false,
       used: row.used,
       discount: row.discount,
       revenue: row.revenue,
@@ -946,6 +998,24 @@ async function loadCouponsPage(
       : null,
   ])
 
+  // Read from the store itself where the keys allow it. A failure here is not
+  // allowed to take the page down: the coupon report still answers, less well,
+  // and a dashboard that shows the weaker figure beats one showing an error.
+  const creds = wooCredentials()
+  let woo: WooCouponPeriod | null = null
+  let wooPrevious: WooCouponPeriod | null = null
+  if (creds) {
+    try {
+      ;[woo, wooPrevious] = await Promise.all([
+        wooCouponPeriod(creds, range),
+        against ? wooCouponPeriod(creds, against) : null,
+      ])
+    } catch {
+      woo = null
+      wooPrevious = null
+    }
+  }
+
   const parsed = readPage(body)
   const summary = couponSummary(allRows)
   const previous = previousRows ? couponSummary(previousRows) : null
@@ -955,6 +1025,36 @@ async function loadCouponsPage(
 
   const avgDiscount = (s: CouponSummary): number =>
     s.couponsUsed > 0 ? s.discountTotal / s.couponsUsed : 0
+
+  // Where the store answered, its own orders are the authority and the KPI
+  // strip moves onto them with the leaderboard. The two must agree: a headline
+  // reading $73 above rows summing to $220 is worse than either figure alone.
+  if (woo) {
+    const wooChange = (now: number, before: number | undefined): number | null =>
+      wooPrevious ? deltaPct(now, before ?? 0) : null
+
+    return {
+      rows: parsed.rows.map(couponRow),
+      total: allRows.length || parsed.total,
+      page,
+      perPage,
+      couponsUsed: metric(woo.totalUses, wooChange(woo.totalUses, wooPrevious?.totalUses)),
+      discountTotal: metric(
+        round2(woo.totalDiscount),
+        wooChange(woo.totalDiscount, wooPrevious?.totalDiscount),
+      ),
+      couponRevenue: metric(
+        round2(woo.totalRevenue),
+        wooChange(woo.totalRevenue, wooPrevious?.totalRevenue),
+      ),
+      avgDiscount: metric(
+        woo.totalUses > 0 ? round2(woo.totalDiscount / woo.totalUses) : 0,
+        null,
+      ),
+      topCoupons: wooLeaderboard(woo, wooPrevious),
+      lapsedCodes: wooPrevious ? wooLapsed(woo, wooPrevious) : null,
+    }
+  }
 
   return {
     rows: parsed.rows.map(couponRow),

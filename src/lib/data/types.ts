@@ -237,6 +237,12 @@ export interface CouponUsage {
   type: CouponType
   /** The code's face value: `20` reads as 20% or $20 depending on `type`. */
   amount: number
+  /**
+   * The code grants free shipping. Worth stating on its own: a coupon can be
+   * configured at 0% and exist purely to waive postage, and without this its
+   * empty discount column would read as a code that does nothing.
+   */
+  freeShipping: boolean
   /** Redemptions inside the period. */
   used: number
   /** What those redemptions took off, in currency, across the period. */

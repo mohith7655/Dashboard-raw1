@@ -188,7 +188,16 @@ function UsageRow({
           here is upstream declining to report the figure, and it reads as the
           gap it is. Printed as −$0.00 it claimed the redemptions were free. */}
       <span className="relative w-20 shrink-0 text-right text-[11px] tabular-nums text-muted">
-        {coupon.discount > 0 ? `−${formatCurrency(coupon.discount)}` : '—'}
+        {coupon.discount > 0 ? (
+          `−${formatCurrency(coupon.discount)}`
+        ) : coupon.freeShipping ? (
+          // A code can be configured to take nothing off and exist purely to
+          // waive postage. Its empty discount column is the whole truth about
+          // it, and saying so beats a dash the reader has to interpret.
+          <span className="text-[10px]">free shipping</span>
+        ) : (
+          '—'
+        )}
       </span>
 
       {/* Holds its width even when a code has no movement to show, so one gap

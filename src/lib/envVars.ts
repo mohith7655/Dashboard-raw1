@@ -60,6 +60,43 @@ export const ENV_VARS: EnvVarSpec[] = [
     where: 'Metorik → Engage → Settings → API',
   },
 
+  /* ---------------------------- WooCommerce ---------------------------- */
+  /*
+   * Read directly from the store for one thing Metorik cannot answer: which
+   * coupon took which money. A discount plugin can apply the money on a line
+   * that is not a WooCommerce coupon at all, and only the order carries both.
+   * All three are optional together — without them the coupon card falls back
+   * to Metorik's own figures.
+   */
+  {
+    name: 'WOO_STORE_URL',
+    service: 'WooCommerce',
+    required: false,
+    scope: 'functions',
+    description:
+      'Store origin, e.g. https://example.com. Must be https — the API keys travel as basic auth.',
+    powers: ['Coupon usage'],
+    where: 'The storefront address itself',
+  },
+  {
+    name: 'WOO_CONSUMER_KEY',
+    service: 'WooCommerce',
+    required: false,
+    scope: 'functions',
+    description: 'REST API consumer key, `ck_…`. Read permission is enough.',
+    powers: ['Coupon usage'],
+    where: 'WooCommerce → Settings → Advanced → REST API → Add key (Read)',
+  },
+  {
+    name: 'WOO_CONSUMER_SECRET',
+    service: 'WooCommerce',
+    required: false,
+    scope: 'functions',
+    description: 'REST API consumer secret, `cs_…`, issued with the key above.',
+    powers: ['Coupon usage'],
+    where: 'WooCommerce → Settings → Advanced → REST API → Add key (Read)',
+  },
+
   /* --------------------------------- Tori ------------------------------ */
   {
     name: 'ANTHROPIC_API_KEY',
