@@ -126,6 +126,28 @@ const inStoreCurrency = (
   raw: unknown,
 ): number => metaNumber(source, key) ?? num(raw)
 
+/**
+ * Whether a coupon line is a real WooCommerce coupon rather than one the
+ * discount plugin invented.
+ *
+ * The plugin records `coupon_info` on every line it touches, and its own lines
+ * carry an id of 0: `[0,"new user (20% off)","percent",20]` against the real
+ * coupon's `[542182,"newuser20_freeship","percent",0,true]`. A line with no
+ * such marker is treated as real, so a store without the plugin behaves as it
+ * always did.
+ */
+function isRealCoupon(line: Record<string, unknown>): boolean {
+  const meta = Array.isArray(line.meta_data) ? line.meta_data.filter(isRecord) : []
+  const info = meta.find((entry) => entry.key === 'coupon_info')
+  if (!info || typeof info.value !== 'string') return true
+  try {
+    const parsed: unknown = JSON.parse(info.value)
+    return !Array.isArray(parsed) || num(parsed[0]) > 0
+  } catch {
+    return true
+  }
+}
+
 function readType(raw: unknown): CouponType {
   const value = String(raw ?? '')
   return value === 'percent' || value === 'fixed_cart' || value === 'fixed_product'
@@ -155,14 +177,38 @@ function tallyOrder(order: Record<string, unknown>, period: WooCouponPeriod): vo
     return
   }
 
-  for (const line of lines) {
+  const lineDiscount = (line: Record<string, unknown>): number =>
+    inStoreCurrency(line, 'discount_amount_base_currency', line.discount)
+
+  // The plugin's lines are the same promotion as the coupon the customer
+  // typed, split in two by how the plugin works. Listed separately they put
+  // the money under a name nobody entered — `new user (20% off)` — and left
+  // the code they did enter reading nothing. The money is credited to the
+  // real coupon on the order instead.
+  const real = lines.filter(isRealCoupon)
+  const invented = lines.filter((line) => !isRealCoupon(line))
+  const inventedDiscount = invented.reduce((sum, line) => sum + lineDiscount(line), 0)
+
+  // Nothing real to credit it to — an automatic rule that named itself. It
+  // keeps its own name rather than being discarded.
+  const credited = real.length > 0 ? real : invented
+  const spread = real.length > 0 ? inventedDiscount / real.length : 0
+
+  for (const line of credited) {
     const code = String(line.code ?? '').trim()
     if (!code) continue
+    // A free-shipping coupon carries no percentage of its own, so the face
+    // value comes off the plugin's line where there is one — the promotion is
+    // 20% off however the store chose to record it.
+    const invented0 = invented[0]
+    const ownAmount = num(line.nominal_amount)
+    const borrowed = real.length > 0 && ownAmount <= 0 && invented0 ? invented0 : line
+
     add(period, code, {
-      type: readType(line.discount_type),
-      amount: num(line.nominal_amount),
+      type: readType(borrowed.discount_type),
+      amount: num(borrowed.nominal_amount),
       freeShipping: line.free_shipping === true,
-      discount: inStoreCurrency(line, 'discount_amount_base_currency', line.discount),
+      discount: lineDiscount(line) + spread,
       // Attributed whole to each code on the order. Two codes on one order
       // each get credit for the sale they both contributed to, which is why
       // revenue here is not summed across rows into a store total.
