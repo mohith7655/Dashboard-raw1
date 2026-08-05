@@ -138,13 +138,8 @@ function buildStatement({
   }
 
   const refunds = round2(pnl.refunds)
-  // Net sales is gross sales with the coupons off. Shipping and tax are money
-  // the customer handed over on top of it, so they add on the way to total
-  // sales, and returns come off.
-  const netSales = round2(grossSalesOf(pnl) - pnl.discounts)
-  const totalSales = round2(
-    netSales + pnl.shippingCharged + pnl.taxCollected - refunds,
-  )
+  const netSales = netSalesOf(pnl)
+  const totalSales = totalSalesOf(pnl)
   // The three charges that ride on the goods. Taken from the lines themselves
   // rather than from the payload's `totalCost`, which also carries Metorik's
   // extra costs and would leave the heading naming more than it lists.
@@ -207,14 +202,26 @@ function buildStatement({
  */
 const grossSalesOf = (pnl: ProfitAndLoss): number => round2(pnl.grossSales + pnl.discounts)
 
+/** Gross sales with the coupons off, before shipping and tax are added on. */
+const netSalesOf = (pnl: ProfitAndLoss): number => round2(grossSalesOf(pnl) - pnl.discounts)
+
+/** Net sales plus what the customer handed over on top, less what went back. */
+const totalSalesOf = (pnl: ProfitAndLoss): number =>
+  round2(netSalesOf(pnl) + pnl.shippingCharged + pnl.taxCollected - round2(pnl.refunds))
+
 /**
- * The figure everything else is a share of: gross sales, which by the
- * definition above is the largest figure in the statement — every other line is
- * a part of it or comes off it — so nothing can read over 100%.
+ * The figure everything else is a share of: total sales, the line the whole
+ * statement resolves to.
+ *
+ * It is not the largest figure — gross sales stands above it, and reads over
+ * 100% by however much the coupons took. That is the point of measuring
+ * against the total rather than against the widest line: every share answers
+ * "what part of what we sold is this", and a discount that ran to a tenth of
+ * sales should read as more than a tenth of them.
  */
 const topLine = (pnl: ProfitAndLoss): { label: string; amount: number } => ({
-  label: 'Gross sales',
-  amount: grossSalesOf(pnl),
+  label: 'Total sales',
+  amount: totalSalesOf(pnl),
 })
 
 export function ProfitSummaryCard({
