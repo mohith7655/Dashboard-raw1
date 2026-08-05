@@ -151,18 +151,18 @@ function buildStatement({
   part('Gross sales', grossSalesOf(pnl), '')
   // More coupons is worse, so its polarity inverts against the group's.
   part('Coupons', pnl.discounts, '−', 'down-good')
+  // A refund is money handed over and returned, not a cost of trading, so it
+  // comes off here with the coupons rather than down among the overheads.
+  part('Refunds', refunds, '−', 'down-good', true)
   // Struck in the totals' ink because it is a figure to stop at, and sitting
-  // below the deduction that produces it rather than above it. Shown only
-  // where the lines under it move it: with no shipping, tax or returns it
-  // would restate total sales under a second name.
+  // below the deductions that produce it rather than above them. Shown only
+  // where the lines under it move it: with no shipping or tax it would
+  // restate total sales under a second name.
   if (netSales !== totalSales) {
     subtotal('Net sales', netSales)
   }
   part('Shipping charged', pnl.shippingCharged, '+')
   part('Tax collected', pnl.taxCollected, '+')
-  // A refund is money handed over and returned, not a cost of trading, so it
-  // belongs to the sales section rather than down among the overheads.
-  part('Refunds', refunds, '−', 'down-good', true)
 
   // The cost of the goods themselves: what was bought, what it cost to ship,
   // and what the processor took. Advertising and operations are costs of
@@ -202,12 +202,17 @@ function buildStatement({
  */
 const grossSalesOf = (pnl: ProfitAndLoss): number => round2(pnl.grossSales + pnl.discounts)
 
-/** Gross sales with the coupons off, before shipping and tax are added on. */
-const netSalesOf = (pnl: ProfitAndLoss): number => round2(grossSalesOf(pnl) - pnl.discounts)
+/**
+ * What the goods themselves earned: gross sales less the coupons and less
+ * what was returned. Shipping and tax are no part of it — they are money the
+ * customer handed over on top and are added after, on the way to total sales.
+ */
+const netSalesOf = (pnl: ProfitAndLoss): number =>
+  round2(grossSalesOf(pnl) - pnl.discounts - round2(pnl.refunds))
 
-/** Net sales plus what the customer handed over on top, less what went back. */
+/** Net sales plus the shipping and tax charged on top of it. */
 const totalSalesOf = (pnl: ProfitAndLoss): number =>
-  round2(netSalesOf(pnl) + pnl.shippingCharged + pnl.taxCollected - round2(pnl.refunds))
+  round2(netSalesOf(pnl) + pnl.shippingCharged + pnl.taxCollected)
 
 /**
  * The figure everything else is a share of: total sales, the line the whole
