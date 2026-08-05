@@ -129,24 +129,29 @@ function buildStatement({
   }
 
   const refunds = round2(pnl.refunds)
+  // Net sales is gross sales with the coupons, shipping and tax all taken off;
+  // total sales is that less what was returned. Shipping and tax subtract here
+  // rather than adding: they are collected on the store's behalf, not sold.
+  const netSales = round2(
+    grossSalesOf(pnl) - pnl.discounts - pnl.shippingCharged - pnl.taxCollected,
+  )
+  const totalSales = round2(netSales - refunds)
+  // What the sale left after the costs the orders themselves carry.
+  const grossProfit = round2(totalSales - totalCost)
 
-  total('Total sales', pnl.totalRevenue)
-  // The three subtract down the page: gross sales, less the coupons, is net
-  // sales.
+  total('Total sales', totalSales)
   part('Gross sales', grossSalesOf(pnl), '')
-  // More coupons is worse, so its polarity inverts against the group's.
+  // Every deduction in this group reads the same way round: less of it leaves
+  // more of the sale behind, so a rise is red.
   part('Coupons', pnl.discounts, '−', 'down-good')
+  part('Shipping charged', pnl.shippingCharged, '−', 'down-good')
+  part('Tax collected', pnl.taxCollected, '−', 'down-good')
   // Struck in the totals' ink because it is a figure to stop at, and sitting
-  // below the coupon line it is reckoned with rather than above it.
-  subtotal('Net sales', round2(pnl.grossSales))
-  part('Shipping charged', pnl.shippingCharged, '+')
-  part('Tax collected', pnl.taxCollected, '+')
+  // below the deductions that produce it rather than above them.
+  subtotal('Net sales', netSales)
   // A refund is money handed over and returned, not a cost of trading, so it
-  // belongs to the revenue section rather than down among the overheads.
+  // belongs to the sales section rather than down among the overheads.
   part('Refunds', refunds, '−', 'down-good', true)
-  if (refunds !== 0) {
-    subtotal('Net revenue', round2(pnl.totalRevenue - refunds))
-  }
 
   // Every cost the store carries, not only the four that ride on an order.
   // Advertising and operations were listed below the line, so total cost named
@@ -163,19 +168,19 @@ function buildStatement({
   // What is left after the costs the orders themselves carry, before the costs
   // of running the store — a resting point partway down the group rather than
   // a separate total, because the two lines under it are still costs.
-  subtotal('Gross profit', pnl.grossProfit)
+  // Struck from the total sales line above rather than from the payload's own
+  // gross profit, which is taken before refunds and against a sales figure
+  // this statement no longer shows. Two figures a few rows apart that do not
+  // subtract to the one between them is how a statement stops being believed.
+  subtotal('Gross profit', grossProfit)
   // Absent rather than zero when no platform reported, so the line never
   // claims the store advertised for nothing.
   if (adSpend !== null) part('Advertising cost', adSpend, '−', 'down-good')
   part('Operational cost', operatingCost, '−', 'down-good')
 
-  // Refunds come off here rather than above: total revenue is what was billed,
-  // and gross profit is struck from it, so the money handed back is still in
-  // both and has to be taken out once before the bottom line.
-  total(
-    'Net profit',
-    round2(pnl.grossProfit - refunds - (adSpend ?? 0) - operatingCost),
-  )
+  // Refunds are not subtracted again here: they came off at total sales, and
+  // gross profit is struck from that.
+  total('Net profit', round2(grossProfit - (adSpend ?? 0) - operatingCost))
 
   return lines
 }
