@@ -616,25 +616,36 @@ interface RevenueSide {
 }
 
 /**
- * Scoped to the same statuses the per-order loop banks, so these figures
- * reconcile exactly with the Total Revenue KPI rather than drifting from it.
+ * The revenue lines are scoped to the same statuses the per-order loop banks,
+ * so they reconcile exactly with the Total Revenue KPI rather than drifting.
+ *
+ * Refunds cannot be read from that same call. Refunding an order in full flips
+ * it to `refunded`, which the paid-status filter excludes — so the figure only
+ * ever saw partial refunds against orders that were still live, and a store
+ * that refunded ten orders outright reported none of them. They are counted
+ * here across every status instead. It has to stay a second call: folding the
+ * refunded orders into the first would pull their net, shipping and tax into
+ * gross sales, and the statement would stop agreeing with the revenue KPI.
  */
 async function paidOrderTotals(apiKey: string, range: DateRange): Promise<RevenueSide> {
-  const body = await metorik(
-    apiKey,
-    '/orders/totals',
-    withFilters([
-      { field: 'order_created_at', operator: 'between', value: [range.start, range.end] },
-      { field: 'status', operator: 'in', value: [...PAID_STATUSES] },
-    ]),
-  )
-  const data = isRecord(body.data) ? body.data : {}
+  const dates = { field: 'order_created_at', operator: 'between', value: [range.start, range.end] }
+  const [paid, everything] = await Promise.all([
+    metorik(
+      apiKey,
+      '/orders/totals',
+      withFilters([dates, { field: 'status', operator: 'in', value: [...PAID_STATUSES] }]),
+    ),
+    metorik(apiKey, '/orders/totals', withFilters([dates])),
+  ])
+
+  const data = isRecord(paid.data) ? paid.data : {}
+  const all = isRecord(everything.data) ? everything.data : {}
   return {
     net: num(data.net),
     discount: num(data.total_discount),
     shipping: num(data.total_shipping),
     tax: num(data.total_tax),
-    refunds: num(data.total_refunds),
+    refunds: num(all.total_refunds),
   }
 }
 

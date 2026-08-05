@@ -92,16 +92,21 @@ function buildStatement({
     })
   }
 
-  // Zero movements are dropped rather than listed flat — a store with no
-  // refunds should not have to read a refund line to find that out.
+  // Zero movements are dropped rather than listed flat — a period with no
+  // coupons should not have to read a coupon line to find that out.
+  //
+  // `always` exempts a line from that: refunds are looked for whether or not
+  // there were any, and a line silently absent is indistinguishable from one
+  // that failed to report. An explicit zero answers the question.
   const part = (
     label: string,
     amount: number,
     sign: '+' | '−' | '',
     polarity: Polarity = 'up-good',
+    always = false,
   ) => {
     const value = round2(amount)
-    if (value === 0) return
+    if (value === 0 && !always) return
     lines.push({
       label,
       amount: value,
@@ -127,7 +132,7 @@ function buildStatement({
   part('Tax collected', pnl.taxCollected, '+')
   // A refund is money handed back, not a cost of trading, so it belongs to the
   // revenue section rather than down among the overheads.
-  part('Refunds', refunds, '−', 'down-good')
+  part('Refunds', refunds, '−', 'down-good', true)
   if (refunds !== 0) {
     subtotal('Net revenue', round2(pnl.totalRevenue - refunds))
   }
