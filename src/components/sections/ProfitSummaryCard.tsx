@@ -131,13 +131,14 @@ function buildStatement({
   const refunds = round2(pnl.refunds)
 
   total('Total revenue', pnl.totalRevenue)
-  // Product sales at list, before a single coupon comes off.
-  part('Sales before coupons', pnl.grossSales, '')
+  // The two now subtract to the line beneath them: sales before coupons, less
+  // the coupons, is gross sales.
+  part('Sales before coupons', salesBeforeCouponsOf(pnl), '')
   // More coupons is worse, so its polarity inverts against the group's.
   part('Coupons', pnl.discounts, '−', 'down-good')
   // Struck in the totals' ink because it is a figure to stop at, and sitting
   // below the coupon line it is reckoned with rather than above it.
-  subtotal('Gross sales', grossSalesOf(pnl))
+  subtotal('Gross sales', round2(pnl.grossSales))
   part('Shipping charged', pnl.shippingCharged, '+')
   part('Tax collected', pnl.taxCollected, '+')
   // A refund is money handed over and returned, not a cost of trading, so it
@@ -171,24 +172,24 @@ function buildStatement({
 }
 
 /**
- * Gross sales as this store reads it: the sales-before-coupons figure with the
- * coupon value added on top of it.
+ * Sales before coupons: the store's gross sales with the coupon value added
+ * back on top of it.
  *
- * Metorik's own `net` is already struck after discounts, and `pnl.grossSales`
- * adds them back once to undo that — so this adds them a second time and the
- * result sits above what any order was billed. It is the definition the store
- * asked for, kept in one place so the headline and the line agree.
+ * Kept in one place so the headline and the line cannot disagree, and so the
+ * pair below it subtracts correctly — this figure less the coupons is exactly
+ * the gross sales line.
  */
-const grossSalesOf = (pnl: ProfitAndLoss): number => round2(pnl.grossSales + pnl.discounts)
+const salesBeforeCouponsOf = (pnl: ProfitAndLoss): number =>
+  round2(pnl.grossSales + pnl.discounts)
 
 /**
- * The figure everything else is a share of: gross sales, which by the
- * definition above is the largest figure in the statement — every other line
- * is a part of it or comes off it — so nothing can read over 100%.
+ * The figure everything else is a share of: sales before coupons, which by the
+ * definition above is the largest figure in the statement — every other line is
+ * a part of it or comes off it — so nothing can read over 100%.
  */
 const topLine = (pnl: ProfitAndLoss): { label: string; amount: number } => ({
-  label: 'Gross sales',
-  amount: grossSalesOf(pnl),
+  label: 'Sales before coupons',
+  amount: salesBeforeCouponsOf(pnl),
 })
 
 /** The four cost lines a statement subtracts, for a window with no `totalCost`. */
