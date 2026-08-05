@@ -143,6 +143,7 @@ export function CouponsPage() {
 
         <CouponUsageCard
           couponsUsed={data?.couponsUsed}
+          discountTotal={data?.discountTotal}
           coupons={data?.topCoupons ?? []}
           lapsedCodes={data?.lapsedCodes}
           against={against}

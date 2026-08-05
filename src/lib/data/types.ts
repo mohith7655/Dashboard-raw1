@@ -235,8 +235,11 @@ export interface ProductsPayload extends ResourcePage<ProductRow> {
 export interface CouponUsage {
   code: string
   type: CouponType
+  /** The code's face value: `20` reads as 20% or $20 depending on `type`. */
+  amount: number
   /** Redemptions inside the period. */
   used: number
+  /** What those redemptions took off, in currency, across the period. */
   discount: number
   revenue: number
   /** Fraction of every redemption in the period, 0..1. */

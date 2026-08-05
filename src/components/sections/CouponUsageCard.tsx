@@ -8,6 +8,8 @@ import { Skeleton } from '../Skeleton'
 interface CouponUsageCardProps {
   /** Total redemptions in the period, carrying its own movement. */
   couponsUsed: Metric | undefined
+  /** What every redemption took off between them. */
+  discountTotal: Metric | undefined
   coupons: CouponUsage[]
   /** Codes used in the comparison window and not in this one; null when off. */
   lapsedCodes: number | null | undefined
@@ -27,6 +29,7 @@ interface CouponUsageCardProps {
  */
 export function CouponUsageCard({
   couponsUsed,
+  discountTotal,
   coupons,
   lapsedCodes,
   against,
@@ -40,7 +43,9 @@ export function CouponUsageCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="kpi-label truncate">Coupon usage</div>
-          <p className="mt-1 text-[12px] text-muted">{headline(couponsUsed, delta, against)}</p>
+          <p className="mt-1 text-[12px] text-muted">
+            {headline(couponsUsed, discountTotal, delta, against)}
+          </p>
         </div>
 
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-icon-btn text-muted">
@@ -66,7 +71,7 @@ export function CouponUsageCard({
         // Rank, code and figures cannot all fit a phone; the rows scroll
         // sideways rather than wrapping a leaderboard into unreadable shapes.
         <div className="mt-4 overflow-x-auto border-t border-row-line pt-2">
-          <ol className={`flex min-w-[24rem] flex-col ${against ? 'sm:min-w-[30rem]' : ''}`}>
+          <ol className={`flex flex-col ${against ? 'min-w-[30rem]' : 'min-w-[24rem]'}`}>
             {coupons.map((coupon, index) => (
               <UsageRow key={coupon.code} coupon={coupon} rank={index + 1} compared={!!against} />
             ))}
@@ -91,14 +96,18 @@ export function CouponUsageCard({
  */
 function headline(
   couponsUsed: Metric | undefined,
+  discountTotal: Metric | undefined,
   delta: number | null,
   against: DateRange | null,
 ): string {
   if (!couponsUsed) return 'Redemptions across every code in the period.'
 
+  // The count alone says how often a coupon was reached for, not what that
+  // cost — and the cost is the half of it that reaches the statement.
+  const off = discountTotal ? ` worth ${formatCurrency(discountTotal.value)} off` : ''
   const uses = `${formatInteger(couponsUsed.value)} ${
     couponsUsed.value === 1 ? 'redemption' : 'redemptions'
-  }`
+  }${off}`
   if (!against) return `${uses}. Turn on a comparison to see how that moved.`
   if (delta === null) {
     // No baseline to divide by: the compared window had no coupon usage at all,
@@ -112,6 +121,13 @@ function headline(
   const direction = delta === 0 ? 'level with' : delta > 0 ? 'up' : 'down'
   const move = delta === 0 ? '' : ` ${formatDeltaPercent(delta)}`
   return `${uses}, ${direction}${move} ${delta === 0 ? '' : 'on '}${formatRangeLabel(against)}.`
+}
+
+/** `20% off` or `$10.00 off` — what the code is set to take, not what it took. */
+function faceValue(coupon: CouponUsage): string {
+  return coupon.type === 'percent'
+    ? `${coupon.amount}% off`
+    : `${formatCurrency(coupon.amount)} off`
 }
 
 /**
@@ -137,16 +153,17 @@ function UsageRow({
       />
 
       <span className="relative w-4 shrink-0 text-[11px] tabular-nums text-label">{rank}</span>
-      {/* What each redemption was worth stays on hover: the table below the
-          card already carries discount and revenue as sortable columns, and
-          repeating them here would cost the leaderboard its shape. */}
+      {/* The code and what it takes off read as one thing — `20% off` is half
+          of what `NEWUSER20` means — so the face value trails the code rather
+          than claiming a column of its own. */}
       <span
-        className="relative min-w-0 flex-1 truncate font-mono text-[12px] text-ink"
-        title={`${coupon.code} — ${formatCurrency(coupon.discount)} discounted, ${formatCurrency(
+        className="relative flex min-w-0 flex-1 items-baseline gap-1.5 truncate"
+        title={`${coupon.code} — ${faceValue(coupon)}, ${formatCurrency(
           coupon.revenue,
         )} revenue`}
       >
-        {coupon.code}
+        <span className="truncate font-mono text-[12px] text-ink">{coupon.code}</span>
+        <span className="shrink-0 text-[10px] text-label">{faceValue(coupon)}</span>
       </span>
 
       <span className="relative shrink-0 text-[12px] font-semibold tabular-nums text-ink">
@@ -154,6 +171,11 @@ function UsageRow({
       </span>
       <span className="relative w-12 shrink-0 text-right text-[11px] tabular-nums text-muted">
         {formatPercent(coupon.share)}
+      </span>
+      {/* What the code actually took off over the period. Signed, like every
+          other deduction on this dashboard: it comes off the statement. */}
+      <span className="relative w-20 shrink-0 text-right text-[11px] tabular-nums text-muted">
+        −{formatCurrency(coupon.discount)}
       </span>
 
       {/* Holds its width even when a code has no movement to show, so one gap

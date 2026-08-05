@@ -298,6 +298,7 @@ export default function App() {
                   />
                   <CouponUsageCard
                     couponsUsed={coupons.data?.couponsUsed}
+                    discountTotal={coupons.data?.discountTotal}
                     coupons={coupons.data?.topCoupons ?? []}
                     lapsedCodes={coupons.data?.lapsedCodes}
                     against={against}

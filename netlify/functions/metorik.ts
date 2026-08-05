@@ -871,6 +871,7 @@ function usageLeaderboard(
     return {
       code: row.code,
       type: row.type,
+      amount: row.amount,
       used: row.used,
       discount: row.discount,
       revenue: row.revenue,
