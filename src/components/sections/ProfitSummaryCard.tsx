@@ -172,14 +172,14 @@ function buildStatement({
   part('Product cost', pnl.productCost, '−', 'down-good')
   part('Shipping cost', pnl.shippingCost, '−', 'down-good')
   part('Transaction cost', pnl.transactionCost, '−', 'down-good')
-  // What is left after the costs the orders themselves carry, before the costs
-  // of running the store — a resting point partway down the group rather than
-  // a separate total, because the two lines under it are still costs.
-  // Struck from the total sales line above rather than from the payload's own
-  // gross profit, which is taken before refunds and against a sales figure
-  // this statement no longer shows. Two figures a few rows apart that do not
+  // A heading in its own right, flush with total sales and cost of goods sold:
+  // the statement's three landmarks, each with what produced it underneath.
+  //
+  // Struck from the total sales line rather than from the payload's own gross
+  // profit, which is taken before refunds and against a sales figure this
+  // statement no longer shows. Two figures a few rows apart that do not
   // subtract to the one between them is how a statement stops being believed.
-  subtotal('Gross profit', grossProfit)
+  total('Gross profit', grossProfit)
   // Absent rather than zero when no platform reported, so the line never
   // claims the store advertised for nothing.
   if (adSpend !== null) part('Advertising cost', adSpend, '−', 'down-good')
@@ -345,6 +345,10 @@ export function ProfitSummaryCard({
                 share={share(line)}
                 change={changeOf(line)}
                 showChange={anyChange}
+                // The line the statement opens on, and the one every share is
+                // measured against. It carries a little more weight than the
+                // headings below it for both reasons.
+                lead={index === 0}
               />
             ))}
           </dl>
@@ -369,16 +373,20 @@ function StatementRow({
   share,
   change,
   showChange,
+  lead = false,
 }: {
   line: Line
   share: number
   change: number | null
   showChange: boolean
+  /** The statement's opening line, set a size above the headings below it. */
+  lead?: boolean
 }) {
   const total = line.kind === 'total'
   // A subtotal stays indented with the movements it sums, but in the ink the
   // totals use — it is a figure to rest on, not another adjustment.
   const strong = total || line.kind === 'subtotal'
+  const strongSize = lead ? 'text-[13.5px]' : 'text-[12px]'
 
   return (
     // Columns are packed to the left rather than pushed to both edges. Spread
@@ -392,7 +400,7 @@ function StatementRow({
     >
       <dt
         className={`w-[8.5rem] shrink-0 truncate ${total ? '' : 'pl-3'} ${
-          strong ? 'text-[12px] font-medium text-ink' : 'text-[11px] text-muted'
+          strong ? `${strongSize} font-medium text-ink` : 'text-[11px] text-muted'
         }`}
       >
         {line.label}
@@ -403,7 +411,7 @@ function StatementRow({
             widens its column instead of being clipped. */}
         <span
           className={`min-w-[5.5rem] text-right tabular-nums ${
-            strong ? 'text-[12px] font-semibold text-ink' : 'text-[11px] text-muted'
+            strong ? `${strongSize} font-semibold text-ink` : 'text-[11px] text-muted'
           }`}
         >
           {line.valueLabel}
