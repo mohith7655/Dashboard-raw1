@@ -148,17 +148,26 @@ function buildStatement({
     subtotal('Net revenue', round2(pnl.totalRevenue - refunds))
   }
 
-  total('Total cost', totalCost, 'down-good')
+  // Every cost the store carries, not only the four that ride on an order.
+  // Advertising and operations were listed below the line, so total cost named
+  // a figure smaller than what running the store actually costs.
+  total(
+    'Cost of goods sold',
+    round2(totalCost + (adSpend ?? 0) + operatingCost),
+    'down-good',
+  )
   part('Product cost', pnl.productCost, '−', 'down-good')
   part('Shipping cost', pnl.shippingCost, '−', 'down-good')
-  part('Transaction fees', pnl.transactionCost, '−', 'down-good')
-  part('Other costs', pnl.otherCost, '−', 'down-good')
-
-  total('Gross profit', pnl.grossProfit)
+  part('Transaction cost', pnl.transactionCost, '−', 'down-good')
+  part('Extra cost', pnl.otherCost, '−', 'down-good')
+  // What is left after the costs the orders themselves carry, before the costs
+  // of running the store — a resting point partway down the group rather than
+  // a separate total, because the two lines under it are still costs.
+  subtotal('Gross profit', pnl.grossProfit)
   // Absent rather than zero when no platform reported, so the line never
   // claims the store advertised for nothing.
-  if (adSpend !== null) part('Ad spend', adSpend, '−', 'down-good')
-  part('Operating costs', operatingCost, '−', 'down-good')
+  if (adSpend !== null) part('Advertising cost', adSpend, '−', 'down-good')
+  part('Operational cost', operatingCost, '−', 'down-good')
 
   // Refunds come off here rather than above: total revenue is what was billed,
   // and gross profit is struck from it, so the money handed back is still in
