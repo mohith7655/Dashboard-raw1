@@ -68,7 +68,7 @@ export function ProfitLossSection({
 
         <CardRow>
           <KpiCard
-            label="Total Revenue"
+            label="Total Sales"
             value={woo ? formatCurrency(woo.totalRevenue.value) : '—'}
             metric={woo?.totalRevenue}
             icon={DollarSign}

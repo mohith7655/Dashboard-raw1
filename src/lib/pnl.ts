@@ -74,7 +74,7 @@ export function profitWaterfall(
   move('Coupons', pnl.discounts, 'decrease')
   move('Shipping charged', pnl.shippingCharged, 'increase')
   move('Tax collected', pnl.taxCollected, 'increase')
-  total('Total revenue', pnl.totalRevenue)
+  total('Total sales', pnl.totalRevenue)
   move('Product cost', pnl.productCost, 'decrease')
   move('Shipping cost', pnl.shippingCost, 'decrease')
   move('Transaction fees', pnl.transactionCost, 'decrease')

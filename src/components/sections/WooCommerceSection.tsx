@@ -41,9 +41,9 @@ export function WooCommerceSection({
   const revenueParts: KpiPart[] = metrics
     ? [
         {
-          // Named as the statement above names it. "Gross sales" there is the
-          // figure after coupons, and one screen cannot hold two meanings of it.
-          label: 'Sales before coupons',
+          // Named as the statement above names it: this figure is struck after
+          // coupons, and "gross sales" there means the line before them.
+          label: 'Net sales',
           value: formatCurrency(metrics.pnl.grossSales),
           deltaPct: was ? deltaPct(metrics.pnl.grossSales, was.grossSales) : null,
         },
@@ -83,7 +83,7 @@ export function WooCommerceSection({
 
       <CardRow>
         <KpiCard
-          label="Total Revenue"
+          label="Total Sales"
           value={metrics ? formatCurrency(metrics.totalRevenue.value) : '—'}
           metric={metrics?.totalRevenue}
           icon={DollarSign}
@@ -167,7 +167,7 @@ export function WooCommerceSection({
           {...shared}
         />
         <KpiCard
-          label="Total Revenue"
+          label="Total Sales"
           value={metrics ? formatCurrency(metrics.totalRevenue.value) : '—'}
           metric={metrics?.totalRevenue}
           icon={DollarSign}

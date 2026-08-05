@@ -130,15 +130,15 @@ function buildStatement({
 
   const refunds = round2(pnl.refunds)
 
-  total('Total revenue', pnl.totalRevenue)
-  // The two now subtract to the line beneath them: sales before coupons, less
-  // the coupons, is gross sales.
-  part('Sales before coupons', salesBeforeCouponsOf(pnl), '')
+  total('Total sales', pnl.totalRevenue)
+  // The three subtract down the page: gross sales, less the coupons, is net
+  // sales.
+  part('Gross sales', grossSalesOf(pnl), '')
   // More coupons is worse, so its polarity inverts against the group's.
   part('Coupons', pnl.discounts, '−', 'down-good')
   // Struck in the totals' ink because it is a figure to stop at, and sitting
   // below the coupon line it is reckoned with rather than above it.
-  subtotal('Gross sales', round2(pnl.grossSales))
+  subtotal('Net sales', round2(pnl.grossSales))
   part('Shipping charged', pnl.shippingCharged, '+')
   part('Tax collected', pnl.taxCollected, '+')
   // A refund is money handed over and returned, not a cost of trading, so it
@@ -181,24 +181,23 @@ function buildStatement({
 }
 
 /**
- * Sales before coupons: the store's gross sales with the coupon value added
- * back on top of it.
+ * Gross sales: sales with the coupon value added back on top, before anything
+ * has come off.
  *
  * Kept in one place so the headline and the line cannot disagree, and so the
  * pair below it subtracts correctly — this figure less the coupons is exactly
- * the gross sales line.
+ * the net sales line.
  */
-const salesBeforeCouponsOf = (pnl: ProfitAndLoss): number =>
-  round2(pnl.grossSales + pnl.discounts)
+const grossSalesOf = (pnl: ProfitAndLoss): number => round2(pnl.grossSales + pnl.discounts)
 
 /**
- * The figure everything else is a share of: sales before coupons, which by the
+ * The figure everything else is a share of: gross sales, which by the
  * definition above is the largest figure in the statement — every other line is
  * a part of it or comes off it — so nothing can read over 100%.
  */
 const topLine = (pnl: ProfitAndLoss): { label: string; amount: number } => ({
-  label: 'Sales before coupons',
-  amount: salesBeforeCouponsOf(pnl),
+  label: 'Gross sales',
+  amount: grossSalesOf(pnl),
 })
 
 /** The four cost lines a statement subtracts, for a window with no `totalCost`. */

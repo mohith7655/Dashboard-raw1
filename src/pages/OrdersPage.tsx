@@ -53,7 +53,7 @@ export function OrdersPage() {
           failed={!!woo.error}
           items={[
             { label: 'Total Orders', metric: woo.data?.totalOrders, format: formatInteger, icon: Package },
-            { label: 'Total Revenue', metric: woo.data?.totalRevenue, format: formatCurrency, icon: DollarSign },
+            { label: 'Total Sales', metric: woo.data?.totalRevenue, format: formatCurrency, icon: DollarSign },
             { label: 'Avg Order Value', metric: woo.data?.avgOrderValue, format: formatCurrency, icon: ShoppingCart },
             { label: 'New Customers', metric: woo.data?.newCustomers, format: formatInteger, icon: Users },
           ]}
