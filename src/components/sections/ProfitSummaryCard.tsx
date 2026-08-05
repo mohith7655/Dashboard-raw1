@@ -138,13 +138,13 @@ function buildStatement({
   }
 
   const refunds = round2(pnl.refunds)
-  // Net sales is gross sales with the coupons, shipping and tax all taken off;
-  // total sales is that less what was returned. Shipping and tax subtract here
-  // rather than adding: they are collected on the store's behalf, not sold.
-  const netSales = round2(
-    grossSalesOf(pnl) - pnl.discounts - pnl.shippingCharged - pnl.taxCollected,
+  // Net sales is gross sales with the coupons off. Shipping and tax are money
+  // the customer handed over on top of it, so they add on the way to total
+  // sales, and returns come off.
+  const netSales = round2(grossSalesOf(pnl) - pnl.discounts)
+  const totalSales = round2(
+    netSales + pnl.shippingCharged + pnl.taxCollected - refunds,
   )
-  const totalSales = round2(netSales - refunds)
   // The three charges that ride on the goods. Taken from the lines themselves
   // rather than from the payload's `totalCost`, which also carries Metorik's
   // extra costs and would leave the heading naming more than it lists.
@@ -154,19 +154,17 @@ function buildStatement({
 
   total('Total sales', totalSales)
   part('Gross sales', grossSalesOf(pnl), '')
-  // Every deduction in this group reads the same way round: less of it leaves
-  // more of the sale behind, so a rise is red.
+  // More coupons is worse, so its polarity inverts against the group's.
   part('Coupons', pnl.discounts, '−', 'down-good')
-  part('Shipping charged', pnl.shippingCharged, '−', 'down-good')
-  part('Tax collected', pnl.taxCollected, '−', 'down-good')
-  // Only where something was returned. Total sales is net sales less returns,
-  // so with none the two are the same figure and printing both states it
-  // twice — the reader looks for the difference and there is none to find.
-  if (refunds !== 0) {
-    // Struck in the totals' ink because it is a figure to stop at, and sitting
-    // below the deductions that produce it rather than above them.
+  // Struck in the totals' ink because it is a figure to stop at, and sitting
+  // below the deduction that produces it rather than above it. Shown only
+  // where the lines under it move it: with no shipping, tax or returns it
+  // would restate total sales under a second name.
+  if (netSales !== totalSales) {
     subtotal('Net sales', netSales)
   }
+  part('Shipping charged', pnl.shippingCharged, '+')
+  part('Tax collected', pnl.taxCollected, '+')
   // A refund is money handed over and returned, not a cost of trading, so it
   // belongs to the sales section rather than down among the overheads.
   part('Refunds', refunds, '−', 'down-good', true)
