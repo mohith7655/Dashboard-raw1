@@ -298,7 +298,14 @@ export default function App() {
                   />
                   <CouponUsageCard
                     couponsUsed={coupons.data?.couponsUsed}
-                    discountTotal={coupons.data?.discountTotal}
+                    discountTotal={
+                    // The statement directly above reads its coupon figure off
+                    // the order totals, which is the authority. Metorik's
+                    // per-coupon report can leave a code's discount at zero, and
+                    // a card that summed those would state a smaller total than
+                    // the line it sits beneath.
+                    woo.data ? { value: woo.data.pnl.discounts, deltaPct: null } : undefined
+                  }
                     coupons={coupons.data?.topCoupons ?? []}
                     lapsedCodes={coupons.data?.lapsedCodes}
                     against={against}

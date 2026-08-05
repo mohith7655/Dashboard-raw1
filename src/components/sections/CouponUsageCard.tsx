@@ -132,7 +132,10 @@ function headline(
  * without it, and a card should degrade to saying less rather than to nonsense.
  */
 function faceValue(coupon: CouponUsage): string {
-  if (!Number.isFinite(coupon.amount)) return ''
+  // Zero is treated as absent, not as a coupon that takes nothing off. No
+  // store configures a 0% code, so a zero here means upstream did not report
+  // the face value, and `0% off` would be a claim rather than a gap.
+  if (!Number.isFinite(coupon.amount) || coupon.amount <= 0) return ''
   return coupon.type === 'percent'
     ? `${coupon.amount}% off`
     : `${formatCurrency(coupon.amount)} off`
@@ -179,9 +182,13 @@ function UsageRow({
         {formatPercent(coupon.share)}
       </span>
       {/* What the code actually took off over the period. Signed, like every
-          other deduction on this dashboard: it comes off the statement. */}
+          other deduction on this dashboard: it comes off the statement.
+
+          A code that was redeemed cannot have discounted nothing, so a zero
+          here is upstream declining to report the figure, and it reads as the
+          gap it is. Printed as −$0.00 it claimed the redemptions were free. */}
       <span className="relative w-20 shrink-0 text-right text-[11px] tabular-nums text-muted">
-        −{formatCurrency(coupon.discount)}
+        {coupon.discount > 0 ? `−${formatCurrency(coupon.discount)}` : '—'}
       </span>
 
       {/* Holds its width even when a code has no movement to show, so one gap
