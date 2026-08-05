@@ -180,8 +180,27 @@ export function DateRangePicker({
         <div
           role="dialog"
           aria-label="Select date range"
-          className="absolute right-0 z-50 mt-2 w-[46rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-[#3b3b40] bg-[#242426] shadow-2xl shadow-black/50"
+          // Capped and scrollable: two months, the presets and the comparison
+          // run past the bottom of a phone screen, and the rows stranded below
+          // the fold could not be reached at all.
+          className="absolute right-0 z-50 mt-2 max-h-[80vh] w-[46rem] max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-lg border border-[#3b3b40] bg-[#242426] shadow-2xl shadow-black/50"
         >
+          {/* A way out, for the viewport that has neither of the other two: a
+              phone has no Escape key, and the panel covers nearly the whole
+              screen, so there is barely anything left outside it to tap. It
+              stays put while the panel scrolls under it. */}
+          <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-[#3b3b40] bg-[#242426] px-4 py-2.5 md:hidden">
+            <span className="text-[12px] font-medium text-ink">Select date range</span>
+            <button
+              type="button"
+              aria-label="Close date picker"
+              onClick={() => setOpen(false)}
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-btn-border bg-btn text-muted transition-colors hover:text-ink"
+            >
+              <X size={14} />
+            </button>
+          </div>
+
           <div className="flex flex-col md:flex-row">
             <div className="min-w-0 flex-1 p-4">
               <div className="mb-4 flex flex-col gap-2 sm:flex-row">
