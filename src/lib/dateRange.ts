@@ -58,11 +58,14 @@ export function rangeFromPreset(preset: PresetId, current?: DateRange): DateRang
     case 'last30':
       return { start: toIso(addDays(today, -29)), end: toIso(today), preset }
     case 'thisMonth': {
+      // Ends today, not at the end of the month, the same way `thisWeek` and
+      // `yearToDate` do. Running to a date that has not happened yet charged a
+      // whole month of recurring operating costs against however many days of
+      // trading had actually occurred, and set a five-day period against a
+      // full previous month — which is what put −86% beside every figure on
+      // the first of the month.
       const first = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1))
-      const last = new Date(
-        Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0),
-      )
-      return { start: toIso(first), end: toIso(last), preset }
+      return { start: toIso(first), end: toIso(today), preset }
     }
     case 'lastMonth': {
       const first = new Date(
@@ -82,6 +85,23 @@ export function rangeFromPreset(preset: PresetId, current?: DateRange): DateRang
     case 'custom':
       return current ? { ...current, preset } : rangeFromPreset('thisMonth')
   }
+}
+
+/**
+ * Pulls a range's end back to the last date with data behind it.
+ *
+ * Presets are built this way already; this catches the hand-picked ones. A
+ * range extending into the future costs nothing upstream — the function clamps
+ * it before querying — but it is still counted in full by everything derived
+ * on this side of the boundary, and prorated operating costs are the clearest
+ * case: days that have not happened are charged against trading that has.
+ */
+export function clampRangeToAvailable(range: DateRange): DateRange {
+  const latest = latestAvailableDate()
+  if (range.end <= latest) return range
+  // A range starting after the latest date collapses onto it rather than
+  // inverting, which would read as `start` after `end` everywhere downstream.
+  return { ...range, start: range.start > latest ? latest : range.start, end: latest }
 }
 
 /** Inclusive day count. */

@@ -6,6 +6,7 @@ import { DateRangePicker } from '../DateRangePicker'
 import { RangeContext } from '../../lib/rangeContext'
 import {
   DEFAULT_COMPARISON,
+  clampRangeToAvailable,
   rangeFromPreset,
   resolveComparison,
 } from '../../lib/dateRange'
@@ -23,7 +24,10 @@ export function AppShell() {
   const rangeValue = useMemo(
     () => ({
       range,
-      setRange,
+      // Clamped on the way in, as in App: nothing derived from the range —
+      // prorated operating costs above all — may be measured against days
+      // that have not happened yet.
+      setRange: (next: DateRange) => setRange(clampRangeToAvailable(next)),
       comparison,
       setComparison,
       against: resolveComparison(range, comparison),

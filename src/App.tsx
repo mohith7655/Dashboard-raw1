@@ -21,6 +21,7 @@ import { RevenueByTrafficSource } from './components/charts/RevenueByTrafficSour
 import { RecentOrders } from './components/RecentOrders'
 import {
   DEFAULT_COMPARISON,
+  clampRangeToAvailable,
   formatRangeLabel,
   rangeFromPreset,
   resolveComparison,
@@ -107,7 +108,10 @@ export default function App() {
   }
 
   const onRangeChange = (next: DateRange) => {
-    setRange(next)
+    // Clamped on the way in rather than at each reader, so nothing derived
+    // from the range — prorated costs above all — is measured against days
+    // that have not happened yet.
+    setRange(clampRangeToAvailable(next))
     setPage(1)
     setDismissed([])
   }
