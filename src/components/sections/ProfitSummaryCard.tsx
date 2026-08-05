@@ -339,6 +339,16 @@ function StatementRow({
         >
           {line.valueLabel}
         </span>
+        {/* This period's share sits next to the figure it describes — the two
+            are the same fact in different units — and the movement against the
+            comparison window follows, being about a different period. */}
+        <span
+          className={`w-12 text-right text-[11px] tabular-nums ${
+            strong ? 'text-[#9a9aa2]' : 'text-muted'
+          }`}
+        >
+          {formatPercent(share)}
+        </span>
         {/* Each column holds its width even when a line has no figure for it,
             so one gap cannot shunt the column beside it out of alignment. */}
         {showChange && (
@@ -355,13 +365,6 @@ function StatementRow({
             )}
           </span>
         )}
-        <span
-          className={`w-12 text-right text-[11px] tabular-nums ${
-            strong ? 'text-[#9a9aa2]' : 'text-muted'
-          }`}
-        >
-          {formatPercent(share)}
-        </span>
       </dd>
     </div>
   )

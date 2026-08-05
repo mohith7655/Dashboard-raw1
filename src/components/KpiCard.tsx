@@ -72,34 +72,35 @@ export function KpiCard({
       <div className="min-w-0 flex-1">
         <div className="kpi-label truncate">{label}</div>
 
-        {/* Value and change share a line: the change is a property of the
-            figure, and stacking it underneath cost a row of height on every
-            card in the grid. Wraps rather than truncating where a long value
-            and a long delta will not both fit. */}
-        <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        {/* Value and change stay on one line, never stacking: the change is a
+            property of the figure, and a card that dropped it underneath sat
+            taller than its neighbours and read as a different kind of card.
+            The value yields first when the two cannot both fit, since a
+            clipped figure is still recognisable and a wrapped card is not. */}
+        <div className="mt-2 flex items-baseline gap-x-2">
           {loading ? (
             <Skeleton className="h-[30px] w-32" />
           ) : (
-            <div className="kpi-value truncate">{unavailable ? '—' : value}</div>
+            <div className="kpi-value min-w-0 truncate">{unavailable ? '—' : value}</div>
           )}
 
           {loading ? (
             <Skeleton className="h-3.5 w-28" />
           ) : (
             delta !== null && (
-              <div className="flex items-center gap-1 text-[12px]">
+              // The arrow and its colour already carry the direction, so the
+              // word that used to follow only made the pair too wide to keep
+              // beside the value on a four-column row.
+              <div
+                className={`flex shrink-0 items-center gap-0.5 text-[12px] ${deltaColor(delta, polarity)}`}
+                title={`${formatDeltaPercent(delta)} ${directionWord(delta)}`}
+              >
                 {delta < 0 ? (
-                  <ArrowDown size={13} className={deltaColor(delta, polarity)} strokeWidth={2.5} />
+                  <ArrowDown size={13} strokeWidth={2.5} />
                 ) : (
-                  <ArrowUp size={13} className={deltaColor(delta, polarity)} strokeWidth={2.5} />
+                  <ArrowUp size={13} strokeWidth={2.5} />
                 )}
-                <span className={`font-medium tabular-nums ${deltaColor(delta, polarity)}`}>
-                  {formatDeltaPercent(delta)}
-                </span>
-                {/* The window compared against is now chosen in the picker and
-                    named on it, so naming it again on forty cards said less
-                    than the direction of the move does. */}
-                <span className="text-muted">{directionWord(delta)}</span>
+                <span className="font-medium tabular-nums">{formatDeltaPercent(delta)}</span>
               </div>
             )
           )}
@@ -114,10 +115,19 @@ export function KpiCard({
                   <span className="text-[12px] font-medium tabular-nums text-ink">
                     {part.value}
                   </span>
-                  {/* Each column keeps a fixed width so they line up down the
+                  {/* This period's share reads next to the figure it restates;
+                      the move against the comparison window comes after, being
+                      about another period.
+
+                      Each column keeps a fixed width so they line up down the
                       card, and holds its space when a line has no figure —
-                      otherwise one part without a delta shunts the shares
+                      otherwise one part without a delta shunts the column
                       beside it out of alignment. */}
+                  {part.share !== undefined && (
+                    <span className="w-11 text-right text-[11px] tabular-nums text-muted">
+                      {formatPercent(part.share)}
+                    </span>
+                  )}
                   {parts.some((p) => p.deltaPct != null) && (
                     <span
                       className={`w-14 text-right text-[11px] tabular-nums ${
@@ -129,11 +139,6 @@ export function KpiCard({
                       {part.deltaPct == null
                         ? ''
                         : `${part.deltaPct < 0 ? '↓' : '↑'} ${formatDeltaPercent(part.deltaPct)}`}
-                    </span>
-                  )}
-                  {part.share !== undefined && (
-                    <span className="w-11 text-right text-[11px] tabular-nums text-muted">
-                      {formatPercent(part.share)}
                     </span>
                   )}
                 </dd>
