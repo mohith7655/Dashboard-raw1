@@ -193,14 +193,16 @@ function buildStatement({
 }
 
 /**
- * Gross sales: sales with the coupon value added back on top, before anything
- * has come off.
+ * Gross sales: the sale itself, with the coupon value added back on top and
+ * the shipping and tax charged on the order taken out, so the line covers the
+ * goods alone. Both are added again lower down, on the way to total sales.
  *
  * Kept in one place so the headline and the line cannot disagree, and so the
- * pair below it subtracts correctly — this figure less the coupons is exactly
- * the net sales line.
+ * pair below it subtracts correctly — this figure less the coupons and the
+ * returns is exactly the net sales line.
  */
-const grossSalesOf = (pnl: ProfitAndLoss): number => round2(pnl.grossSales + pnl.discounts)
+const grossSalesOf = (pnl: ProfitAndLoss): number =>
+  round2(pnl.grossSales + pnl.discounts - pnl.shippingCharged - pnl.taxCollected)
 
 /**
  * What the goods themselves earned: gross sales less the coupons and less
