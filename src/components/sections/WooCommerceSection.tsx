@@ -41,7 +41,9 @@ export function WooCommerceSection({
   const revenueParts: KpiPart[] = metrics
     ? [
         {
-          label: 'Gross sales',
+          // Named as the statement above names it. "Gross sales" there is the
+          // figure after coupons, and one screen cannot hold two meanings of it.
+          label: 'Sales before coupons',
           value: formatCurrency(metrics.pnl.grossSales),
           deltaPct: was ? deltaPct(metrics.pnl.grossSales, was.grossSales) : null,
         },

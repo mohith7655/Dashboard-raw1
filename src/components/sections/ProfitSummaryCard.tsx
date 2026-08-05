@@ -33,6 +33,13 @@ interface Line {
   label: string
   /** The figure itself; the sign lives in `valueLabel`. */
   amount: number
+  /**
+   * The same figure as the statement reads it, sign included — a deduction is
+   * negative here though `amount` carries only its magnitude. The share is
+   * taken from this, so a line that subtracts reads as a negative share and
+   * cannot be mistaken for one that adds.
+   */
+  signed: number
   kind: 'total' | 'subtotal' | 'part'
   /** Pre-formatted, carrying a sign only where the sign means something. */
   valueLabel: string
@@ -76,16 +83,20 @@ function buildStatement({
     lines.push({
       label,
       amount,
+      signed: amount,
       kind: 'total',
       valueLabel: formatCurrency(amount),
       polarity,
     })
   }
 
+  // Struck in the totals' ink but indented with the movements it sums: a
+  // figure to rest on partway down a group, not another adjustment.
   const subtotal = (label: string, amount: number, polarity: Polarity = 'up-good') => {
     lines.push({
       label,
       amount,
+      signed: amount,
       kind: 'subtotal',
       valueLabel: formatCurrency(amount),
       polarity,
@@ -110,6 +121,7 @@ function buildStatement({
     lines.push({
       label,
       amount: value,
+      signed: sign === '−' ? -Math.abs(value) : value,
       kind: 'part',
       valueLabel: `${sign}${formatCurrency(Math.abs(value))}`,
       polarity,
@@ -119,19 +131,18 @@ function buildStatement({
   const refunds = round2(pnl.refunds)
 
   total('Total revenue', pnl.totalRevenue)
-  part('Gross sales', pnl.grossSales, '')
+  // Product sales at list, before a single coupon comes off.
+  part('Sales before coupons', pnl.grossSales, '')
   // More coupons is worse, so its polarity inverts against the group's.
   part('Coupons', pnl.discounts, '−', 'down-good')
-  // Sales after the coupons come off, before shipping and tax are added on.
-  // It sits below the deduction that produces it rather than above it, and
-  // only when there were coupons — with none it would restate gross sales.
-  if (round2(pnl.discounts) !== 0) {
-    subtotal('Net sales', round2(pnl.grossSales - pnl.discounts))
-  }
+  // Sales once the coupons are off, before shipping and tax are added on. It
+  // sits below the deduction that produces it rather than above it, and is
+  // struck in the totals' ink because it is a figure to stop at.
+  subtotal('Gross sales', round2(pnl.grossSales - pnl.discounts))
   part('Shipping charged', pnl.shippingCharged, '+')
   part('Tax collected', pnl.taxCollected, '+')
-  // A refund is money handed back, not a cost of trading, so it belongs to the
-  // revenue section rather than down among the overheads.
+  // A refund is money handed over and returned, not a cost of trading, so it
+  // belongs to the revenue section rather than down among the overheads.
   part('Refunds', refunds, '−', 'down-good', true)
   if (refunds !== 0) {
     subtotal('Net revenue', round2(pnl.totalRevenue - refunds))
@@ -149,6 +160,9 @@ function buildStatement({
   if (adSpend !== null) part('Ad spend', adSpend, '−', 'down-good')
   part('Operating costs', operatingCost, '−', 'down-good')
 
+  // Refunds come off here rather than above: total revenue is what was billed,
+  // and gross profit is struck from it, so the money handed back is still in
+  // both and has to be taken out once before the bottom line.
   total(
     'Net profit',
     round2(pnl.grossProfit - refunds - (adSpend ?? 0) - operatingCost),
@@ -158,17 +172,17 @@ function buildStatement({
 }
 
 /**
- * The figure everything else is a share of: whichever of gross sales and total
- * revenue is larger.
+ * The figure everything else is a share of: whichever of sales before coupons
+ * and total revenue is larger.
  *
- * Neither one is reliably the bigger. Coupons pull total revenue below gross
- * sales; shipping and tax push it above. Taking the smaller as 100% would make
- * the other read over it, so the top of the statement is chosen rather than
- * assumed, and no line can then exceed 100%.
+ * Neither one is reliably the bigger. Coupons pull total revenue below the
+ * sales that produced it; shipping and tax push it above. Taking the smaller
+ * as 100% would make the other read over it, so the top of the statement is
+ * chosen rather than assumed, and no line can then exceed 100%.
  */
 const topLine = (pnl: ProfitAndLoss): { label: string; amount: number } =>
   pnl.grossSales >= pnl.totalRevenue
-    ? { label: 'Gross sales', amount: pnl.grossSales }
+    ? { label: 'Sales before coupons', amount: pnl.grossSales }
     : { label: 'Total revenue', amount: pnl.totalRevenue }
 
 /** The four cost lines a statement subtracts, for a window with no `totalCost`. */
@@ -240,7 +254,10 @@ export function ProfitSummaryCard({
 
   const top = woo ? topLine(woo.pnl) : null
   const base = top?.amount ?? 0
-  const share = (amount: number): number => (base === 0 ? 0 : Math.abs(amount) / base)
+  // Signed, so a deduction reads `−13.6%` beside its `−$448.18`. A share
+  // printed bare made a line that comes off the total look like one that adds
+  // to it, which is the one thing the figure beside it already says.
+  const share = (line: Line): number => (base === 0 ? 0 : line.signed / base)
   const anyChange = lines.some((line) => changeOf(line) !== null)
 
   return (
@@ -285,7 +302,7 @@ export function ProfitSummaryCard({
               <StatementRow
                 key={`${line.label}-${index}`}
                 line={line}
-                share={share(line.amount)}
+                share={share(line)}
                 change={changeOf(line)}
                 showChange={anyChange}
               />

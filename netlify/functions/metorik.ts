@@ -39,10 +39,20 @@ const API_BASE = 'https://app.metorik.com/api/v1/store'
 const HINT =
   'WooCommerce metrics could not be loaded. Check the Metorik API key in your Netlify environment, then click Retry.'
 
-/** Orders that produced revenue. Everything else is counted but not banked. */
+/**
+ * Orders that took money. Everything else is counted but not banked.
+ *
+ * `refunded` belongs here even though the money went back. The sale happened,
+ * the goods were picked and shipped, and the statement deducts the refund on
+ * its own line — so banking it first is what lets that line mean anything.
+ * Left out, the order vanished from revenue while its refund was still
+ * subtracted, and the two sides of that subtraction described different sets
+ * of orders. `cancelled` and `failed` stay out: they never collected.
+ */
 const PAID_STATUSES: ReadonlySet<OrderStatus> = new Set<OrderStatus>([
   'completed',
   'processing',
+  'refunded',
 ])
 
 /** Safety valve on the aggregation loop for very long ranges. */
@@ -619,13 +629,10 @@ interface RevenueSide {
  * The revenue lines are scoped to the same statuses the per-order loop banks,
  * so they reconcile exactly with the Total Revenue KPI rather than drifting.
  *
- * Refunds cannot be read from that same call. Refunding an order in full flips
- * it to `refunded`, which the paid-status filter excludes — so the figure only
- * ever saw partial refunds against orders that were still live, and a store
- * that refunded ten orders outright reported none of them. They are counted
- * here across every status instead. It has to stay a second call: folding the
- * refunded orders into the first would pull their net, shipping and tax into
- * gross sales, and the statement would stop agreeing with the revenue KPI.
+ * Refunds still cannot be read from that same call. A refund can be recorded
+ * against an order in any state, including ones this filter excludes, and the
+ * figure has to cover all of them or the statement understates what went back.
+ * They are counted across every status in a call of their own.
  */
 async function paidOrderTotals(apiKey: string, range: DateRange): Promise<RevenueSide> {
   const dates = { field: 'order_created_at', operator: 'between', value: [range.start, range.end] }
