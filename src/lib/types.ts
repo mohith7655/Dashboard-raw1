@@ -389,6 +389,36 @@ export interface CostLine extends OperatingCost {
   applied: number
 }
 
+/* --------------------------- Shipping surcharges ------------------------ */
+
+export const SHIPPING_COST_BASES = ['per-order', 'flat'] as const
+
+export type ShippingCostBasis = (typeof SHIPPING_COST_BASES)[number]
+
+/**
+ * A shipping charge the orders do not carry: customs, a courier surcharge, a
+ * per-region 3PL fee. Entered by hand against a destination and stored
+ * server-side, like the operating costs.
+ */
+export interface CountryShippingCost {
+  id: string
+  /** ISO alpha-2, matching the key the order splits are grouped under. */
+  country: string
+  /** What it is, for the operator's own reference. */
+  label: string
+  /** In store currency: per order shipped there, or flat for the period. */
+  amount: number
+  basis: ShippingCostBasis
+}
+
+/** One surcharge resolved against a period's orders to that country. */
+export interface ShippingCostLine extends CountryShippingCost {
+  /** Orders shipped to `country` in the range — zero for a flat charge's sake. */
+  orders: number
+  /** What the surcharge comes to over the range. */
+  applied: number
+}
+
 /* ------------------------------- Insights ------------------------------- */
 
 export type InsightSeverity = 'critical' | 'warning' | 'good'

@@ -7,6 +7,7 @@ import {
 import type {
   AdapterResult,
   AdsMetrics,
+  CountryShippingCost,
   DateRange,
   Ga4Dimension,
   Ga4Report,
@@ -23,6 +24,7 @@ import * as metorik from './adapters/metorik'
 import * as meta from './adapters/meta'
 import * as googleAds from './adapters/googleAds'
 import * as costs from './adapters/costs'
+import * as shippingCosts from './adapters/shippingCosts'
 import * as ga4 from './adapters/ga4'
 import * as insights from './adapters/insights'
 
@@ -54,8 +56,9 @@ export const queryKeys = {
   // row has nothing to be compared against.
   ga4: (range: DateRange, dimension: Ga4Dimension) =>
     ['ga4', range.start, range.end, dimension] as const,
-  // Not range-scoped: the stored list is the same whatever period is on screen.
+  // Not range-scoped: the stored lists are the same whatever period is on screen.
   costs: () => ['costs'] as const,
+  shippingCosts: () => ['shippingCosts'] as const,
 }
 
 /** Adapters never throw; rethrow their error so the query layer can retry it. */
@@ -188,6 +191,35 @@ export function useInsights(): Insights {
     analyse: (snapshot) => mutation.mutate(snapshot),
     running: mutation.isPending,
     error: mutation.error instanceof SourceFailure ? mutation.error.sourceError : null,
+  }
+}
+
+export function useShippingCosts(): SourceQuery<CountryShippingCost[]> {
+  return toSourceQuery(
+    useQuery({
+      queryKey: queryKeys.shippingCosts(),
+      queryFn: () => unwrap(shippingCosts.fetchShippingCosts()),
+    }),
+  )
+}
+
+export interface SaveShippingCosts {
+  save: (costs: CountryShippingCost[]) => void
+  saving: boolean
+  error: string | null
+}
+
+export function useSaveShippingCosts(): SaveShippingCosts {
+  const client = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: shippingCosts.saveShippingCosts,
+    onSuccess: (saved) => client.setQueryData(queryKeys.shippingCosts(), saved),
+  })
+
+  return {
+    save: (next) => mutation.mutate(next),
+    saving: mutation.isPending,
+    error: mutation.error ? mutation.error.message : null,
   }
 }
 

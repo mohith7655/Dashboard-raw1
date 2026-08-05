@@ -39,6 +39,8 @@ import {
   useOperatingCosts,
   useOrders,
   useSaveOperatingCosts,
+  useShippingCosts,
+  useSaveShippingCosts,
   useGa4Report,
   useTrafficMetrics,
   useWooMetrics,
@@ -79,6 +81,8 @@ export default function App() {
   const orders = useOrders(range, { page, perPage: PER_PAGE, sort, direction })
   const costs = useOperatingCosts()
   const saveCosts = useSaveOperatingCosts()
+  const shippingCosts = useShippingCosts()
+  const saveShippingCosts = useSaveShippingCosts()
   const coupons = useCoupons(range, COUPON_OVERVIEW_QUERY, against)
   const traffic = useTrafficMetrics(range, against)
   const ga4 = useGa4Report(range, ga4Dimension)
@@ -234,6 +238,11 @@ export default function App() {
             woo={woo.data}
             loading={woo.isLoading}
             failed={!!woo.error}
+            extraCosts={shippingCosts.data}
+            extraLoading={shippingCosts.isLoading}
+            extraError={saveShippingCosts.error ?? shippingCosts.error?.message ?? null}
+            savingExtra={saveShippingCosts.saving}
+            onSaveExtra={saveShippingCosts.save}
           />
         )}
 

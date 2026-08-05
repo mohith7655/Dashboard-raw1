@@ -26,6 +26,8 @@ import {
   useOperatingCosts,
   useOrders,
   useSaveOperatingCosts,
+  useShippingCosts,
+  useSaveShippingCosts,
   useWooMetrics,
 } from '../lib/queries'
 import { COUPON_OVERVIEW_QUERY, useCoupons } from '../lib/resourceQueries'
@@ -52,6 +54,8 @@ export function DashboardPage() {
   const orders = useOrders(range, { page, perPage: PER_PAGE, sort, direction })
   const costs = useOperatingCosts()
   const saveCosts = useSaveOperatingCosts()
+  const shippingCosts = useShippingCosts()
+  const saveShippingCosts = useSaveShippingCosts()
   const coupons = useCoupons(range, COUPON_OVERVIEW_QUERY, against)
   const failedOrders = failedOrderCount(woo.data)
 
@@ -163,6 +167,11 @@ export function DashboardPage() {
           woo={woo.data}
           loading={woo.isLoading}
           failed={!!woo.error}
+          extraCosts={shippingCosts.data}
+          extraLoading={shippingCosts.isLoading}
+          extraError={saveShippingCosts.error ?? shippingCosts.error?.message ?? null}
+          savingExtra={saveShippingCosts.saving}
+          onSaveExtra={saveShippingCosts.save}
         />
       )}
 
