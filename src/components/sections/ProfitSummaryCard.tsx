@@ -54,7 +54,6 @@ interface Line {
 /** Everything a statement is built from, for either window. */
 interface StatementInput {
   pnl: ProfitAndLoss
-  totalCost: number
   adSpend: number | null
   operatingCost: number
 }
@@ -73,19 +72,29 @@ interface StatementInput {
  */
 function buildStatement({
   pnl,
-  totalCost,
   adSpend,
   operatingCost,
 }: StatementInput): Line[] {
   const lines: Line[] = []
 
-  const total = (label: string, amount: number, polarity: Polarity = 'up-good') => {
+  // `negative` marks a heading that is money leaving rather than money held —
+  // it prints with a minus and takes a negative share, as its own lines do,
+  // while `amount` stays a magnitude so the comparison measures the cost
+  // rising or falling rather than flipping sign against the other window.
+  const total = (
+    label: string,
+    amount: number,
+    polarity: Polarity = 'up-good',
+    negative = false,
+  ) => {
     lines.push({
       label,
       amount,
-      signed: amount,
+      signed: negative ? -Math.abs(amount) : amount,
       kind: 'total',
-      valueLabel: formatCurrency(amount),
+      valueLabel: negative
+        ? `−${formatCurrency(Math.abs(amount))}`
+        : formatCurrency(amount),
       polarity,
     })
   }
@@ -136,8 +145,12 @@ function buildStatement({
     grossSalesOf(pnl) - pnl.discounts - pnl.shippingCharged - pnl.taxCollected,
   )
   const totalSales = round2(netSales - refunds)
-  // What the sale left after the costs the orders themselves carry.
-  const grossProfit = round2(totalSales - totalCost)
+  // The three charges that ride on the goods. Taken from the lines themselves
+  // rather than from the payload's `totalCost`, which also carries Metorik's
+  // extra costs and would leave the heading naming more than it lists.
+  const cogs = round2(pnl.productCost + pnl.shippingCost + pnl.transactionCost)
+  // What the sale left after the cost of the goods sold.
+  const grossProfit = round2(totalSales - cogs)
 
   total('Total sales', totalSales)
   part('Gross sales', grossSalesOf(pnl), '')
@@ -153,18 +166,14 @@ function buildStatement({
   // belongs to the sales section rather than down among the overheads.
   part('Refunds', refunds, '−', 'down-good', true)
 
-  // Every cost the store carries, not only the four that ride on an order.
-  // Advertising and operations were listed below the line, so total cost named
-  // a figure smaller than what running the store actually costs.
-  total(
-    'Cost of goods sold',
-    round2(totalCost + (adSpend ?? 0) + operatingCost),
-    'down-good',
-  )
+  // The cost of the goods themselves: what was bought, what it cost to ship,
+  // and what the processor took. Advertising and operations are costs of
+  // running the store rather than of the goods, so they stay below the gross
+  // profit line instead of inside this one.
+  total('Cost of goods sold', cogs, 'down-good', true)
   part('Product cost', pnl.productCost, '−', 'down-good')
   part('Shipping cost', pnl.shippingCost, '−', 'down-good')
   part('Transaction cost', pnl.transactionCost, '−', 'down-good')
-  part('Extra cost', pnl.otherCost, '−', 'down-good')
   // What is left after the costs the orders themselves carry, before the costs
   // of running the store — a resting point partway down the group rather than
   // a separate total, because the two lines under it are still costs.
@@ -205,10 +214,6 @@ const topLine = (pnl: ProfitAndLoss): { label: string; amount: number } => ({
   amount: grossSalesOf(pnl),
 })
 
-/** The four cost lines a statement subtracts, for a window with no `totalCost`. */
-const costsOf = (pnl: ProfitAndLoss): number =>
-  round2(pnl.productCost + pnl.shippingCost + pnl.transactionCost + pnl.otherCost)
-
 export function ProfitSummaryCard({
   woo,
   reportedAds,
@@ -246,7 +251,6 @@ export function ProfitSummaryCard({
       woo
         ? buildStatement({
             pnl: woo.pnl,
-            totalCost: woo.totalCost.value,
             adSpend,
             operatingCost,
           })
@@ -260,7 +264,6 @@ export function ProfitSummaryCard({
     if (!woo?.pnlPrevious) return null
     const previous = buildStatement({
       pnl: woo.pnlPrevious,
-      totalCost: costsOf(woo.pnlPrevious),
       adSpend: prevAdSpend,
       operatingCost: prevOperatingCost,
     })
