@@ -13,8 +13,7 @@ import { MarketsTrafficSection } from './components/sections/MarketsTrafficSecti
 import { ProfitLossSection } from './components/sections/ProfitLossSection'
 import { ShippingSection } from './components/sections/ShippingSection'
 import { InsightsSection } from './components/sections/InsightsSection'
-import { RevenueOverTime } from './components/charts/RevenueOverTime'
-import { RefundsOverTime } from './components/charts/RefundsOverTime'
+import { RevenueAndRefunds } from './components/charts/RevenueAndRefunds'
 import { OrdersByStatus } from './components/charts/OrdersByStatus'
 import { RevenueByTrafficSource } from './components/charts/RevenueByTrafficSource'
 import { RecentOrders } from './components/RecentOrders'
@@ -38,6 +37,7 @@ import {
   useOrders,
   useSaveOperatingCosts,
   useShippingCosts,
+  useShippingCharged,
   useSaveShippingCosts,
   useGa4Report,
   useTrafficMetrics,
@@ -82,6 +82,21 @@ export default function App() {
   const shippingCosts = useShippingCosts()
   const saveShippingCosts = useSaveShippingCosts()
   const coupons = useCoupons(range, COUPON_OVERVIEW_QUERY, against)
+  // Postage charged is read one destination at a time, so the list is capped
+  // and taken from the split the metrics payload already carries — and the
+  // query stays idle until that arrives, and while another tab is open.
+  const shippingCountries = useMemo(
+    () =>
+      view === 'shipping'
+        ? (woo.data?.revenueByCountry ?? [])
+            .filter((row) => row.key !== '(unknown)')
+            .slice(0, 25)
+            .map((row) => row.key)
+            .sort()
+        : [],
+    [view, woo.data],
+  )
+  const shippingCharged = useShippingCharged(range, shippingCountries)
   const traffic = useTrafficMetrics(range, against)
   const ga4 = useGa4Report(range, ga4Dimension)
   // The country cut specifically, which the markets join needs whatever the
@@ -243,6 +258,9 @@ export default function App() {
             woo={woo.data}
             loading={woo.isLoading}
             failed={!!woo.error}
+            charged={shippingCharged.data}
+            chargedLoading={shippingCharged.isLoading}
+            chargedFailed={!!shippingCharged.error}
             extraCosts={shippingCosts.data}
             extraLoading={shippingCosts.isLoading}
             extraError={saveShippingCosts.error ?? shippingCosts.error?.message ?? null}
@@ -360,19 +378,14 @@ export default function App() {
               failed={!!google.error}
             />
 
-            <RevenueOverTime
-              data={woo.data?.revenueSeries ?? []}
+            {/* One plot, two scales: a refund spike is read against the day
+                that produced it without the smaller series flattening onto
+                the axis. */}
+            <RevenueAndRefunds
+              revenue={woo.data?.revenueSeries ?? []}
+              refunds={woo.data?.refundSeries ?? []}
               loading={woo.isLoading}
               unavailable={woo.error ? 'Revenue data unavailable' : undefined}
-            />
-
-            {/* Directly under revenue and on the same width, so the two are
-                read against each other — a spike here against a good day
-                there is the comparison worth making. */}
-            <RefundsOverTime
-              data={woo.data?.refundSeries ?? []}
-              loading={woo.isLoading}
-              unavailable={woo.error ? 'Refund data unavailable' : undefined}
             />
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
