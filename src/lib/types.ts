@@ -328,11 +328,13 @@ export interface OrdersQuery {
  * How often an operating cost recurs. `once` is a single dated charge; the
  * rest repeat forever and are prorated onto whatever range is on screen.
  */
-export type CostCadence = 'once' | 'weekly' | 'monthly' | 'yearly'
+export type CostCadence = 'once' | 'daily' | 'weekly' | 'monthly' | 'yearly'
 
+/** Offered in order of frequency; the editor defaults a new row to monthly. */
 export const COST_CADENCES: CostCadence[] = [
-  'monthly',
+  'daily',
   'weekly',
+  'monthly',
   'yearly',
   'once',
 ]

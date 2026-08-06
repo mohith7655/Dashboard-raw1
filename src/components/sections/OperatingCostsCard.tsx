@@ -30,6 +30,7 @@ interface OperatingCostsCardProps {
 
 const CADENCE_LABELS: Record<CostCadence, string> = {
   once: 'One-off',
+  daily: 'Daily',
   weekly: 'Weekly',
   monthly: 'Monthly',
   yearly: 'Yearly',

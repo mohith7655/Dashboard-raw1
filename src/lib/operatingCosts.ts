@@ -186,6 +186,11 @@ function occurrences(cost: OperatingCost, range: DateRange): number {
   const anchor = anchorOf(cost)
   if (!anchor) {
     switch (cost.cadence) {
+      // A daily charge lands on every day it is live for, so the count is the
+      // window itself and the anchor has nothing to add — there is no day of
+      // the week or month to fall on.
+      case 'daily':
+        return daysInRange(active)
       case 'weekly':
         return daysInRange(active) / 7
       case 'monthly':
@@ -196,6 +201,8 @@ function occurrences(cost: OperatingCost, range: DateRange): number {
   }
 
   switch (cost.cadence) {
+    case 'daily':
+      return daysInRange(active)
     case 'weekly':
       return weeklyCount(active, anchor)
     case 'monthly':
@@ -229,6 +236,8 @@ export function chargeLabel(cost: OperatingCost): string {
 
   const at = parseIsoDate(anchor)
   switch (cost.cadence) {
+    case 'daily':
+      return 'every day'
     case 'weekly':
       return `every ${WEEKDAYS[at.getUTCDay()]}`
     case 'monthly': {
