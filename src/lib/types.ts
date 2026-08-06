@@ -420,6 +420,28 @@ export interface CostLine extends OperatingCost {
   applied: number
 }
 
+/* ------------------------- Shipping profit & loss ----------------------- */
+
+/** What one destination was charged for postage, against what it cost. */
+export interface ShippingChargedRow {
+  /** ISO alpha-2, matching the key the order splits are grouped under. */
+  country: string
+  /** Postage the customer paid, in store currency. */
+  charged: number
+  /** Kept apart from `charged` rather than folded in — it is not postage. */
+  tax: number
+  orders: number
+}
+
+export interface ShippingChargedPayload {
+  byCountry: ShippingChargedRow[]
+  /** Every destination, including any not asked about. */
+  storeCharged: number
+  storeTax: number
+  /** True when more destinations existed than the per-country cap allows. */
+  truncated: boolean
+}
+
 /* --------------------------- Shipping surcharges ------------------------ */
 
 export const SHIPPING_COST_BASES = ['per-order', 'flat'] as const

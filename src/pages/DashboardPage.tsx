@@ -165,6 +165,12 @@ export function DashboardPage() {
           woo={woo.data}
           loading={woo.isLoading}
           failed={!!woo.error}
+          // This page is not mounted; App.tsx carries the live wiring. The
+          // per-country postage query lives there with it, so the table here
+          // renders the paid side alone rather than a second copy of the call.
+          charged={undefined}
+          chargedLoading={false}
+          chargedFailed={false}
           extraCosts={shippingCosts.data}
           extraLoading={shippingCosts.isLoading}
           extraError={saveShippingCosts.error ?? shippingCosts.error?.message ?? null}

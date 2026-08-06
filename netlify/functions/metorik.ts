@@ -6,6 +6,8 @@ import type {
   OrdersPage,
   ProfitAndLoss,
   RevenuePoint,
+  ShippingChargedPayload,
+  ShippingChargedRow,
   SourceRevenue,
   StatusCount,
   TrafficMetrics,
@@ -104,6 +106,9 @@ export default async function handler(request: Request): Promise<Response> {
     }
     if (resource === 'traffic') {
       return json(await loadTraffic(apiKey, range, against))
+    }
+    if (resource === 'shipping') {
+      return json(await loadShippingCharged(apiKey, range, url))
     }
     return json(await loadMetrics(apiKey, range, against, meta))
   } catch (err) {
@@ -741,6 +746,90 @@ async function refundsIssued(
   }
 
   return { total: round2(total), byDay }
+}
+
+/* ------------------------------------------------------------------ *
+ * Shipping charged, by destination
+ * ------------------------------------------------------------------ */
+
+/** Countries fetched individually before the tail is lumped into one row. */
+const MAX_SHIPPING_COUNTRIES = 25
+
+/** In flight at once. Metorik is asked for one country at a time and 25 at
+ *  once is a burst it has no reason to welcome. */
+const SHIPPING_CONCURRENCY = 5
+
+/**
+ * What each destination was charged for postage.
+ *
+ * There is no cheaper way to get this. The order rows carry `shipping_cogs` —
+ * what the store paid — but nothing for what the customer paid: an order's own
+ * `net` already includes its shipping, so `total − net − refunds` is zero on
+ * every order and the figure cannot be derived. Only `/orders/totals` splits
+ * `total_shipping` out, and only for whatever its filters select, so it is
+ * asked once per country.
+ *
+ * Tax is fetched alongside and kept separate rather than folded in. It is not
+ * evenly spread — over July the store's entire $179.83 of tax sat on US orders
+ * — so a combined figure would overstate exactly the destination that matters
+ * most.
+ *
+ * The countries come from the caller, which already has the split from the
+ * metrics payload. That saves sweeping every order again purely to rediscover
+ * a list the page is holding.
+ */
+async function loadShippingCharged(
+  apiKey: string,
+  range: DateRange,
+  url: URL,
+): Promise<ShippingChargedPayload> {
+  const asked = (url.searchParams.get('countries') ?? '')
+    .split(',')
+    .map((code) => code.trim().toUpperCase())
+    .filter((code) => /^[A-Z]{2}$/.test(code))
+
+  const countries = [...new Set(asked)].slice(0, MAX_SHIPPING_COUNTRIES)
+  const dates = { field: 'order_created_at', operator: 'between', value: [range.start, range.end] }
+  const status = { field: 'status', operator: 'in', value: [...PAID_STATUSES] }
+
+  const one = async (country: string) => {
+    const body = await metorik(
+      apiKey,
+      '/orders/totals',
+      withFilters([
+        dates,
+        status,
+        { field: 'billing_address_country', operator: 'in', value: [country] },
+      ]),
+    )
+    const data = isRecord(body.data) ? body.data : {}
+    return {
+      country,
+      charged: round2(num(data.total_shipping)),
+      tax: round2(num(data.total_tax)),
+      orders: Math.round(num(data.count)),
+    }
+  }
+
+  const rows: ShippingChargedRow[] = []
+  for (let i = 0; i < countries.length; i += SHIPPING_CONCURRENCY) {
+    rows.push(
+      ...(await Promise.all(countries.slice(i, i + SHIPPING_CONCURRENCY).map(one))),
+    )
+  }
+
+  // The store-wide figure comes from one unfiltered call rather than by adding
+  // the rows up, so the caller can state a remainder for the destinations that
+  // were not asked about instead of quietly dropping them.
+  const allBody = await metorik(apiKey, '/orders/totals', withFilters([dates, status]))
+  const all = isRecord(allBody.data) ? allBody.data : {}
+
+  return {
+    byCountry: rows,
+    storeCharged: round2(num(all.total_shipping)),
+    storeTax: round2(num(all.total_tax)),
+    truncated: [...new Set(asked)].length > countries.length,
+  }
 }
 
 /**

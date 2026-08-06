@@ -17,6 +17,7 @@ import type {
   OperatingCost,
   OrdersPage,
   OrdersQuery,
+  ShippingChargedPayload,
   SourceError,
   TrafficMetrics,
   WooMetrics,
@@ -54,6 +55,10 @@ export const queryKeys = {
     ['googleAds', range.start, range.end, vs(against)] as const,
   traffic: (range: DateRange, against: DateRange | null) =>
     ['traffic', range.start, range.end, vs(against)] as const,
+  // Keyed on the destinations too: asking about a different set is a different
+  // answer, and reusing the cached one would leave a country blank.
+  shippingCharged: (range: DateRange, countries: string[]) =>
+    ['shippingCharged', range.start, range.end, countries.join(',')] as const,
   // No deltas on either: a GA4 breakdown and a page of orders are lists, and a
   // row has nothing to be compared against.
   ga4: (range: DateRange, dimension: Ga4Dimension) =>
@@ -144,6 +149,26 @@ export function useTrafficMetrics(
     useQuery({
       queryKey: queryKeys.traffic(range, against),
       queryFn: () => unwrap(metorik.fetchTraffic(range, against)),
+    }),
+  )
+}
+
+/**
+ * Postage charged per destination — one upstream call per country, so it is
+ * loaded only when the Shipping tab asks for it.
+ *
+ * Disabled until the country list arrives: firing with none would return an
+ * empty split and cache it under a key the real list would never match.
+ */
+export function useShippingCharged(
+  range: DateRange,
+  countries: string[],
+): SourceQuery<ShippingChargedPayload> {
+  return toSourceQuery(
+    useQuery({
+      queryKey: queryKeys.shippingCharged(range, countries),
+      queryFn: () => unwrap(metorik.fetchShippingCharged(range, countries)),
+      enabled: countries.length > 0,
     }),
   )
 }
