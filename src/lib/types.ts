@@ -310,9 +310,10 @@ export interface Order {
    */
   currency: string
   /**
-   * What the customer was charged, in `currency`. Read from the store itself,
-   * since Metorik converts before it reaches us and keeps no original — zero
-   * where the store was not configured or could not be reached.
+   * What the customer was charged, in `currency`. Derived from the rate the
+   * order itself was booked at, so a foreign order reads at the rate of its own
+   * day rather than today's. Zero on a fully refunded foreign order, where
+   * there is nothing left to take the rate from.
    */
   paid: number
   status: OrderStatus

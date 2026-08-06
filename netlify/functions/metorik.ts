@@ -15,6 +15,7 @@ import type {
 import { ORDER_STATUSES } from '../../src/lib/types'
 import { buildWooMetrics, deltaPct, deriveWoo, metric, round2, type WooTotals } from '../../src/lib/derive'
 import { eachDay } from '../../src/lib/dateRange'
+import { resolveTimeZone, todayIn } from '../../src/lib/timeZone'
 import type {
   CouponType,
   CouponUsage,
@@ -26,7 +27,6 @@ import type {
 import {
   wooCouponPeriod,
   wooCredentials,
-  wooOrderAmounts,
   type WooCouponPeriod,
 } from '../lib/woo'
 import {
@@ -74,10 +74,13 @@ const AGGREGATE_PAGE_SIZE = 100
 export default async function handler(request: Request): Promise<Response> {
   try {
     const url = new URL(request.url)
-    const range = clampToAvailableData(readRange(url))
     const apiKey = requireEnv('METORIK_API_KEY')
+    // Resolved before the range is clamped: which day is "today" depends on
+    // the store's calendar, and clamping on UTC withheld a day the store had
+    // already been trading through for most of its afternoon.
     const meta = await storeMeta(apiKey)
     const timeZone = meta.timeZone
+    const range = clampToAvailableData(readRange(url), timeZone)
 
     const resource = url.searchParams.get('resource')
     if (resource === 'orders') {
@@ -94,7 +97,7 @@ export default async function handler(request: Request): Promise<Response> {
     // ignore it: they are lists, and a row has nothing to be compared against.
     // Coupons are the exception, being read as a usage report as much as a list.
     const requested = readComparison(url, range)
-    const against = requested && clampToAvailableData(requested)
+    const against = requested && clampToAvailableData(requested, timeZone)
 
     if (resource === 'coupons') {
       return json(await loadCouponsPage(apiKey, range, url, against))
@@ -108,12 +111,17 @@ export default async function handler(request: Request): Promise<Response> {
   }
 }
 
-/** Metorik accepts completed reporting days only, so protect direct URL calls too. */
-function clampToAvailableData(range: DateRange): DateRange {
-  const latest = new Date()
-  latest.setUTCHours(0, 0, 0, 0)
-  latest.setUTCDate(latest.getUTCDate() - 1)
-  const maxDate = latest.toISOString().slice(0, 10)
+/**
+ * Nothing past today on the store's own calendar, so a hand-typed URL cannot
+ * ask for days that have not happened.
+ *
+ * Today is included. Metorik answers for the current day on every endpoint this
+ * function calls — that was checked against the live store, which had five
+ * orders on the day in question — so stopping a day short only hid trading that
+ * had already happened.
+ */
+function clampToAvailableData(range: DateRange, timeZone: string): DateRange {
+  const maxDate = todayIn(timeZone)
   const start = range.start > maxDate ? maxDate : range.start
   const end = range.end > maxDate ? maxDate : range.end
   return start <= end ? { ...range, start, end } : { ...range, start: maxDate, end: maxDate }
@@ -137,15 +145,28 @@ export interface StoreMeta {
 
 const DEFAULT_META: StoreMeta = { timeZone: 'UTC', currency: 'USD' }
 
+/**
+ * A zone named in this deployment's own environment, which outranks the one
+ * Metorik reports.
+ *
+ * Metorik already reports this store as `America/Los_Angeles` and the two
+ * normally agree. The override exists for when they do not — a store whose
+ * WooCommerce timezone was never set, or one whose reporting day is deliberately
+ * kept somewhere else — and so the calendar can be corrected without waiting on
+ * an upstream setting.
+ */
+const overriddenZone = resolveTimeZone(process.env)
+
 let cachedMeta: Promise<StoreMeta> | null = null
 
 function storeMeta(apiKey: string): Promise<StoreMeta> {
   cachedMeta ??= metorik(apiKey, '', {})
     .then((body) => ({
       timeZone:
-        typeof body.timezone === 'string' && body.timezone
+        overriddenZone ??
+        (typeof body.timezone === 'string' && body.timezone
           ? body.timezone
-          : DEFAULT_META.timeZone,
+          : DEFAULT_META.timeZone),
       currency:
         typeof body.currency === 'string' && body.currency
           ? body.currency.toUpperCase()
@@ -153,9 +174,11 @@ function storeMeta(apiKey: string): Promise<StoreMeta> {
     }))
     .catch(() => {
       // A failed lookup is never cached — one blip would otherwise pin the
-      // whole warm instance to UTC and quietly shift every date by a day.
+      // whole warm instance to UTC and quietly shift every date by a day. An
+      // overridden zone still holds through the failure, since it never
+      // depended on the lookup.
       cachedMeta = null
-      return DEFAULT_META
+      return { ...DEFAULT_META, timeZone: overriddenZone ?? DEFAULT_META.timeZone }
     })
   return cachedMeta
 }
@@ -432,12 +455,35 @@ function normaliseOrder(row: Record<string, unknown>, timeZone: string): Order {
     city: firstString(row, ['billing_address_city', 'shipping_address_city']),
     country: firstString(row, ['billing_address_country', 'shipping_address_country']),
     currency: String(row.currency ?? '').toUpperCase(),
-    // Filled in from the store below where the keys allow it.
-    paid: 0,
+    paid: readPaid(row),
     status: readStatus(row.status),
     items: Math.round(pick(row, ['total_items', 'items_count', 'line_items_count', 'quantity'])),
     total: round2(pick(row, ['total'])),
   }
+}
+
+/**
+ * What the customer was charged, in the currency they were charged in.
+ *
+ * Metorik converts `total` to store currency, but it carries the original
+ * alongside it as `net_original` — `net` in the order's own money. `net` is
+ * `total` less refunds, so the pair gives the exchange rate this order was
+ * booked at and the gross charge follows from it. The rate has to be taken from
+ * the order rather than from the store's own table: a rate applies from the day
+ * it was set, and an order from last month was converted at last month's.
+ *
+ * Zero where the rate cannot be had — a fully refunded order leaves `net` at
+ * zero and nothing to divide — and the column shows the bare currency instead.
+ */
+function readPaid(row: Record<string, unknown>): number {
+  const total = num(row.total)
+  const net = num(row.net)
+  const original = num(row.net_original)
+  if (!Number.isFinite(total) || total === 0) return 0
+  // Store currency: the two figures are the same number and no rate is needed.
+  if (net === total) return round2(original || total)
+  if (net <= 0 || original <= 0) return 0
+  return round2(total * (original / net))
 }
 
 /**
@@ -509,22 +555,6 @@ async function loadOrdersPage(
   const parsed = readPage(body)
   const totalData = isRecord(totals.data) ? totals.data : {}
   const orders = parsed.rows.map((row) => normaliseOrder(row, timeZone))
-
-  // What each order actually charged, for the ten on this page only. Metorik
-  // converts every total to store currency and keeps no original, so this is
-  // the one place the amount the customer paid can come from. A failure here
-  // leaves the column blank rather than taking the table down with it.
-  const creds = wooCredentials()
-  if (creds && orders.length > 0) {
-    try {
-      const paid = await wooOrderAmounts(creds, orders.map((order) => order.id))
-      for (const order of orders) {
-        order.paid = paid.get(order.id) ?? 0
-      }
-    } catch {
-      // Left at zero; the table reads the currency without an amount.
-    }
-  }
 
   return {
     orders,
