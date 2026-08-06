@@ -149,6 +149,7 @@ export function CouponsPage() {
           against={against}
           loading={coupons.isLoading}
           failed={!!coupons.error}
+          defaultOpen
         />
 
         <DataTable

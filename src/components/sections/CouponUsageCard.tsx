@@ -1,4 +1,5 @@
-import { ArrowDown, ArrowRight, ArrowUp, TicketPercent } from 'lucide-react'
+import { useId, useState } from 'react'
+import { ArrowDown, ArrowRight, ArrowUp, ChevronDown, TicketPercent } from 'lucide-react'
 import type { CouponUsage } from '../../lib/data/types'
 import type { DateRange, Metric } from '../../lib/types'
 import { formatCurrency, formatDeltaPercent, formatInteger, formatPercent } from '../../lib/format'
@@ -17,6 +18,12 @@ interface CouponUsageCardProps {
   against: DateRange | null
   loading: boolean
   failed: boolean
+  /**
+   * Open on load. False on the dashboard, where the card is one of many and
+   * the sentence in its header is the whole answer; true on the coupons page,
+   * where the leaderboard is what the page is for.
+   */
+  defaultOpen?: boolean
 }
 
 /**
@@ -35,24 +42,16 @@ export function CouponUsageCard({
   against,
   loading,
   failed,
+  defaultOpen = false,
 }: CouponUsageCardProps) {
+  const [open, setOpen] = useState(defaultOpen)
+  // Unique per instance: two of these on one page would otherwise both claim
+  // the same id, and a label pointing at one would find the other.
+  const bodyId = useId()
   const delta = couponsUsed?.deltaPct ?? null
 
-  return (
-    <div className="card">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="kpi-label truncate">Coupon usage</div>
-          <p className="mt-1 text-[12px] text-muted">
-            {headline(couponsUsed, discountTotal, delta, against)}
-          </p>
-        </div>
-
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-icon-btn text-muted">
-          <TicketPercent size={15} strokeWidth={2} />
-        </span>
-      </div>
-
+  const body = (
+    <>
       {loading ? (
         <div className="mt-4 flex flex-col gap-2.5 border-t border-row-line pt-3">
           <Skeleton className="h-4 w-full" />
@@ -86,6 +85,43 @@ export function CouponUsageCard({
           in this one.
         </p>
       )}
+    </>
+  )
+
+  return (
+    <div className="card">
+      {/* The whole header opens it. The sentence under the label is the answer
+          most readings want — how much was given away, and which way it moved
+          — so it stays visible closed, and the codes that made it up are what
+          unfolds. */}
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        aria-controls={bodyId}
+        className="flex w-full items-start justify-between gap-3 text-left"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="kpi-label truncate">Coupon usage</div>
+          <p className="mt-1 text-[12px] text-muted">
+            {headline(couponsUsed, discountTotal, delta, against)}
+          </p>
+        </div>
+
+        <span className="flex items-center gap-1.5 shrink-0 text-muted">
+          <ChevronDown
+            size={15}
+            className={`transition-transform ${open ? 'rotate-180' : ''}`}
+          />
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-icon-btn">
+            <TicketPercent size={15} strokeWidth={2} />
+          </span>
+        </span>
+      </button>
+
+      <div id={bodyId} hidden={!open}>
+        {open && body}
+      </div>
     </div>
   )
 }
