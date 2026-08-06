@@ -1,5 +1,4 @@
 import { useMemo } from 'react'
-import { Coins, Percent, ShoppingCart, Truck } from 'lucide-react'
 import type {
   CountryShippingCost,
   ShippingChargedPayload,
@@ -11,20 +10,12 @@ import {
   storeShipping,
   unlistedCharged,
 } from '../../lib/shippingPnl'
-import {
-  shippingCostLines,
-  totalShippingCost,
-  withShippingCosts,
-} from '../../lib/shippingCosts'
-import { formatCurrency, formatPercent } from '../../lib/format'
-import { KpiCard } from '../KpiCard'
-import { CardRow } from '../CardRow'
+import { shippingCostLines, totalShippingCost } from '../../lib/shippingCosts'
 import { SectionLabel } from '../SectionLabel'
-import { CostMix } from '../charts/CostMix'
-import { MarketTable } from '../charts/MarketTable'
 import { ShippingByCountryTable } from '../charts/ShippingByCountryTable'
 import { ShippingCostsCard } from './ShippingCostsCard'
 import { ShippingPnlCard } from './ShippingPnlCard'
+import { ShippingStatsCard } from './ShippingStatsCard'
 
 interface ShippingSectionProps {
   woo: WooMetrics | undefined
@@ -56,7 +47,6 @@ export function ShippingSection({
   savingExtra,
   onSaveExtra,
 }: ShippingSectionProps) {
-  const shared = { loading, unavailable: failed }
   const shipping = woo ? shippingEconomics(woo) : null
   const markets = useMemo(() => woo?.revenueByCountry ?? [], [woo])
 
@@ -78,59 +68,34 @@ export function ShippingSection({
   )
   const unlisted = unlistedCharged(charged, byCountry)
 
-  // The country split with the surcharges folded in, so a destination that is
-  // cheap to post to but expensive to clear customs on reads as what it
-  // actually costs.
-  const withExtras = useMemo(() => withShippingCosts(markets, lines), [markets, lines])
-
   return (
     <section className="flex flex-col gap-4">
-      <div>
-        <SectionLabel>Shipping Costs</SectionLabel>
+      <SectionLabel>Shipping Costs</SectionLabel>
 
-        <CardRow>
-          <KpiCard
-            label="Shipping Cost"
-            value={shipping ? formatCurrency(shipping.cost) : '—'}
-            metric={woo?.shippingCost}
-            polarity="down-good"
-            icon={Truck}
-            {...shared}
-          />
-          <KpiCard
-            label="Extra Shipping Cost"
-            value={formatCurrency(extraTotal)}
-            polarity="down-good"
-            icon={Coins}
-            loading={extraLoading}
-          />
-          <KpiCard
-            label="Shipping per Order"
-            value={shipping ? formatCurrency(shipping.perOrder) : '—'}
-            polarity="down-good"
-            icon={ShoppingCart}
-            {...shared}
-          />
-          <KpiCard
-            label="Share of Revenue"
-            value={shipping ? formatPercent(shipping.shareOfRevenue) : '—'}
-            polarity="down-good"
-            icon={Percent}
-            {...shared}
-          />
-        </CardRow>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <ShippingStatsCard
+          orderCost={woo?.shippingCost.value ?? 0}
+          extraCost={extraTotal}
+          costMetric={woo?.shippingCost}
+          orders={woo?.totalOrders.value ?? 0}
+          revenue={woo?.totalRevenue.value ?? 0}
+          mix={shipping?.mix ?? []}
+          totalCost={woo?.totalCost.value ?? 0}
+          loading={loading || extraLoading}
+          failed={failed}
+        />
+
+        {/* The question the costs alone cannot answer: the store spent this
+            much on postage, but was any of it paid for? */}
+        <ShippingPnlCard
+          result={result}
+          orders={woo?.totalOrders.value ?? 0}
+          extraCost={extraTotal}
+          orderCost={woo?.shippingCost.value ?? 0}
+          loading={loading || extraLoading}
+          failed={failed}
+        />
       </div>
-
-      {/* The question the tiles above cannot answer: the store spent $560 on
-          postage, but was any of it paid for? */}
-      <ShippingPnlCard
-        result={result}
-        orders={woo?.totalOrders.value ?? 0}
-        extraCost={extraTotal}
-        orderCost={woo?.shippingCost.value ?? 0}
-        loading={loading || extraLoading}
-        failed={failed}
-      />
 
       <ShippingByCountryTable
         rows={byCountry}
@@ -145,13 +110,6 @@ export function ShippingSection({
         }
       />
 
-      <CostMix
-        slices={shipping?.mix ?? []}
-        total={woo?.totalCost.value ?? 0}
-        loading={loading}
-        unavailable={failed ? 'Cost data unavailable' : undefined}
-      />
-
       <ShippingCostsCard
         costs={extraCosts}
         markets={markets}
@@ -159,20 +117,6 @@ export function ShippingSection({
         error={extraError}
         saving={savingExtra}
         onSave={onSaveExtra}
-      />
-
-      <MarketTable
-        title="Shipping cost by country"
-        subtitle={
-          extraTotal > 0
-            ? 'Every destination, dearest to fulfil first — including the extra costs above'
-            : 'Every destination, dearest to fulfil first'
-        }
-        keyHeader="Country"
-        rows={withExtras}
-        measure="shippingCost"
-        loading={loading}
-        unavailable={failed ? 'Shipping data unavailable' : undefined}
       />
     </section>
   )
