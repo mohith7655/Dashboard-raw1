@@ -1,7 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Megaphone, Percent, TrendingUp } from 'lucide-react'
 import { Header } from './components/Header'
-import { KpiCard } from './components/KpiCard'
 import { ErrorBanner } from './components/ErrorBanner'
 import { FacebookGlyph, GoogleGlyph } from './components/SectionLabel'
 import { DashboardTabs } from './components/DashboardTabs'
@@ -9,6 +7,7 @@ import { WooCommerceSection } from './components/sections/WooCommerceSection'
 import { ProfitSummaryCard } from './components/sections/ProfitSummaryCard'
 import { CouponUsageCard } from './components/sections/CouponUsageCard'
 import { AdsSection } from './components/sections/AdsSection'
+import { AdsStatsCard } from './components/sections/AdsStatsCard'
 import { AdSpendSection } from './components/sections/AdSpendSection'
 import { MarketsSection } from './components/sections/MarketsSection'
 import { ProfitLossSection } from './components/sections/ProfitLossSection'
@@ -28,7 +27,6 @@ import {
 } from './lib/dateRange'
 import { buildSnapshot } from './lib/insightsSnapshot'
 import { blendedAds, combinedAds } from './lib/pnl'
-import { formatPercent, formatRoas } from './lib/format'
 import { failedOrderCount } from './lib/derive'
 import { costLines } from './lib/operatingCosts'
 import type { DashboardView } from './lib/navigation'
@@ -333,35 +331,12 @@ export default function App() {
               }
             />
 
-            <AdsSection
-              title="All Ads"
-              glyph={<Megaphone size={14} className="text-muted" />}
+            <AdsStatsCard
               metrics={combined ?? undefined}
-              loading={adsLoading}
-              // Only when neither platform answered; one that did still has
-              // real figures to show.
-              failed={!adsLoading && !combined}
-              subtitle={combinedScope}
               platforms={reportedAds}
-              extra={
-                <>
-                  <KpiCard
-                    label="Blended ROAS"
-                    value={blended ? formatRoas(blended.blendedRoas) : '—'}
-                    icon={TrendingUp}
-                    loading={adsLoading || woo.isLoading}
-                    unavailable={!blended || !!woo.error}
-                  />
-                  <KpiCard
-                    label="Spend % of Revenue"
-                    value={blended ? formatPercent(blended.shareOfRevenue) : '—'}
-                    polarity="down-good"
-                    icon={Percent}
-                    loading={adsLoading || woo.isLoading}
-                    unavailable={!blended || !!woo.error}
-                  />
-                </>
-              }
+              blended={woo.error ? null : blended}
+              subtitle={combinedScope}
+              loading={adsLoading}
             />
 
             <AdsSection

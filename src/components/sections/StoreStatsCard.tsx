@@ -1,13 +1,9 @@
-import { ArrowDown, ArrowUp, Users } from 'lucide-react'
+import { Users } from 'lucide-react'
 import type { DateRange, WooMetrics } from '../../lib/types'
 import { daysInRange } from '../../lib/dateRange'
-import { deltaPct } from '../../lib/derive'
-import {
-  formatCurrency,
-  formatDeltaPercent,
-  formatInteger,
-  formatPercent,
-} from '../../lib/format'
+import { deltaPct, failedOrderCount } from '../../lib/derive'
+import { formatCurrency, formatInteger } from '../../lib/format'
+import { StatRows, type StatRowData } from '../StatRows'
 import { Skeleton } from '../Skeleton'
 
 interface StoreStatsCardProps {
@@ -18,16 +14,6 @@ interface StoreStatsCardProps {
   against: DateRange | null
   loading: boolean
   failed: boolean
-}
-
-/** A heading figure, or one of the parts that make it up. */
-interface Row {
-  label: string
-  value: string
-  kind: 'total' | 'part'
-  /** Share of the heading above it, where the parts add up to one. */
-  share: number | null
-  change: number | null
 }
 
 /**
@@ -46,7 +32,6 @@ export function StoreStatsCard({
   failed,
 }: StoreStatsCardProps) {
   const rows = metrics ? buildRows(metrics, range, against) : []
-  const anyChange = rows.some((row) => row.change !== null)
 
   return (
     <div className="card">
@@ -68,15 +53,7 @@ export function StoreStatsCard({
           Store data unavailable for this period.
         </p>
       ) : (
-        // As on the statement: the rows scroll sideways on a narrow screen
-        // rather than wrapping a column of figures into unreadable shapes.
-        <div className="mt-3 overflow-x-auto border-t border-row-line pt-1">
-          <dl className={`flex flex-col ${anyChange ? 'min-w-[23rem]' : 'min-w-[17rem]'}`}>
-            {rows.map((row) => (
-              <StatRow key={row.label} row={row} showChange={anyChange} />
-            ))}
-          </dl>
-        </div>
+        <StatRows rows={rows} />
       )}
     </div>
   )
@@ -86,21 +63,23 @@ function buildRows(
   metrics: WooMetrics,
   range: DateRange,
   against: DateRange | null,
-): Row[] {
-  const total = (label: string, value: string, change: number | null): Row => ({
-    label,
-    value,
-    kind: 'total',
-    share: null,
-    change,
-  })
+): StatRowData[] {
+  const total = (
+    label: string,
+    value: string,
+    change: number | null,
+  ): StatRowData => ({ label, value, kind: 'total', share: null, change })
 
-  const buyers = metrics.totalCustomers.value
-  const part = (label: string, count: number, change: number | null): Row => ({
+  const part = (
+    label: string,
+    count: number,
+    of: number,
+    change: number | null,
+  ): StatRowData => ({
     label,
     value: formatInteger(count),
     kind: 'part',
-    share: buyers ? count / buyers : 0,
+    share: of ? count / of : 0,
     change,
   })
 
@@ -111,78 +90,34 @@ function buildRows(
   const perDay = metrics.totalRevenue.value / daysInRange(range)
   const perDayBefore = was && against ? was.totalRevenue / daysInRange(against) : null
 
+  const buyers = metrics.totalCustomers.value
+  // Against every order placed, not against the paid ones the row above counts
+  // — a failed order is precisely one that never joined them.
+  const placed = metrics.orderCount
+  const failed = failedOrderCount(metrics) ?? 0
+
   return [
     total('Customers', formatInteger(buyers), metrics.totalCustomers.deltaPct),
-    part('New', metrics.newCustomers.value, metrics.newCustomers.deltaPct),
-    part('Returning', metrics.returningCustomers.value, metrics.returningCustomers.deltaPct),
+    part('New', metrics.newCustomers.value, buyers, metrics.newCustomers.deltaPct),
+    part(
+      'Returning',
+      metrics.returningCustomers.value,
+      buyers,
+      metrics.returningCustomers.deltaPct,
+    ),
+    total('Total orders', formatInteger(metrics.totalOrders.value), metrics.totalOrders.deltaPct),
+    // No delta: the status counts are only kept for the selected period, so
+    // there is nothing to measure this against rather than nothing to report.
+    { ...part('Failed', failed, placed, null), polarity: 'down-good' },
     total(
       'Avg order value',
       formatCurrency(metrics.avgOrderValue.value),
       metrics.avgOrderValue.deltaPct,
     ),
-    total('Total orders', formatInteger(metrics.totalOrders.value), metrics.totalOrders.deltaPct),
     total(
       'Avg sales per day',
       formatCurrency(perDay),
       perDayBefore === null ? null : deltaPct(perDay, perDayBefore),
     ),
   ]
-}
-
-/** Every figure here reads better rising, so the colour follows the sign alone. */
-const changeColor = (change: number): string =>
-  change === 0 ? 'text-muted' : change > 0 ? 'text-pos' : 'text-neg'
-
-function StatRow({ row, showChange }: { row: Row; showChange: boolean }) {
-  const total = row.kind === 'total'
-
-  return (
-    // Packed to the left, as the statement is: spread across the card, a
-    // figure ends up an inch from the label that names it.
-    <div
-      className={`flex items-baseline gap-2 py-1 ${
-        total ? 'border-t border-row-line first:border-0' : ''
-      }`}
-    >
-      <dt
-        className={`w-[8.5rem] shrink-0 truncate ${total ? '' : 'pl-3'} ${
-          total ? 'text-[12px] font-medium text-ink' : 'text-[11px] text-muted'
-        }`}
-      >
-        {row.label}
-      </dt>
-      <dd className="flex shrink-0 items-baseline gap-2">
-        <span
-          className={`min-w-[5.5rem] text-right tabular-nums ${
-            total ? 'text-[12px] font-semibold text-ink' : 'text-[11px] text-muted'
-          }`}
-        >
-          {row.value}
-        </span>
-        {/* Each column holds its width even where a row has no figure for it,
-            so one gap cannot shunt the column beside it out of alignment. */}
-        <span className="w-12 text-right text-[11px] tabular-nums text-muted">
-          {row.share === null ? '' : formatPercent(row.share)}
-        </span>
-        {showChange && (
-          <span
-            className={`flex w-[4.5rem] items-center justify-end gap-0.5 text-[11px] tabular-nums ${
-              row.change === null ? 'text-muted' : changeColor(row.change)
-            }`}
-          >
-            {row.change !== null && (
-              <>
-                {row.change < 0 ? (
-                  <ArrowDown size={10} strokeWidth={3} />
-                ) : (
-                  <ArrowUp size={10} strokeWidth={3} />
-                )}
-                {formatDeltaPercent(row.change)}
-              </>
-            )}
-          </span>
-        )}
-      </dd>
-    </div>
-  )
 }
