@@ -190,6 +190,8 @@ export function DashboardPage() {
             metrics={woo.data}
             loading={woo.isLoading}
             failed={!!woo.error}
+            range={range}
+            against={against}
             summary={
               // The statement names coupons as one line — a single figure come
               // off gross sales. Which codes that figure was, and whether they

@@ -1,7 +1,8 @@
 import { DollarSign, Package, ShoppingCart, Users } from 'lucide-react'
-import type { ProfitAndLoss, WooMetrics } from '../../lib/types'
+import type { DateRange, WooMetrics } from '../../lib/types'
 import { formatCurrency, formatInteger } from '../../lib/format'
-import { deltaPct, round2 } from '../../lib/derive'
+import { daysInRange } from '../../lib/dateRange'
+import { deltaPct } from '../../lib/derive'
 import { KpiCard, type KpiPart } from '../KpiCard'
 import { CardRow } from '../CardRow'
 import { SectionLabel } from '../SectionLabel'
@@ -10,6 +11,10 @@ interface WooCommerceSectionProps {
   metrics: WooMetrics | undefined
   loading: boolean
   failed: boolean
+  /** The selected period, for the figures measured per day of it. */
+  range: DateRange
+  /** The window those are compared against, or null when comparison is off. */
+  against: DateRange | null
   /** Leads the section, above the KPI grid — the statement in full. */
   summary?: React.ReactNode
 }
@@ -18,16 +23,25 @@ export function WooCommerceSection({
   metrics,
   loading,
   failed,
+  range,
+  against,
   summary,
 }: WooCommerceSectionProps) {
   const shared = { loading, unavailable: failed }
 
-  // What the headline is made of, in the same card. Gross is sales before
-  // coupons come off; net is what survives refunds, which is the figure that
-  // actually reached the bank. Each is compared against its own figure in the
-  // comparison window, which is null when the comparison is off.
+  // What the headline is made of, in the same card. Each is compared against
+  // its own figure in the comparison window, which is null when the comparison
+  // is off.
   const was = metrics?.pnlPrevious ?? null
-  const netOfRefunds = (p: ProfitAndLoss): number => round2(p.totalRevenue - p.refunds)
+
+  // Per day of the period rather than of the month, and compared against the
+  // other window's own length. The two windows are equal under the default
+  // comparison but not under "same month last year", and a daily average
+  // divided by the wrong number of days would read as growth that never
+  // happened.
+  const perDay = metrics ? metrics.totalRevenue.value / daysInRange(range) : 0
+  const perDayBefore =
+    was && against ? was.totalRevenue / daysInRange(against) : null
 
   const revenueParts: KpiPart[] = metrics
     ? [
@@ -39,9 +53,9 @@ export function WooCommerceSection({
           deltaPct: was ? deltaPct(metrics.pnl.grossSales, was.grossSales) : null,
         },
         {
-          label: 'Net of refunds',
-          value: formatCurrency(netOfRefunds(metrics.pnl)),
-          deltaPct: was ? deltaPct(netOfRefunds(metrics.pnl), netOfRefunds(was)) : null,
+          label: 'Avg sales per day',
+          value: formatCurrency(perDay),
+          deltaPct: perDayBefore === null ? null : deltaPct(perDay, perDayBefore),
         },
       ]
     : []
