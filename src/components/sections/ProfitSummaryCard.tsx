@@ -352,7 +352,7 @@ export function ProfitSummaryCard({
         // fit; the rows scroll sideways rather than wrapping a statement into
         // unreadable shapes or truncating the figures themselves.
         <div className="mt-4 overflow-x-auto border-t border-row-line pt-1">
-          <dl className={`flex flex-col ${anyChange ? 'min-w-[23rem]' : 'min-w-[17rem]'}`}>
+          <dl className={`flex flex-col ${anyChange ? 'min-w-[20rem]' : 'min-w-[14.5rem]'}`}>
             {lines.map((line, index) => (
               <StatementRow
                 key={`${line.label}-${index}`}
@@ -409,23 +409,24 @@ function StatementRow({
     // that names it, and the eye had to cross an empty gap that grew with the
     // width of the card. The slack now sits at the end of the row instead.
     <div
-      className={`flex items-baseline gap-2 py-1 ${
+      className={`flex items-baseline gap-1.5 py-1 ${
         total ? 'border-t border-row-line first:border-0' : ''
       }`}
     >
       <dt
-        className={`w-[8.5rem] shrink-0 truncate ${total ? '' : 'pl-3'} ${
+        title={line.label}
+        className={`w-[7.5rem] shrink-0 truncate ${total ? '' : 'pl-2.5'} ${
           strong ? `${strongSize} font-medium text-ink` : 'text-[11px] text-muted'
         }`}
       >
         {line.label}
       </dt>
-      <dd className="flex shrink-0 items-baseline gap-2">
+      <dd className="flex shrink-0 items-baseline gap-1.5">
         {/* A floor rather than a fixed width: the figures line up at the
             magnitudes a statement actually holds, and an unusually large one
             widens its column instead of being clipped. */}
         <span
-          className={`min-w-[5.5rem] text-right tabular-nums ${
+          className={`min-w-[4.75rem] text-right tabular-nums ${
             strong ? `${strongSize} font-semibold text-ink` : 'text-[11px] text-muted'
           }`}
         >
@@ -435,7 +436,7 @@ function StatementRow({
             are the same fact in different units — and the movement against the
             comparison window follows, being about a different period. */}
         <span
-          className={`w-12 text-right text-[11px] tabular-nums ${
+          className={`w-11 text-right text-[11px] tabular-nums ${
             strong ? 'text-[#9a9aa2]' : 'text-muted'
           }`}
         >
@@ -445,7 +446,7 @@ function StatementRow({
             so one gap cannot shunt the column beside it out of alignment. */}
         {showChange && (
           <span
-            className={`flex w-[4.5rem] items-center justify-end gap-0.5 text-[11px] tabular-nums ${
+            className={`flex w-[4rem] items-center justify-end gap-0.5 text-[11px] tabular-nums ${
               change === null ? 'text-muted' : changeColor(change, line.polarity)
             }`}
           >

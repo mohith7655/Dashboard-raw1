@@ -37,7 +37,7 @@ export function StatRows({ rows }: { rows: StatRowData[] }) {
     // On a narrow screen the rows scroll sideways rather than wrapping a
     // column of figures into unreadable shapes.
     <div className="mt-3 overflow-x-auto border-t border-row-line pt-1">
-      <dl className={`flex flex-col ${anyChange ? 'min-w-[23rem]' : 'min-w-[17rem]'}`}>
+      <dl className={`flex flex-col ${anyChange ? 'min-w-[20rem]' : 'min-w-[14.5rem]'}`}>
         {rows.map((row, index) => (
           <StatRow
             key={`${row.label}-${index}`}
@@ -64,23 +64,28 @@ function StatRow({
 
   return (
     <div
-      className={`flex items-baseline gap-2 py-1 ${
+      className={`flex items-baseline gap-1.5 py-1 ${
         total ? 'border-t border-row-line first:border-0' : ''
       }`}
     >
+      {/* Narrow enough that a figure sits close to the words naming it — an
+          inch of empty rule between the two makes the eye cross a gap on every
+          line. Titled, since a label long enough to truncate is exactly the one
+          worth being able to read. */}
       <dt
-        className={`w-[8.5rem] shrink-0 truncate ${total ? '' : 'pl-3'} ${
+        title={row.label}
+        className={`w-[7.5rem] shrink-0 truncate ${total ? '' : 'pl-2.5'} ${
           total ? 'text-[12px] font-medium text-ink' : 'text-[11px] text-muted'
         }`}
       >
         {row.label}
       </dt>
-      <dd className="flex shrink-0 items-baseline gap-2">
+      <dd className="flex shrink-0 items-baseline gap-1.5">
         {/* A floor rather than a fixed width: the figures line up at the
             magnitudes these lists hold, and an unusually large one widens its
             column instead of being clipped. */}
         <span
-          className={`min-w-[5.5rem] text-right tabular-nums ${
+          className={`min-w-[4.75rem] text-right tabular-nums ${
             total ? 'text-[12px] font-semibold text-ink' : 'text-[11px] text-muted'
           }`}
         >
@@ -89,13 +94,13 @@ function StatRow({
         {/* Each column holds its width even where a row has no figure for it,
             so one gap cannot shunt the column beside it out of alignment. */}
         {showShare && (
-          <span className="w-12 text-right text-[11px] tabular-nums text-muted">
+          <span className="w-11 text-right text-[11px] tabular-nums text-muted">
             {row.share === null ? '' : formatPercent(row.share)}
           </span>
         )}
         {showChange && (
           <span
-            className={`flex w-[4.5rem] items-center justify-end gap-0.5 text-[11px] tabular-nums ${
+            className={`flex w-[4rem] items-center justify-end gap-0.5 text-[11px] tabular-nums ${
               row.change === null
                 ? 'text-muted'
                 : changeColor(row.change, row.polarity ?? 'up-good')
