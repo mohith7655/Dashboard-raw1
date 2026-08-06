@@ -1,15 +1,6 @@
-import {
-  CreditCard,
-  DollarSign,
-  Package,
-  Percent,
-  ShoppingCart,
-  TrendingDown,
-  TrendingUp,
-  Users,
-} from 'lucide-react'
+import { DollarSign, Package, ShoppingCart, Users } from 'lucide-react'
 import type { ProfitAndLoss, WooMetrics } from '../../lib/types'
-import { formatCurrency, formatInteger, formatPercent } from '../../lib/format'
+import { formatCurrency, formatInteger } from '../../lib/format'
 import { deltaPct, round2 } from '../../lib/derive'
 import { KpiCard, type KpiPart } from '../KpiCard'
 import { CardRow } from '../CardRow'
@@ -114,67 +105,11 @@ export function WooCommerceSection({
         />
       </CardRow>
 
-      {/* Costs: a rise is bad, so the delta inverts. */}
-      <CardRow className="mt-4">
-        <KpiCard
-          label="Total Cost"
-          value={metrics ? formatCurrency(metrics.totalCost.value) : '—'}
-          metric={metrics?.totalCost}
-          polarity="down-good"
-          icon={TrendingDown}
-          {...shared}
-        />
-        <KpiCard
-          label="Product Cost"
-          value={metrics ? formatCurrency(metrics.productCost.value) : '—'}
-          metric={metrics?.productCost}
-          polarity="down-good"
-          icon={Package}
-          {...shared}
-        />
-        <KpiCard
-          label="Shipping Cost"
-          value={metrics ? formatCurrency(metrics.shippingCost.value) : '—'}
-          metric={metrics?.shippingCost}
-          polarity="down-good"
-          icon={ShoppingCart}
-          {...shared}
-        />
-        <KpiCard
-          label="Transaction Cost"
-          value={metrics ? formatCurrency(metrics.transactionCost.value) : '—'}
-          metric={metrics?.transactionCost}
-          polarity="down-good"
-          icon={CreditCard}
-          {...shared}
-        />
-      </CardRow>
-
-      {/* Three columns with a wider middle, per the reference layout. */}
-      <CardRow className="mt-4" cols="sm:grid-cols-2 lg:grid-cols-[1fr_2fr_1fr]">
-        <KpiCard
-          label="Gross Profit"
-          value={metrics ? formatCurrency(metrics.grossProfit.value) : '—'}
-          metric={metrics?.grossProfit}
-          icon={TrendingUp}
-          {...shared}
-        />
-        <KpiCard
-          label="Gross Margin"
-          value={metrics ? formatPercent(metrics.grossMargin.value) : '—'}
-          metric={metrics?.grossMargin}
-          icon={Percent}
-          {...shared}
-        />
-        <KpiCard
-          label="Total Sales"
-          value={metrics ? formatCurrency(metrics.totalRevenue.value) : '—'}
-          metric={metrics?.totalRevenue}
-          icon={DollarSign}
-          parts={revenueParts}
-          {...shared}
-        />
-      </CardRow>
+      {/* The cost rows that stood here — total, product, shipping and
+          transaction cost, then gross profit, margin and a second copy of
+          total sales — are gone. The statement above the grid carries every
+          one of those lines, against the period's total and with its own
+          movement, so the cards restated it a second time in a weaker form. */}
     </section>
   )
 }
