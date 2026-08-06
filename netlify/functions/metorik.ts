@@ -683,33 +683,54 @@ interface RevenueSide {
 }
 
 /**
+ * What went back to customers in the period, on the date each refund was
+ * actually issued.
+ *
+ * Not `total_refunds` on the orders call, which is the money refunded against
+ * orders *created* in the range. Those are different questions and they gave
+ * very different answers: for one week the orders call reported $10 while the
+ * store had handed back $283.08, because five of the six refunds were issued
+ * that week against orders placed earlier. A refund belongs to the week the
+ * money left, which is also the basis Metorik's own dashboard reports.
+ *
+ * `amount` is store currency; `amount_original` is what the customer saw.
+ */
+async function refundsIssued(apiKey: string, range: DateRange): Promise<number> {
+  const rows = await collectAllRows(apiKey, '/refunds', {
+    filters: JSON.stringify([
+      { field: 'refund_created_at', operator: 'between', value: [range.start, range.end] },
+    ]),
+  })
+  // Guarded against a negative: a refund is a magnitude here, and the sign is
+  // applied by the statement line that deducts it.
+  return round2(rows.reduce((sum, row) => sum + Math.max(0, num(row.amount)), 0))
+}
+
+/**
  * The revenue lines are scoped to the same statuses the per-order loop banks,
  * so they reconcile exactly with the Total Revenue KPI rather than drifting.
  *
- * Refunds still cannot be read from that same call. A refund can be recorded
- * against an order in any state, including ones this filter excludes, and the
- * figure has to cover all of them or the statement understates what went back.
- * They are counted across every status in a call of their own.
+ * Refunds cannot come from that call at all — see {@link refundsIssued} — so
+ * they are fetched alongside it rather than read off it.
  */
 async function paidOrderTotals(apiKey: string, range: DateRange): Promise<RevenueSide> {
   const dates = { field: 'order_created_at', operator: 'between', value: [range.start, range.end] }
-  const [paid, everything] = await Promise.all([
+  const [paid, refunds] = await Promise.all([
     metorik(
       apiKey,
       '/orders/totals',
       withFilters([dates, { field: 'status', operator: 'in', value: [...PAID_STATUSES] }]),
     ),
-    metorik(apiKey, '/orders/totals', withFilters([dates])),
+    refundsIssued(apiKey, range),
   ])
 
   const data = isRecord(paid.data) ? paid.data : {}
-  const all = isRecord(everything.data) ? everything.data : {}
   return {
     net: num(data.net),
     discount: num(data.total_discount),
     shipping: num(data.total_shipping),
     tax: num(data.total_tax),
-    refunds: num(all.total_refunds),
+    refunds,
   }
 }
 
