@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import {
   BarChart3,
+  ChevronDown,
   Eye,
   Gauge,
   MousePointerClick,
@@ -38,6 +40,12 @@ interface AdsSectionProps {
    * two figures that only exist once several platforms are added together.
    */
   extra?: React.ReactNode
+  /**
+   * Folds the section behind its own heading, closed until asked for. Eight
+   * cards per platform is a screenful each before the rest of the dashboard
+   * gets a look in, and the combined view above already carries the totals.
+   */
+  collapsible?: boolean
 }
 
 type AdsMetricKey =
@@ -75,8 +83,11 @@ export function AdsSection({
   subtitle,
   platforms,
   extra,
+  collapsible = false,
 }: AdsSectionProps) {
+  const [open, setOpen] = useState(false)
   const shared = { loading, unavailable: failed }
+  const bodyId = `ads-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
 
   const partsFor = (
     key: AdsMetricKey,
@@ -98,9 +109,8 @@ export function AdsSection({
     }))
   }
 
-  return (
-    <section>
-      <SectionLabel glyph={glyph}>{title}</SectionLabel>
+  const body = (
+    <>
       {subtitle && <p className="-mt-1 mb-3 text-[12px] text-muted">{subtitle}</p>}
 
       <CardRow>
@@ -177,6 +187,49 @@ export function AdsSection({
       </CardRow>
 
       {extra && <CardRow className="mt-4">{extra}</CardRow>}
+    </>
+  )
+
+  if (!collapsible) {
+    return (
+      <section>
+        <SectionLabel glyph={glyph}>{title}</SectionLabel>
+        {body}
+      </section>
+    )
+  }
+
+  return (
+    <section>
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        aria-controls={bodyId}
+        className="mb-3 flex w-full items-center gap-2 text-left"
+      >
+        {glyph}
+        {/* The section heading's own styling, on a span rather than a heading
+            element: a button may only contain phrasing content. */}
+        <span className="section-label">{title}</span>
+        {/* Closed, the row would otherwise say only that a platform exists.
+            What it spent is the one figure worth carrying up here. */}
+        {!open && metrics && (
+          <span className="text-[12px] tabular-nums text-muted">
+            {formatCurrency(metrics.spend.value)} spend
+          </span>
+        )}
+        <ChevronDown
+          size={14}
+          className={`ml-auto shrink-0 text-muted transition-transform ${
+            open ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+
+      <div id={bodyId} hidden={!open}>
+        {open && body}
+      </div>
     </section>
   )
 }

@@ -365,6 +365,7 @@ export default function App() {
             <AdsSection
               title="Facebook Meta Ads"
               glyph={<FacebookGlyph />}
+              collapsible
               metrics={meta.data}
               loading={meta.isLoading}
               failed={!!meta.error}
@@ -373,6 +374,7 @@ export default function App() {
             <AdsSection
               title="Google Ads"
               glyph={<GoogleGlyph />}
+              collapsible
               metrics={google.data}
               loading={google.isLoading}
               failed={!!google.error}
