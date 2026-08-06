@@ -63,14 +63,14 @@ function CombinedTooltip({
 }
 
 /**
- * Both series on one plot, each on its own axis.
+ * Both series on one plot and one scale.
  *
- * They have to be scaled separately to sit together. Refunds here run to a few
- * hundred dollars against revenue in the thousands, so on a shared axis the
- * refund line would lie flat along the bottom and read as though nothing were
- * ever returned — which is what kept them on separate cards. Two axes keep
- * both readable, at the cost of the heights not being comparable, so each axis
- * is tinted to its own series and the caption says so outright.
+ * A second axis was tried and taken back out. It made each line legible on its
+ * own terms but not against the other: $173 of refunds drew taller than $1,070
+ * of revenue, which is the one comparison this chart exists to make. On a
+ * shared scale refunds sit low, and a day where they do not is the day worth
+ * seeing. The fill keeps a small figure visible where a bare line would nearly
+ * vanish against the axis.
  */
 export function RevenueAndRefunds({
   revenue,
@@ -101,7 +101,7 @@ export function RevenueAndRefunds({
         refunded > 0
           ? `Daily revenue against ${formatCurrency(refunded)} refunded across ${days} ${
               days === 1 ? 'day' : 'days'
-            } — each on its own scale, left and right`
+            } — on the same scale`
           : 'Daily revenue from completed & processing orders. Nothing was refunded in this period'
       }
       height={360}
@@ -131,28 +131,17 @@ export function RevenueAndRefunds({
                 minTickGap={0}
               />
 
-              {/* Tinted to their series: with two scales on one plot, an
-                  untinted axis is a figure with no way to tell what it
-                  measures. */}
+              {/* One scale for both. A second axis made the two lines
+                  legible on their own terms but not against each other — a
+                  $173 refund drew taller than $1,070 of revenue, which is the
+                  one comparison the chart exists to make. Refunds are small
+                  here, and that is the honest picture of them. */}
               <YAxis
-                yAxisId="revenue"
                 tickFormatter={formatAxisCurrency}
                 tick={{ fill: '#8a8a92', fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
                 width={64}
-              />
-              <YAxis
-                yAxisId="refunds"
-                orientation="right"
-                tickFormatter={formatAxisCurrency}
-                tick={{ fill: '#a86a66', fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-                width={60}
-                // A period with nothing refunded still draws a real scale
-                // rather than collapsing onto the revenue line's ticks.
-                domain={[0, (max: number) => (max > 0 ? max : 100)]}
               />
 
               <Tooltip
@@ -163,7 +152,6 @@ export function RevenueAndRefunds({
               {/* Refunds first, so the fill sits behind the revenue line
                   rather than washing over it. */}
               <Area
-                yAxisId="refunds"
                 type="monotone"
                 dataKey="refunds"
                 stroke={REFUND}
@@ -181,7 +169,6 @@ export function RevenueAndRefunds({
               />
 
               <Line
-                yAxisId="revenue"
                 type="monotone"
                 dataKey="revenue"
                 stroke={REVENUE}
@@ -200,14 +187,14 @@ export function RevenueAndRefunds({
               <line x1="0" y1="5" x2="26" y2="5" stroke={REVENUE} strokeWidth="2" />
               <circle cx="13" cy="5" r="3.5" fill="#161618" stroke={REVENUE} strokeWidth="2" />
             </svg>
-            Revenue — left
+            Revenue
           </span>
           <span className="flex items-center gap-2">
             <svg width="26" height="10" aria-hidden>
               <line x1="0" y1="5" x2="26" y2="5" stroke={REFUND} strokeWidth="2" />
               <circle cx="13" cy="5" r="3.5" fill="#161618" stroke={REFUND} strokeWidth="2" />
             </svg>
-            Refunded — right
+            Refunded
           </span>
         </div>
       </div>
