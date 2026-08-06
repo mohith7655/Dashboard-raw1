@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   useMutation,
   useQuery,
@@ -11,6 +12,7 @@ import type {
   DateRange,
   Ga4Dimension,
   Ga4Report,
+  InsightsAnswer,
   InsightsReport,
   OperatingCost,
   OrdersPage,
@@ -190,6 +192,42 @@ export function useInsights(): Insights {
     report: mutation.data,
     analyse: (snapshot) => mutation.mutate(snapshot),
     running: mutation.isPending,
+    error: mutation.error instanceof SourceFailure ? mutation.error.sourceError : null,
+  }
+}
+
+export interface AskInsights {
+  ask: (input: { snapshot: Record<string, unknown>; question: string }) => void
+  answers: InsightsAnswer[]
+  asking: boolean
+  error: SourceError | null
+}
+
+/**
+ * Questions typed against the period on screen.
+ *
+ * Answers accumulate rather than replacing one another: a reader asks a second
+ * question because of what the first one said, and losing the first would
+ * break that thread. Kept in the hook rather than a query cache — an answer is
+ * an event, not a resource to refetch.
+ */
+export function useAskInsights(): AskInsights {
+  const [answers, setAnswers] = useState<InsightsAnswer[]>([])
+  const mutation = useMutation({
+    mutationFn: ({
+      snapshot,
+      question,
+    }: {
+      snapshot: Record<string, unknown>
+      question: string
+    }) => unwrap(insights.ask(snapshot, question)),
+    onSuccess: (answer) => setAnswers((current) => [...current, answer]),
+  })
+
+  return {
+    ask: (input) => mutation.mutate(input),
+    answers,
+    asking: mutation.isPending,
     error: mutation.error instanceof SourceFailure ? mutation.error.sourceError : null,
   }
 }

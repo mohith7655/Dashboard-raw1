@@ -456,6 +456,15 @@ export interface InsightsReport {
   generatedAt: string
 }
 
+/** One answer to one typed question about the period on screen. */
+export interface InsightsAnswer {
+  question: string
+  answer: string
+  model: string
+  /** ISO timestamp, so an exchange kept on screen is visibly of its moment. */
+  answeredAt: string
+}
+
 /** Every upstream error is normalised into this shape before it reaches the UI. */
 export interface SourceError {
   /** Human label for the failing connector, e.g. "Facebook Ads". */

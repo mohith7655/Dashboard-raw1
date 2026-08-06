@@ -97,18 +97,21 @@ export default function App() {
     !ga4.isLoading &&
     !costs.isLoading
 
+  // One builder for both: the report and a typed question must never be able
+  // to describe different periods.
+  const snapshotOf = () =>
+    buildSnapshot({
+      range,
+      woo,
+      meta,
+      google,
+      traffic,
+      ga4,
+      costLines: costLines(costs.data ?? [], range),
+    })
+
   const runAnalysis = () => {
-    insights.analyse(
-      buildSnapshot({
-        range,
-        woo,
-        meta,
-        google,
-        traffic,
-        ga4,
-        costLines: costLines(costs.data ?? [], range),
-      }),
-    )
+    insights.analyse(snapshotOf())
   }
 
   const onRangeChange = (next: DateRange) => {
@@ -268,6 +271,7 @@ export default function App() {
             error={insights.error}
             ready={connectorsSettled}
             rangeLabel={formatRangeLabel(range)}
+            getSnapshot={snapshotOf}
           />
         )}
 

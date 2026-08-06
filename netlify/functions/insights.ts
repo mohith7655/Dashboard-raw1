@@ -1,4 +1,4 @@
-import type { InsightsReport } from '../../src/lib/types'
+import type { InsightsAnswer, InsightsReport } from '../../src/lib/types'
 import {
   BadRequest,
   asArray,
@@ -41,14 +41,72 @@ export default async function handler(request: Request): Promise<Response> {
       throw new BadRequest('This endpoint accepts POST only')
     }
 
-    const snapshot = await readSnapshot(request)
+    const body = await readSnapshot(request)
     const apiKey = requireEnv('OPENAI_API_KEY')
     const model = process.env.OPENAI_MODEL || DEFAULT_MODEL
 
-    const report = await analyse(snapshot, apiKey, model)
+    // Two modes on one endpoint, told apart by the body. A posted `question`
+    // asks about the period in prose; anything else is the whole snapshot and
+    // gets the structured report. Older callers post the snapshot bare, and
+    // still reach the report.
+    const question = typeof body.question === 'string' ? body.question.trim() : ''
+    if (question && isRecord(body.snapshot)) {
+      return jsonNoStore(await answer(body.snapshot, question, apiKey, model))
+    }
+
+    const report = await analyse(body, apiKey, model)
     return jsonNoStore(report)
   } catch (err) {
     return toErrorResponse(err, HINT)
+  }
+}
+
+/** A typed question costs a fraction of a full report, and answers in prose. */
+const ANSWER_MAX_TOKENS = 2000
+
+const ASK_SYSTEM = `You are an e-commerce analyst answering one question about a single store over a single date range.
+
+You are given a JSON snapshot of that period — store revenue and costs from WooCommerce (via Metorik), ad spend from Meta and Google Ads, traffic from Google Analytics 4 — and a question from the person reading the dashboard it came from.
+
+Rules:
+- Answer only from the snapshot. Never invent a number, and never estimate one that is absent.
+- If the snapshot does not contain what was asked, say exactly that and name the figure that is missing. Do not substitute a near-enough one without saying so.
+- Quote the figures behind the answer, with their units.
+- deltaPct values are fractions against the comparison window (0.12 means +12%). Rates such as conversionRate, margin, ctr and engagementRate are fractions, not percentages.
+- Blended ROAS is store revenue over total ad spend; platform ROAS is the platform's own attributed figure. They disagree by design — do not present either as the other.
+- Be brief: a few sentences, or a short list where the question asks for several things. No preamble, no restating the question.
+- If the question is not about this store's figures, say so in one line rather than answering from general knowledge.
+
+Reply with JSON only: {"answer": string}`
+
+async function answer(
+  snapshot: Record<string, unknown>,
+  question: string,
+  apiKey: string,
+  model: string,
+): Promise<InsightsAnswer> {
+  const content = await complete(
+    apiKey,
+    model,
+    ASK_SYSTEM,
+    JSON.stringify({ question, snapshot }),
+    ANSWER_MAX_TOKENS,
+  )
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(content)
+  } catch {
+    throw new Error('OpenAI API error (PARSE): the model did not return valid JSON.')
+  }
+
+  const record = isRecord(parsed) ? parsed : {}
+  const text = typeof record.answer === 'string' ? record.answer.trim() : ''
+  return {
+    question,
+    answer: text || 'No answer returned.',
+    model,
+    answeredAt: new Date().toISOString(),
   }
 }
 
@@ -100,11 +158,14 @@ Return an object with exactly these keys:
   ]
 }`
 
-async function analyse(
-  snapshot: Record<string, unknown>,
+/** One JSON completion, shared by the report and the typed question. */
+async function complete(
   apiKey: string,
   model: string,
-): Promise<InsightsReport> {
+  system: string,
+  user: string,
+  maxTokens: number,
+): Promise<string> {
   const res = await fetch(API, {
     method: 'POST',
     headers: {
@@ -116,11 +177,11 @@ async function analyse(
       // Omitted deliberately: the GPT-5 family rejects a non-default
       // temperature on this endpoint, and the schema constrains output anyway.
       messages: [
-        { role: 'system', content: SYSTEM },
-        { role: 'user', content: JSON.stringify(snapshot) },
+        { role: 'system', content: system },
+        { role: 'user', content: user },
       ],
       response_format: { type: 'json_object' },
-      max_completion_tokens: MAX_TOKENS,
+      max_completion_tokens: maxTokens,
     }),
   })
 
@@ -138,9 +199,25 @@ async function analyse(
     const reason = choice ? String(choice.finish_reason ?? 'unknown') : 'unknown'
     throw new Error(
       `OpenAI API error (EMPTY): ${model} returned no content (finish_reason: ${reason}).` +
-        (reason === 'length' ? ' Raise MAX_TOKENS or use a smaller model.' : ''),
+        (reason === 'length' ? ' Raise the token budget or use a smaller model.' : ''),
     )
   }
+
+  return content
+}
+
+async function analyse(
+  snapshot: Record<string, unknown>,
+  apiKey: string,
+  model: string,
+): Promise<InsightsReport> {
+  const content = await complete(
+    apiKey,
+    model,
+    SYSTEM,
+    JSON.stringify(snapshot),
+    MAX_TOKENS,
+  )
 
   let parsed: unknown
   try {

@@ -1,4 +1,5 @@
-import { AlertTriangle, CheckCircle2, Loader2, Sparkles, XCircle } from 'lucide-react'
+import { useState } from 'react'
+import { AlertTriangle, CheckCircle2, Loader2, SendHorizonal, Sparkles, XCircle } from 'lucide-react'
 import type {
   InsightFinding,
   InsightLevel,
@@ -6,6 +7,7 @@ import type {
   InsightsReport,
   SourceError,
 } from '../../lib/types'
+import { useAskInsights } from '../../lib/queries'
 import { Pill, PILL_COLORS } from '../Pill'
 import { SectionLabel } from '../SectionLabel'
 import { Skeleton } from '../Skeleton'
@@ -18,6 +20,12 @@ interface InsightsSectionProps {
   /** False until every connector has settled, so the model never reads a half-loaded period. */
   ready: boolean
   rangeLabel: string
+  /**
+   * The same aggregates the Analyze button sends, built on demand. A question
+   * is answered from exactly the figures on screen, so the two must not be
+   * able to describe different periods.
+   */
+  getSnapshot: () => Record<string, unknown>
 }
 
 const SEVERITY: Record<
@@ -49,6 +57,7 @@ export function InsightsSection({
   error,
   ready,
   rangeLabel,
+  getSnapshot,
 }: InsightsSectionProps) {
   return (
     <section className="flex flex-col gap-4">
@@ -82,6 +91,8 @@ export function InsightsSection({
       {!ready && !report && (
         <p className="text-[12px] text-muted">Waiting for the connectors to load…</p>
       )}
+
+      <AskBox getSnapshot={getSnapshot} ready={ready} />
 
       {error && (
         <div className="card border-[#ef444455]">
@@ -195,6 +206,98 @@ function LoadingBody() {
           <Skeleton className="h-4 w-48" />
           <Skeleton className="mt-3 h-3 w-full" />
           <Skeleton className="mt-2 h-3 w-3/5" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * A question typed against the period on screen, answered from the same
+ * aggregates the report is written from.
+ *
+ * Separate from the report rather than folded into it: the report is one
+ * expensive pass over everything, and most questions are a single figure the
+ * reader could not find. Answers stack under the box so a follow-up can be
+ * read against what prompted it.
+ */
+function AskBox({
+  getSnapshot,
+  ready,
+}: {
+  getSnapshot: () => Record<string, unknown>
+  ready: boolean
+}) {
+  const [question, setQuestion] = useState('')
+  const { ask, answers, asking, error } = useAskInsights()
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault()
+    const text = question.trim()
+    if (!text || asking || !ready) return
+    ask({ snapshot: getSnapshot(), question: text })
+    // Cleared on send rather than on success: the question is already on
+    // screen in the thread below, and leaving it in the box invites sending
+    // the same one twice.
+    setQuestion('')
+  }
+
+  return (
+    <div className="card flex flex-col gap-3">
+      <form onSubmit={submit} className="flex items-center gap-2">
+        <input
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          disabled={!ready}
+          placeholder={
+            ready
+              ? 'Ask about this period — e.g. which country costs most to ship to?'
+              : 'Waiting for the connectors to load…'
+          }
+          aria-label="Ask a question about this period"
+          className="h-9 min-w-0 flex-1 rounded-lg border border-btn-border bg-btn px-3 text-[13px] text-ink outline-none transition-colors placeholder:text-label focus:border-[#3d3d44] disabled:opacity-50"
+        />
+        <button
+          type="submit"
+          disabled={!question.trim() || asking || !ready}
+          aria-label="Send question"
+          className="flex h-9 shrink-0 items-center gap-2 rounded-lg border border-btn-border bg-btn px-3 text-[13px] text-ink transition-colors hover:border-[#3a3a40] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {asking ? (
+            <Loader2 size={14} className="animate-spin text-muted" />
+          ) : (
+            <SendHorizonal size={14} className="text-muted" />
+          )}
+          {asking ? 'Asking…' : 'Ask'}
+        </button>
+      </form>
+
+      {error && (
+        <p className="text-[12px] text-neg">
+          {error.source} failed: {error.message}
+        </p>
+      )}
+
+      {answers.length === 0 && !asking && !error && (
+        <p className="text-[12px] text-muted">
+          Answered from the figures on this dashboard only — nothing order-level
+          or personal is sent, and a figure the period does not hold is said to
+          be missing rather than guessed at.
+        </p>
+      )}
+
+      {answers.map((entry) => (
+        <div
+          key={entry.answeredAt}
+          className="border-t border-row-line pt-3 first:border-0 first:pt-0"
+        >
+          <p className="text-[13px] font-medium text-ink">{entry.question}</p>
+          <p className="mt-1.5 whitespace-pre-line text-[13px] leading-relaxed text-muted">
+            {entry.answer}
+          </p>
+          <p className="mt-1.5 text-[11px] text-label">
+            {entry.model} · {new Date(entry.answeredAt).toLocaleTimeString()}
+          </p>
         </div>
       ))}
     </div>
