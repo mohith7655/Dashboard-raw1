@@ -59,7 +59,7 @@ interface StatementInput {
 }
 
 /**
- * The statement in full, opening on total revenue and breaking down from there.
+ * The statement in full, opening on total sales and breaking down from there.
  *
  * The Profit tab's waterfall runs in accumulation order — gross sales, then
  * each adjustment, arriving at total revenue — because a waterfall has to, its
@@ -140,21 +140,19 @@ function buildStatement({
   const refunds = round2(pnl.refunds)
   const netSales = netSalesOf(pnl)
   const totalSales = totalSalesOf(pnl)
-  const totalRevenue = totalRevenueOf(pnl)
+  const revenue = revenueOf(pnl)
   // The three charges that ride on the goods. Taken from the lines themselves
   // rather than from the payload's `totalCost`, which also carries Metorik's
   // extra costs and would leave the heading naming more than it lists.
   const cogs = round2(pnl.productCost + pnl.shippingCost + pnl.transactionCost)
-  // What the sale left after the cost of the goods sold. Struck from total
-  // revenue rather than total sales: money handed back was never the store's
-  // to take a margin on.
-  const grossProfit = round2(totalRevenue - cogs)
+  // What the sale left after the cost of the goods sold. Struck from revenue
+  // rather than total sales: money handed back was never the store's to take a
+  // margin on.
+  const grossProfit = round2(revenue - cogs)
 
-  total('Total revenue', totalRevenue)
-  // Total sales is what the store billed; total revenue is what it kept. Both
-  // are worth naming, so the larger sits inside the smaller as its first line
-  // rather than above it as a second heading.
-  subtotal('Total sales', totalSales)
+  // The statement's base, so every share below answers "what part of what we
+  // billed is this".
+  total('Total sales', totalSales)
   part('Gross sales', grossSalesOf(pnl), '')
   // More coupons is worse, so its polarity inverts against the group's.
   part('Coupons', pnl.discounts, '−', 'down-good')
@@ -167,8 +165,12 @@ function buildStatement({
   part('Tax collected', pnl.taxCollected, '+')
   // A refund is money handed over and returned, not a cost of trading, so it
   // comes off the sale rather than down among the overheads. It is deducted
-  // here and nowhere else — the lines above are all before refunds.
+  // here and nowhere else — every line above is before refunds. It sits below
+  // total sales rather than inside it, the way advertising sits below gross
+  // profit: a deduction on the way to the next heading, not a part of the one
+  // above.
   part('Refunds', refunds, '−', 'down-good', true)
+  total('Revenue', revenue)
 
   // The cost of the goods themselves: what was bought, what it cost to ship,
   // and what the processor took. Advertising and operations are costs of
@@ -226,22 +228,22 @@ const totalSalesOf = (pnl: ProfitAndLoss): number =>
   round2(netSalesOf(pnl) + pnl.shippingCharged + pnl.taxCollected)
 
 /** What was billed, less what was handed back: the money the store kept. */
-const totalRevenueOf = (pnl: ProfitAndLoss): number =>
+const revenueOf = (pnl: ProfitAndLoss): number =>
   round2(totalSalesOf(pnl) - round2(pnl.refunds))
 
 /**
- * The figure everything else is a share of: total revenue, the line the whole
- * statement resolves to.
+ * The figure everything else is a share of: total sales, what the store billed
+ * over the period.
  *
- * It is not the largest figure — total sales and gross sales both stand above
- * it, and read over 100% by the refunds and the coupons respectively. That is
- * the point of measuring against the total rather than against the widest
- * line: every share answers "what part of what we kept is this", and a
- * discount that ran to a tenth of revenue should read as more than a tenth.
+ * The base is the billed figure rather than the kept one so that every share
+ * answers the same question — "what part of what we sold is this" — and the
+ * deductions read as fractions of the thing they come off. Gross sales still
+ * stands above it, reading over 100% by the coupons, which is the point of
+ * measuring against a named total rather than against the widest line.
  */
 const topLine = (pnl: ProfitAndLoss): { label: string; amount: number } => ({
-  label: 'Total revenue',
-  amount: totalRevenueOf(pnl),
+  label: 'Total sales',
+  amount: totalSalesOf(pnl),
 })
 
 export function ProfitSummaryCard({
