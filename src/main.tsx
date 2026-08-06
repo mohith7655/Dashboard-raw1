@@ -3,6 +3,13 @@ import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
 import App from './App.tsx'
+import { setStoreTimeZone } from './lib/timeZone.ts'
+
+// Before anything renders: the date picker decides its bounds on first paint,
+// and a zone arriving after that would move the last selectable day under the
+// reader. Substituted at build time from the deployment's own environment —
+// empty, and every date stays on UTC as it was.
+setStoreTimeZone(__STORE_TIME_ZONE__)
 
 const queryClient = new QueryClient({
   defaultOptions: {

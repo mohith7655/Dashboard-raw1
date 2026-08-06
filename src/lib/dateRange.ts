@@ -1,5 +1,6 @@
 import type { Comparison, CompareMode, DateRange, PresetId } from './types'
 import { formatDate } from './format'
+import { storeTimeZone, todayIn } from './timeZone'
 
 export const PRESETS: { id: PresetId; label: string }[] = [
   { id: 'today', label: 'Today' },
@@ -18,36 +19,26 @@ export function toIso(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-/**
- * Today's calendar date in UTC.
- *
- * The UTC parts are read deliberately. Reading the local ones and wrapping
- * them in `Date.UTC` gives the viewer's own calendar date, which is a
- * different day either side of midnight depending on where they are sitting —
- * two people opening the same dashboard an ocean apart were offered date
- * limits a full day apart, and the earlier one could not select a day the
- * other could already see.
- */
-function utcToday(): Date {
-  const now = new Date()
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-}
-
 function addDays(d: Date, days: number): Date {
   return new Date(d.getTime() + days * 86_400_000)
 }
 
 /**
- * Metorik reporting data is complete through the previous UTC day. Keeping the
- * picker one day behind prevents an in-progress day from producing a 422.
+ * The last day the picker will offer: today, on the store's own calendar.
  *
- * Measured in UTC so every viewer is offered the same limit, and the same one
- * the function itself clamps to — it reads true UTC when it decides which days
- * it will answer for, and a picker on a different basis either offers a day
- * the data does not cover or withholds one it does.
+ * Today rather than yesterday. The picker used to stop a day short on the
+ * grounds that an in-progress day would 422; it does not — every endpoint this
+ * dashboard calls answers for the current day, and the store had five orders on
+ * it when that was checked. Stopping short meant the day's trading could not be
+ * looked at until it was over.
+ *
+ * Never past today, though: a range running into days that have not happened is
+ * counted in full by everything derived on this side of the boundary, and
+ * prorated operating costs are the clearest case — it charges a whole month
+ * against however many days have actually traded.
  */
 export function latestAvailableDate(): string {
-  return toIso(addDays(utcToday(), -1))
+  return todayIn(storeTimeZone())
 }
 
 export function rangeFromPreset(preset: PresetId, current?: DateRange): DateRange {

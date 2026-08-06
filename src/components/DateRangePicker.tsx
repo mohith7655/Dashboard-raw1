@@ -11,6 +11,7 @@ import {
   resolveComparison,
   toIso,
 } from '../lib/dateRange'
+import { storeTimeZone, timeZoneLabel } from '../lib/timeZone'
 import { DatePicker } from './DatePicker'
 
 interface DateRangePickerProps {
@@ -251,6 +252,15 @@ export function DateRangePicker({
                 ))}
               </div>
 
+              {/* Named rather than assumed. Everyone looking at this dashboard
+                  is offered the same last day, whatever clock they are sitting
+                  under, and this is the clock it is. */}
+              <p className="mt-3 px-1 text-[11px] text-muted">
+                Dates follow the store&apos;s calendar — {timeZoneLabel(storeTimeZone())}
+                . Today is {formatInputDate(maxDate)} there, and is the last day
+                selectable.
+              </p>
+
               <ComparePanel
                 range={value}
                 comparison={comparison}
@@ -265,7 +275,7 @@ export function DateRangePicker({
                     key={preset.id}
                     type="button"
                     onClick={() => choosePreset(preset.id)}
-                    className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-[13px] font-medium text-[#e8e8ea] transition-colors hover:bg-[#303035]"
+                    className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-[13px] font-medium text-[#5b9bd8] transition-colors hover:bg-[#303035] hover:text-[#7ab3e8]"
                   >
                     <span>{preset.label}</span>
                     {value.preset === preset.id && preset.id !== 'custom' && (
@@ -439,13 +449,17 @@ function CalendarMonth({
           <span key={day}>{day}</span>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-y-1">
+      {/* No row gap: the selected range reads as one continuous band across a
+          week, the way the store's own picker draws it, and a gap between the
+          cells breaks it into separate boxes. */}
+      <div className="grid grid-cols-7">
         {calendarDays(month).map((date, index) => {
           if (!date) return <span key={`empty-${index}`} />
           const iso = toIso(date)
           const selected = iso === start || iso === end
           const ranged = inRange(iso)
           const unavailable = iso > maxDate
+
           return (
             <button
               key={iso}
@@ -454,9 +468,18 @@ function CalendarMonth({
               disabled={unavailable}
               className={`relative h-7 text-center text-[12px] transition-colors disabled:cursor-not-allowed ${
                 unavailable
-                  ? 'text-[#5f5f66]'
-                  : ranged ? 'bg-[#4a4a4d] text-ink' : 'text-[#dedee1] hover:bg-[#35353a]'
-              } ${selected ? 'z-10 rounded-full bg-[#d7d7dc] font-semibold text-[#151518] hover:bg-[#e4e4e8]' : ''}`}
+                  ? // Struck through rather than merely dimmed. A faint day
+                    // still reads as a day one might click; a crossed-out one
+                    // says outright that it is not on offer.
+                    'text-[#54545c] line-through decoration-[#54545c]'
+                  : ranged
+                    ? 'bg-[#3a4450] text-white'
+                    : 'text-[#dedee1] hover:bg-[#35353a]'
+              } ${
+                selected && !unavailable
+                  ? 'bg-[#4d5a6b] font-semibold text-white'
+                  : ''
+              }`}
               aria-label={formatInputDate(iso)}
               aria-pressed={selected}
             >
