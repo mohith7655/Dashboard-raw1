@@ -297,6 +297,16 @@ export interface AdsMetrics {
   cpc: Metric
   cpm: Metric
   conversions: Metric
+  /**
+   * False where the platform reports no attributed conversions at all —
+   * OpenAI Ads offers impressions, clicks and spend and nothing else.
+   *
+   * Not the same as having converted nothing. A zero would read as a failed
+   * campaign, and summed into the combined account it would drag the ROAS of
+   * the platforms that do report attribution down with it. Absent where the
+   * platform reports normally, so the existing connectors need no change.
+   */
+  reportsConversions?: boolean
   /** Every campaign that spent or served in the period, largest spend first. */
   campaigns: Campaign[]
   /** What the metrics above were derived from, kept so platforms can be summed. */

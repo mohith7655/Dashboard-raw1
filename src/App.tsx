@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Header } from './components/Header'
 import { ErrorBanner } from './components/ErrorBanner'
-import { FacebookGlyph, GoogleGlyph } from './components/SectionLabel'
+import { FacebookGlyph, GoogleGlyph, OpenAiGlyph } from './components/SectionLabel'
 import { DashboardTabs } from './components/DashboardTabs'
 import { WooCommerceSection } from './components/sections/WooCommerceSection'
 import { ProfitSummaryCard } from './components/sections/ProfitSummaryCard'
@@ -33,6 +33,7 @@ import {
   useGoogleAdsMetrics,
   useInsights,
   useMetaMetrics,
+  useOpenAiAdsMetrics,
   useOperatingCosts,
   useOrders,
   useSaveOperatingCosts,
@@ -76,6 +77,7 @@ export default function App() {
   const woo = useWooMetrics(range, against)
   const meta = useMetaMetrics(range, against)
   const google = useGoogleAdsMetrics(range, against)
+  const openai = useOpenAiAdsMetrics(range, against)
   const orders = useOrders(range, { page, perPage: PER_PAGE, sort, direction })
   const costs = useOperatingCosts()
   const saveCosts = useSaveOperatingCosts()
@@ -112,6 +114,7 @@ export default function App() {
     !woo.isLoading &&
     !meta.isLoading &&
     !google.isLoading &&
+    !openai.isLoading &&
     !traffic.isLoading &&
     !ga4.isLoading &&
     !costs.isLoading
@@ -172,12 +175,16 @@ export default function App() {
     if (google.error) {
       found.push({ key: 'google', error: google.error, retry: google.refetch })
     }
+    if (openai.error) {
+      found.push({ key: 'openai', error: openai.error, retry: openai.refetch })
+    }
     return found.filter((b) => !dismissed.includes(b.key))
-  }, [woo, meta, google, orders, dismissed])
+  }, [woo, meta, google, openai, orders, dismissed])
 
   const retrying = (key: string): boolean => {
     if (key === 'metorik') return woo.isFetching || orders.isFetching
     if (key === 'meta') return meta.isFetching
+    if (key === 'openai') return openai.isFetching
     return google.isFetching
   }
 
@@ -187,10 +194,11 @@ export default function App() {
     const found: { name: string; metrics: AdsMetrics }[] = []
     if (meta.data) found.push({ name: 'Facebook Meta Ads', metrics: meta.data })
     if (google.data) found.push({ name: 'Google Ads', metrics: google.data })
+    if (openai.data) found.push({ name: 'OpenAI Ads', metrics: openai.data })
     return found
-  }, [meta.data, google.data])
+  }, [meta.data, google.data, openai.data])
 
-  const adsLoading = meta.isLoading || google.isLoading
+  const adsLoading = meta.isLoading || google.isLoading || openai.isLoading
 
   // Meta and Google as one account, plus the two figures that only mean
   // anything once spend is set against store revenue.
@@ -202,11 +210,14 @@ export default function App() {
 
   // Named rather than implied: with one connector down the totals are still
   // real, but they are not everything that was spent.
+  // Named rather than implied: with a connector down the totals are still
+  // real, but they are not everything that was spent. Listed rather than
+  // hard-coded now that there are three of them.
   const combinedScope =
     reportedAds.length > 1
-      ? 'Facebook Meta Ads and Google Ads added together.'
+      ? `${reportedAds.map((p) => p.name).join(', ')} added together.`
       : reportedAds.length === 1
-        ? `${reportedAds[0].name} only — the other platform did not report.`
+        ? `${reportedAds[0].name} only — the other platforms did not report.`
         : ''
 
 
@@ -376,6 +387,15 @@ export default function App() {
               metrics={google.data}
               loading={google.isLoading}
               failed={!!google.error}
+            />
+
+            <AdsSection
+              title="OpenAI Ads"
+              glyph={<OpenAiGlyph />}
+              collapsible
+              metrics={openai.data}
+              loading={openai.isLoading}
+              failed={!!openai.error}
             />
 
             {/* One plot, two scales: a refund spike is read against the day

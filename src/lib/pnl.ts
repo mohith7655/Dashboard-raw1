@@ -217,6 +217,18 @@ export function combinedAds(
     emptyAdsTotals(),
   )
 
+  // A platform that reports no attribution at all — OpenAI Ads — contributes
+  // its spend to every other figure but is left out of the ROAS. Its spend
+  // against its absent conversion value would otherwise read as a total
+  // failure and pull the combined return below what Meta and Google actually
+  // achieved. Named on the card rather than left implicit.
+  const attributing = reported.filter((r) => r.metrics.reportsConversions !== false)
+  const attributed = attributing.reduce(
+    (sum, { metrics }) => addCounters(sum, metrics.totals),
+    emptyAdsTotals(),
+  )
+  const roas = attributed.spend > 0 ? attributed.conversionValue / attributed.spend : 0
+
   // A platform with no comparison figures contributes nothing rather than
   // zeroes, which would drag the combined baseline down and invent growth.
   const withPrevious = reported.filter((r) => r.metrics.previousTotals)
@@ -227,8 +239,21 @@ export function combinedAds(
       )
     : null
 
-  return buildAdsMetrics(deriveAds(current), previous && deriveAds(previous))
+  const combined = buildAdsMetrics(deriveAds(current), previous && deriveAds(previous))
+  return {
+    ...combined,
+    // Overridden after the fact: every other figure is derived from the full
+    // sum, and only the return needs the narrower base.
+    roas: { ...combined.roas, value: roas },
+    reportsConversions: attributing.length > 0,
+  }
 }
+
+/** Platforms in the set that report no attribution, by name. */
+export const nonAttributing = (
+  reported: { name: string; metrics: AdsMetrics }[],
+): string[] =>
+  reported.filter((r) => r.metrics.reportsConversions === false).map((r) => r.name)
 
 /**
  * Blends whichever platforms answered. A platform that failed is left out

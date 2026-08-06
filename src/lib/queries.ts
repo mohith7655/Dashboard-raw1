@@ -26,6 +26,7 @@ import { SourceFailure } from './adapters/client'
 import * as metorik from './adapters/metorik'
 import * as meta from './adapters/meta'
 import * as googleAds from './adapters/googleAds'
+import * as openaiAds from './adapters/openaiAds'
 import * as costs from './adapters/costs'
 import * as shippingCosts from './adapters/shippingCosts'
 import * as ga4 from './adapters/ga4'
@@ -53,6 +54,8 @@ export const queryKeys = {
     ['meta', range.start, range.end, vs(against)] as const,
   googleAds: (range: DateRange, against: DateRange | null) =>
     ['googleAds', range.start, range.end, vs(against)] as const,
+  openaiAds: (range: DateRange, against: DateRange | null) =>
+    ['openaiAds', range.start, range.end, vs(against)] as const,
   traffic: (range: DateRange, against: DateRange | null) =>
     ['traffic', range.start, range.end, vs(against)] as const,
   // Keyed on the destinations too: asking about a different set is a different
@@ -137,6 +140,18 @@ export function useGoogleAdsMetrics(
     useQuery({
       queryKey: queryKeys.googleAds(range, against),
       queryFn: () => unwrap(googleAds.fetchMetrics(range, against)),
+    }),
+  )
+}
+
+export function useOpenAiAdsMetrics(
+  range: DateRange,
+  against: DateRange | null,
+): SourceQuery<AdsMetrics> {
+  return toSourceQuery(
+    useQuery({
+      queryKey: queryKeys.openaiAds(range, against),
+      queryFn: () => unwrap(openaiAds.fetchMetrics(range, against)),
     }),
   )
 }

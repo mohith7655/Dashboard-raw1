@@ -1,5 +1,6 @@
 import { Megaphone } from 'lucide-react'
 import type { AdsMetrics, Polarity } from '../../lib/types'
+import { nonAttributing } from '../../lib/pnl'
 import {
   formatCtr,
   formatCurrency,
@@ -63,6 +64,7 @@ export function AdsStatsCard({
   loading,
 }: AdsStatsCardProps) {
   const rows = metrics ? buildRows(metrics, platforms, blended) : []
+  const unattributed = nonAttributing(platforms)
 
   return (
     <div className="card">
@@ -87,7 +89,21 @@ export function AdsStatsCard({
           No ad platform reported for this period.
         </p>
       ) : (
-        <StatRows rows={rows} />
+        <>
+          <StatRows rows={rows} />
+          {/* The ROAS above is struck from a narrower base than the spend
+              above it. Saying so is the whole point — a return quietly
+              measured against a different denominator is worse than none. */}
+          {unattributed.length > 0 && (
+            <p className="mt-3 text-[12px] leading-relaxed text-muted">
+              {unattributed.join(' and ')} report no attributed conversions, so
+              they are counted in spend, impressions and clicks but left out of
+              ROAS. Blended ROAS below includes their spend, since it measures
+              against the store&apos;s own revenue rather than a platform&apos;s
+              claim.
+            </p>
+          )}
+        </>
       )}
     </div>
   )
@@ -100,6 +116,15 @@ function buildRows(
 ): StatRowData[] {
   const rows: StatRowData[] = []
 
+  // Figures a platform has no field for at all. Printed as an em dash rather
+  // than as zero: a platform that reports no attribution has not sold nothing.
+  const ATTRIBUTED: ReadonlySet<AdsMetricKey> = new Set<AdsMetricKey>([
+    'roas',
+    'conversions',
+  ])
+  const reports = (m: AdsMetrics, key: AdsMetricKey) =>
+    !ATTRIBUTED.has(key) || m.reportsConversions !== false
+
   const group = (
     label: string,
     key: AdsMetricKey,
@@ -110,10 +135,10 @@ function buildRows(
 
     rows.push({
       label,
-      value: format(total),
+      value: reports(metrics, key) ? format(total) : '—',
       kind: 'total',
       share: null,
-      change: metrics[key].deltaPct,
+      change: reports(metrics, key) ? metrics[key].deltaPct : null,
       polarity,
     })
 
@@ -122,14 +147,20 @@ function buildRows(
     if (platforms.length < 2) return
 
     for (const platform of platforms) {
+      const known = reports(platform.metrics, key)
       rows.push({
         label: platform.name,
-        value: format(platform.metrics[key].value),
+        value: known ? format(platform.metrics[key].value) : 'not reported',
         kind: 'part',
-        share: ADDITIVE.has(key) ? (total ? platform.metrics[key].value / total : 0) : null,
+        share:
+          known && ADDITIVE.has(key)
+            ? total
+              ? platform.metrics[key].value / total
+              : 0
+            : null,
         // Each platform's own change, not a share of the combined one — Meta
         // can be up over the window while Google is down.
-        change: platform.metrics[key].deltaPct,
+        change: known ? platform.metrics[key].deltaPct : null,
         polarity,
       })
     }
