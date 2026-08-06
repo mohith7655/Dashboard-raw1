@@ -91,3 +91,31 @@ export function parseIsoDate(iso: string): Date {
   const [y, m, d] = datePart.split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, d))
 }
+
+const moneyIn = new Map<string, Intl.NumberFormat>()
+
+/**
+ * `51.25` in `EUR` → `€51.25`. For figures that are not in store currency
+ * and must not be dressed as though they were.
+ *
+ * Falls back to the bare amount and the code where the runtime does not know
+ * the currency, which beats throwing inside a table row.
+ */
+export function formatMoneyIn(amount: number, currency: string): string {
+  if (!currency) return usd.format(amount)
+  let formatter = moneyIn.get(currency)
+  if (!formatter) {
+    try {
+      formatter = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })
+    } catch {
+      return `${dec2.format(amount)} ${currency}`
+    }
+    moneyIn.set(currency, formatter)
+  }
+  return formatter.format(amount)
+}

@@ -7,7 +7,7 @@ import type {
 } from '../lib/types'
 import { STATUS_COLORS, STATUS_LABELS } from '../lib/statusColors'
 import { countryName } from '../lib/countries'
-import { formatCurrency, formatDate, formatInteger } from '../lib/format'
+import { formatCurrency, formatDate, formatInteger, formatMoneyIn } from '../lib/format'
 import { Skeleton } from './Skeleton'
 
 interface RecentOrdersProps {
@@ -96,7 +96,7 @@ export function RecentOrders({
                   </Th>
                   <Th>Customer</Th>
                   <Th>Country</Th>
-                  <Th>Currency</Th>
+                  <Th>Paid</Th>
                   <Th>Status</Th>
                   <Th align="right">Items</Th>
                   <Th
@@ -184,13 +184,13 @@ function Row({ order }: { order: Order }) {
           '—'
         )}
       </Td>
-      <Td className="text-muted">
-        {/* What the customer was billed in. The total beside it is already
-            converted to store currency, so the two can disagree — the title
-            says so rather than leaving the reader to wonder. */}
+      <Td className="tabular-nums text-muted">
+        {/* What was actually charged, in the currency it was charged in. The
+            total beside it is the same money converted to store currency, so
+            the two figures differ on every foreign order by design. */}
         {order.currency ? (
-          <span title={`Paid in ${order.currency}; the total is shown in store currency`}>
-            {order.currency}
+          <span title={`Charged in ${order.currency}; the total is the same order in store currency`}>
+            {order.paid > 0 ? formatMoneyIn(order.paid, order.currency) : order.currency}
           </span>
         ) : (
           '—'

@@ -272,3 +272,38 @@ export async function wooCouponPeriod(
 
   return period
 }
+
+/**
+ * What each of these orders was actually charged, in its own currency.
+ *
+ * Metorik converts every total to store currency before it arrives and does
+ * not carry the original, so the only way to show what the customer paid is to
+ * ask the store. Scoped to the ids on the page — one extra call for ten orders,
+ * not a sweep.
+ */
+export async function wooOrderAmounts(
+  creds: WooCredentials,
+  ids: string[],
+): Promise<Map<string, number>> {
+  const numeric = ids.filter((id) => /^\d+$/.test(id))
+  if (numeric.length === 0) return new Map()
+
+  const params = new URLSearchParams({
+    include: numeric.join(','),
+    per_page: String(Math.min(100, numeric.length)),
+    _fields: 'id,total',
+    // `include` filters, it does not widen: without this the default status
+    // set would drop the failed and cancelled orders the table still lists.
+    status: 'any',
+  })
+
+  const auth = Buffer.from(`${creds.key}:${creds.secret}`).toString('base64')
+  const res = await fetch(`${creds.origin}/wp-json/wc/v3/orders?${params.toString()}`, {
+    headers: { authorization: `Basic ${auth}`, accept: 'application/json' },
+  })
+  if (!res.ok) throw new Error(`WooCommerce API error (${res.status}) reading order totals`)
+
+  const body: unknown = await res.json().catch(() => null)
+  const rows = Array.isArray(body) ? body.filter(isRecord) : []
+  return new Map(rows.map((row) => [String(row.id ?? ''), num(row.total)]))
+}

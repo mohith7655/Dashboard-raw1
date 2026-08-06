@@ -309,8 +309,15 @@ export interface Order {
    * this says what was paid, not what the total is denominated in.
    */
   currency: string
+  /**
+   * What the customer was charged, in `currency`. Read from the store itself,
+   * since Metorik converts before it reaches us and keeps no original — zero
+   * where the store was not configured or could not be reached.
+   */
+  paid: number
   status: OrderStatus
   items: number
+  /** Converted to the store's own currency, so orders are comparable. */
   total: number
 }
 

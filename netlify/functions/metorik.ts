@@ -26,6 +26,7 @@ import type {
 import {
   wooCouponPeriod,
   wooCredentials,
+  wooOrderAmounts,
   type WooCouponPeriod,
 } from '../lib/woo'
 import {
@@ -431,6 +432,8 @@ function normaliseOrder(row: Record<string, unknown>, timeZone: string): Order {
     city: firstString(row, ['billing_address_city', 'shipping_address_city']),
     country: firstString(row, ['billing_address_country', 'shipping_address_country']),
     currency: String(row.currency ?? '').toUpperCase(),
+    // Filled in from the store below where the keys allow it.
+    paid: 0,
     status: readStatus(row.status),
     items: Math.round(pick(row, ['total_items', 'items_count', 'line_items_count', 'quantity'])),
     total: round2(pick(row, ['total'])),
@@ -505,8 +508,26 @@ async function loadOrdersPage(
 
   const parsed = readPage(body)
   const totalData = isRecord(totals.data) ? totals.data : {}
+  const orders = parsed.rows.map((row) => normaliseOrder(row, timeZone))
+
+  // What each order actually charged, for the ten on this page only. Metorik
+  // converts every total to store currency and keeps no original, so this is
+  // the one place the amount the customer paid can come from. A failure here
+  // leaves the column blank rather than taking the table down with it.
+  const creds = wooCredentials()
+  if (creds && orders.length > 0) {
+    try {
+      const paid = await wooOrderAmounts(creds, orders.map((order) => order.id))
+      for (const order of orders) {
+        order.paid = paid.get(order.id) ?? 0
+      }
+    } catch {
+      // Left at zero; the table reads the currency without an amount.
+    }
+  }
+
   return {
-    orders: parsed.rows.map((row) => normaliseOrder(row, timeZone)),
+    orders,
     total: num(totalData.count) || parsed.total,
     page,
     perPage,
