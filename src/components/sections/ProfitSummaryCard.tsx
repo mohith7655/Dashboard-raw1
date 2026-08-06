@@ -199,24 +199,24 @@ function buildStatement({
 }
 
 /**
- * Gross sales: the sale itself, with the coupon value added back on top and
- * the shipping and tax charged on the order taken out, so the line covers the
- * goods alone. Both are added again lower down, on the way to total sales.
+ * Gross sales: the goods as they were billed, before any coupon came off and
+ * before anything was handed back.
  *
- * Kept in one place so the headline and the line cannot disagree, and so the
- * pair below it subtracts correctly — this figure less the coupons and the
- * returns is exactly the net sales line.
+ * Nothing is adjusted here. The payload figure already covers the goods alone —
+ * shipping and tax are never inside it — so the coupons used to be added a
+ * second time and the shipping and tax subtracted out of a figure that had
+ * never held them, which between them put this line $233.65 above the truth on
+ * a single week.
  */
-const grossSalesOf = (pnl: ProfitAndLoss): number =>
-  round2(pnl.grossSales + pnl.discounts - pnl.shippingCharged - pnl.taxCollected)
+const grossSalesOf = (pnl: ProfitAndLoss): number => round2(pnl.grossSales)
 
 /**
- * What the goods themselves earned: gross sales less the coupons. Shipping and
- * tax are no part of it — they are money the customer handed over on top and
- * are added after, on the way to total sales.
+ * What the goods themselves earned: gross sales less the coupons, and nothing
+ * else.
  *
- * Refunds are no part of it either. They come off once, at total revenue,
- * where the money actually left.
+ * Shipping and tax are no part of it — they are money the customer handed over
+ * on top, and are added after, on the way to total sales. Refunds are no part
+ * of it either; they come off once, at total revenue, where the money left.
  */
 const netSalesOf = (pnl: ProfitAndLoss): number =>
   round2(grossSalesOf(pnl) - pnl.discounts)

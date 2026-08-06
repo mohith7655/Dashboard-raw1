@@ -679,7 +679,18 @@ interface RevenueSide {
   discount: number
   shipping: number
   tax: number
+  /** Issued in the period, on each refund's own date — the statement's line. */
   refunds: number
+  /**
+   * The refunds Metorik has already netted off `net`, which are the ones
+   * recorded against orders *created* in the period.
+   *
+   * A different population from `refunds` above, and needed for a different
+   * reason: it is added back so gross sales can state what was billed before
+   * anything was handed back. Deducting the other figure lower down is what
+   * makes total revenue what the store kept.
+   */
+  refundsInNet: number
 }
 
 /**
@@ -731,12 +742,19 @@ async function paidOrderTotals(apiKey: string, range: DateRange): Promise<Revenu
     shipping: num(data.total_shipping),
     tax: num(data.total_tax),
     refunds,
+    refundsInNet: num(data.total_refunds),
   }
 }
 
 /**
- * `total = net + shipping + tax`, and discounts are already off `net`, so
- * gross sales adds them back to show what was billed before coupons.
+ * `total = net + shipping + tax + refunds`, verified against the live store:
+ * 3903.06 + 341.10 + 39.91 + 10.00 = 4294.07, exactly Metorik's own total.
+ *
+ * So `net` is the goods alone — no shipping, no tax — after both the discounts
+ * and the refunds have come off. Gross sales is what was billed before either,
+ * which means adding both back. Do that and the statement's total sales lands
+ * on Metorik's `total` to the penny, which is the check that this
+ * decomposition is the right one.
  *
  * Metorik's `total_fees` is deliberately absent: Woo fee lines are charges
  * added to the order, so they already sit inside revenue and deducting them
@@ -744,7 +762,7 @@ async function paidOrderTotals(apiKey: string, range: DateRange): Promise<Revenu
  */
 function buildPnl(side: RevenueSide, derived: WooTotals & { grossProfit: number }): ProfitAndLoss {
   return {
-    grossSales: round2(side.net + side.discount),
+    grossSales: round2(side.net + side.discount + side.refundsInNet),
     discounts: round2(side.discount),
     shippingCharged: round2(side.shipping),
     taxCollected: round2(side.tax),
