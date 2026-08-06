@@ -301,7 +301,14 @@ export interface Order {
   /** Empty when the order carries no billing email. */
   email: string
   city: string
+  /** ISO alpha-2, as the billing or shipping address gave it. */
   country: string
+  /**
+   * ISO code the customer was billed in. `total` is already converted to the
+   * store's own currency, so an order can read EUR beside a dollar figure —
+   * this says what was paid, not what the total is denominated in.
+   */
+  currency: string
   status: OrderStatus
   items: number
   total: number

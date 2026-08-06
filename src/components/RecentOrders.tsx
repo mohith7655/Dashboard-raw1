@@ -6,6 +6,7 @@ import type {
   SortDirection,
 } from '../lib/types'
 import { STATUS_COLORS, STATUS_LABELS } from '../lib/statusColors'
+import { countryName } from '../lib/countries'
 import { formatCurrency, formatDate, formatInteger } from '../lib/format'
 import { Skeleton } from './Skeleton'
 
@@ -81,7 +82,7 @@ export function RecentOrders({
               fetching && !loading ? 'opacity-60' : ''
             }`}
           >
-            <table className="w-full min-w-[720px] border-collapse text-[13px]">
+            <table className="w-full min-w-[880px] border-collapse text-[13px]">
               <thead>
                 <tr className="border-b border-line text-left">
                   <Th className="pl-5">Order</Th>
@@ -94,6 +95,8 @@ export function RecentOrders({
                     Date
                   </Th>
                   <Th>Customer</Th>
+                  <Th>Country</Th>
+                  <Th>Currency</Th>
                   <Th>Status</Th>
                   <Th align="right">Items</Th>
                   <Th
@@ -115,7 +118,7 @@ export function RecentOrders({
 
                 {page && !loading && page.orders.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-5 py-8 text-center text-muted">
+                    <td colSpan={8} className="px-5 py-8 text-center text-muted">
                       No orders in this period.
                     </td>
                   </tr>
@@ -165,12 +168,33 @@ function Row({ order }: { order: Order }) {
       <Td>
         <div className="min-w-0">
           <div className="truncate text-ink">{order.customer}</div>
+          {/* The city stays here where there is no email to show instead; the
+              country has a column of its own now and would only repeat. */}
           {(order.email || order.city) && (
             <div className="truncate text-[11px] text-muted">
-              {order.email || [order.city, order.country].filter(Boolean).join(', ')}
+              {order.email || order.city}
             </div>
           )}
         </div>
+      </Td>
+      <Td className="text-muted">
+        {order.country ? (
+          <span title={countryName(order.country)}>{order.country}</span>
+        ) : (
+          '—'
+        )}
+      </Td>
+      <Td className="text-muted">
+        {/* What the customer was billed in. The total beside it is already
+            converted to store currency, so the two can disagree — the title
+            says so rather than leaving the reader to wonder. */}
+        {order.currency ? (
+          <span title={`Paid in ${order.currency}; the total is shown in store currency`}>
+            {order.currency}
+          </span>
+        ) : (
+          '—'
+        )}
       </Td>
       <Td>
         <StatusPill status={order.status} />
@@ -208,6 +232,12 @@ function SkeletonRow() {
       </Td>
       <Td>
         <Skeleton className="h-3.5 w-32" />
+      </Td>
+      <Td>
+        <Skeleton className="h-3.5 w-8" />
+      </Td>
+      <Td>
+        <Skeleton className="h-3.5 w-10" />
       </Td>
       <Td>
         <Skeleton className="h-5 w-20 rounded-full" />

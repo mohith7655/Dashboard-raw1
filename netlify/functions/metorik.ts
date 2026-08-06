@@ -430,6 +430,7 @@ function normaliseOrder(row: Record<string, unknown>, timeZone: string): Order {
     email,
     city: firstString(row, ['billing_address_city', 'shipping_address_city']),
     country: firstString(row, ['billing_address_country', 'shipping_address_country']),
+    currency: String(row.currency ?? '').toUpperCase(),
     status: readStatus(row.status),
     items: Math.round(pick(row, ['total_items', 'items_count', 'line_items_count', 'quantity'])),
     total: round2(pick(row, ['total'])),
