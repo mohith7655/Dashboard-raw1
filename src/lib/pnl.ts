@@ -130,31 +130,8 @@ export function shippingEconomics(woo: WooMetrics): ShippingEconomics {
   }
 }
 
-/* -------------------------------- Markets ------------------------------- */
-
-export interface MarketSummary {
-  countries: number
-  currencies: number
-  /** Largest country by revenue, or null when nothing sold. */
-  topCountry: { key: string; share: number } | null
-  /** Revenue share billed in a currency other than the store's own. */
-  foreignShare: number
-}
-
-export function marketSummary(woo: WooMetrics): MarketSummary {
-  const revenue = woo.totalRevenue.value
-  const [top] = woo.revenueByCountry
-  const foreign = woo.revenueByCurrency
-    .filter((row) => row.key !== woo.storeCurrency)
-    .reduce((sum, row) => sum + row.revenue, 0)
-
-  return {
-    countries: woo.revenueByCountry.length,
-    currencies: woo.revenueByCurrency.length,
-    topCountry: top ? { key: top.key, share: ratio(top.revenue, revenue) } : null,
-    foreignShare: ratio(foreign, revenue),
-  }
-}
+/* Markets moved to `marketTraffic.ts`, where the same summary is built beside
+   the visitor figures it is only meaningful against. */
 
 /* -------------------------------- Ad spend ------------------------------ */
 

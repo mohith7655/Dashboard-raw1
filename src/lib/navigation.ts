@@ -91,7 +91,6 @@ export type DashboardView =
   | 'shipping'
   | 'markets'
   | 'ads'
-  | 'traffic'
   | 'insights'
 
 export interface DashboardTab {
@@ -103,8 +102,9 @@ export interface DashboardTab {
 }
 
 /**
- * Cuts of the same period. All but Traffic are derived from figures the
- * dashboard already loads, so switching to them costs no extra upstream call.
+ * Cuts of the same period. All but Markets & Traffic are derived from figures
+ * the dashboard already loads, so switching to them costs no extra upstream
+ * call.
  */
 export const DASHBOARD_TABS: DashboardTab[] = [
   {
@@ -133,17 +133,12 @@ export const DASHBOARD_TABS: DashboardTab[] = [
   },
   {
     id: 'markets',
-    label: 'Markets',
+    label: 'Markets & Traffic',
     icon: Globe,
-    blurb: 'Where revenue comes from, by country and by currency billed.',
-  },
-  {
-    id: 'traffic',
-    label: 'Traffic',
-    icon: Users,
-    // The one tab that does cost an extra call — visitors come from the
-    // analytics provider, not from the orders already loaded.
-    blurb: 'Visitors from Google Analytics, and how many of them bought.',
+    // The one tab that costs an extra call — visitors come from the analytics
+    // provider, not from the orders already loaded. Worth it here: a country's
+    // revenue only means something beside the traffic that produced it.
+    blurb: 'Where the visitors come from and where the money does, country by country.',
   },
   {
     id: 'insights',

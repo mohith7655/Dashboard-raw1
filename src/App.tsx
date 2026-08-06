@@ -9,10 +9,9 @@ import { CouponUsageCard } from './components/sections/CouponUsageCard'
 import { AdsSection } from './components/sections/AdsSection'
 import { AdsStatsCard } from './components/sections/AdsStatsCard'
 import { AdSpendSection } from './components/sections/AdSpendSection'
-import { MarketsSection } from './components/sections/MarketsSection'
+import { MarketsTrafficSection } from './components/sections/MarketsTrafficSection'
 import { ProfitLossSection } from './components/sections/ProfitLossSection'
 import { ShippingSection } from './components/sections/ShippingSection'
-import { TrafficSection } from './components/sections/TrafficSection'
 import { InsightsSection } from './components/sections/InsightsSection'
 import { RevenueOverTime } from './components/charts/RevenueOverTime'
 import { OrdersByStatus } from './components/charts/OrdersByStatus'
@@ -84,6 +83,10 @@ export default function App() {
   const coupons = useCoupons(range, COUPON_OVERVIEW_QUERY, against)
   const traffic = useTrafficMetrics(range, against)
   const ga4 = useGa4Report(range, ga4Dimension)
+  // The country cut specifically, which the markets join needs whatever the
+  // picker is showing. Keyed identically when the picker is on Country, so it
+  // is the same cached query there rather than a second call.
+  const ga4Countries = useGa4Report(range, 'country')
   const insights = useInsights()
   const failedOrders = failedOrderCount(woo.data)
 
@@ -247,22 +250,6 @@ export default function App() {
           />
         )}
 
-        {view === 'traffic' && (
-          <TrafficSection
-            traffic={traffic.data}
-            woo={woo.data}
-            loading={traffic.isLoading || woo.isLoading}
-            failed={!!traffic.error}
-            wooFailed={!!woo.error}
-            ga4={ga4.data}
-            ga4Dimension={ga4Dimension}
-            onGa4DimensionChange={setGa4Dimension}
-            ga4Loading={ga4.isLoading}
-            ga4Fetching={ga4.isFetching}
-            ga4Error={ga4.error?.message ?? null}
-          />
-        )}
-
         {view === 'insights' && (
           <InsightsSection
             report={insights.report}
@@ -276,10 +263,21 @@ export default function App() {
         )}
 
         {view === 'markets' && (
-          <MarketsSection
+          <MarketsTrafficSection
             woo={woo.data}
-            loading={woo.isLoading}
-            failed={!!woo.error}
+            wooLoading={woo.isLoading}
+            wooFailed={!!woo.error}
+            traffic={traffic.data}
+            trafficLoading={traffic.isLoading}
+            trafficFailed={!!traffic.error}
+            ga4={ga4.data}
+            ga4Dimension={ga4Dimension}
+            onGa4DimensionChange={setGa4Dimension}
+            ga4Loading={ga4.isLoading}
+            ga4Fetching={ga4.isFetching}
+            ga4Error={ga4.error?.message ?? null}
+            ga4Country={ga4Countries.data}
+            ga4CountryLoading={ga4Countries.isLoading}
           />
         )}
 

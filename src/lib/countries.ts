@@ -49,6 +49,80 @@ export const countryLabel = (code: string): string => {
 }
 
 /**
+ * Names GA4 uses that `Intl.DisplayNames` spells differently, plus the ones
+ * people type by hand. Everything else resolves off the generated table below,
+ * so this list only has to carry the disagreements.
+ */
+const ALIASES: Record<string, string> = {
+  'hong kong': 'HK',
+  macao: 'MO',
+  macau: 'MO',
+  palestine: 'PS',
+  myanmar: 'MM',
+  burma: 'MM',
+  'czech republic': 'CZ',
+  'ivory coast': 'CI',
+  'cape verde': 'CV',
+  'east timor': 'TL',
+  swaziland: 'SZ',
+  macedonia: 'MK',
+  'united states of america': 'US',
+  usa: 'US',
+  uk: 'GB',
+  'great britain': 'GB',
+  'south korea': 'KR',
+  'north korea': 'KP',
+  'vatican city': 'VA',
+  'democratic republic of the congo': 'CD',
+  'republic of the congo': 'CG',
+}
+
+/** Case, accents, punctuation and a leading "the" all removed. */
+const normalise = (name: string): string =>
+  name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/^the\s+/, '')
+    .replace(/[^a-z ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+let codesByName: Map<string, string> | null = null
+
+/**
+ * `India` → `IN`, the inverse of {@link countryName}.
+ *
+ * Needed because the two halves of this dashboard name countries differently:
+ * orders carry ISO codes, GA4 reports display names. Built by running the whole
+ * code table back through `Intl.DisplayNames` rather than shipping a name list,
+ * so it stays in step with whatever the runtime calls each place.
+ *
+ * Returns an empty string for anything unrecognised — `(not set)` above all,
+ * which GA4 uses for traffic it could not place and which is not a country.
+ */
+export function countryCode(name: string): string {
+  const key = normalise(name)
+  if (!key || key === 'not set' || key === 'unknown') return ''
+  // Already a code: GA4 occasionally reports one, and the caller may be
+  // passing store data through the same door.
+  if (/^[A-Z]{2}$/.test(name.trim()) && COUNTRY_CODES.includes(name.trim())) {
+    return name.trim()
+  }
+
+  if (!codesByName) {
+    codesByName = new Map()
+    for (const code of COUNTRY_CODES) {
+      const resolved = normalise(countryName(code))
+      // First spelling wins, so an alias below can still override a collision.
+      if (resolved && !codesByName.has(resolved)) codesByName.set(resolved, code)
+    }
+  }
+
+  return ALIASES[key] ?? codesByName.get(key) ?? ''
+}
+
+/**
  * Every country, by name, with any the store has actually shipped to hoisted
  * to the front — a list of 250 is unusable if the seven that matter are spread
  * through it.
