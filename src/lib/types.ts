@@ -70,6 +70,18 @@ export interface RevenuePoint {
   revenue: number
 }
 
+/**
+ * Refunds on the day they were issued, not the day the order was placed —
+ * which is why this is its own series rather than a field on `RevenuePoint`.
+ * The two are scoped by different dates and would not line up.
+ */
+export interface RefundPoint {
+  /** `yyyy-MM-dd` */
+  date: string
+  /** A magnitude; the chart applies the sign. */
+  refunds: number
+}
+
 export interface StatusCount {
   status: OrderStatus
   count: number
@@ -133,6 +145,8 @@ export interface WooMetrics {
   /** Ratio in 0..1 — formatted as a percentage at the edge. */
   grossMargin: Metric
   revenueSeries: RevenuePoint[]
+  /** What went back each day, on each refund's own date. */
+  refundSeries: RefundPoint[]
   ordersByStatus: StatusCount[]
   revenueBySource: SourceRevenue[]
   revenueByCountry: MarketRevenue[]

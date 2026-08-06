@@ -79,6 +79,7 @@ export function buildWooMetrics(
   rest: Pick<
     WooMetrics,
     | 'revenueSeries'
+    | 'refundSeries'
     | 'ordersByStatus'
     | 'revenueBySource'
     | 'revenueByCountry'

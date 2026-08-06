@@ -14,6 +14,7 @@ import { ProfitLossSection } from './components/sections/ProfitLossSection'
 import { ShippingSection } from './components/sections/ShippingSection'
 import { InsightsSection } from './components/sections/InsightsSection'
 import { RevenueOverTime } from './components/charts/RevenueOverTime'
+import { RefundsOverTime } from './components/charts/RefundsOverTime'
 import { OrdersByStatus } from './components/charts/OrdersByStatus'
 import { RevenueByTrafficSource } from './components/charts/RevenueByTrafficSource'
 import { RecentOrders } from './components/RecentOrders'
@@ -363,6 +364,15 @@ export default function App() {
               data={woo.data?.revenueSeries ?? []}
               loading={woo.isLoading}
               unavailable={woo.error ? 'Revenue data unavailable' : undefined}
+            />
+
+            {/* Directly under revenue and on the same width, so the two are
+                read against each other — a spike here against a good day
+                there is the comparison worth making. */}
+            <RefundsOverTime
+              data={woo.data?.refundSeries ?? []}
+              loading={woo.isLoading}
+              unavailable={woo.error ? 'Refund data unavailable' : undefined}
             />
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

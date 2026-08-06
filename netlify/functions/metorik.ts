@@ -645,10 +645,10 @@ async function loadMetrics(
       against ? aggregate(apiKey, against, meta.timeZone) : null,
       countNewCustomers(apiKey, range),
       against ? countNewCustomers(apiKey, against) : 0,
-      paidOrderTotals(apiKey, range),
+      paidOrderTotals(apiKey, range, meta.timeZone),
       // The statement's own lines — gross sales, coupons, tax — are only in
       // this call, so comparing them needs it for the other window too.
-      against ? paidOrderTotals(apiKey, against) : null,
+      against ? paidOrderTotals(apiKey, against, meta.timeZone) : null,
     ])
 
   current.newCustomers = newCustomers
@@ -659,6 +659,12 @@ async function loadMetrics(
 
   return buildWooMetrics(derived, previousDerived, {
     revenueSeries: toSeries(range, current.byDay),
+    // Every day in the range, so the days nothing went back read as zero
+    // rather than as a gap the line hops over.
+    refundSeries: eachDay(range).map((date) => ({
+      date,
+      refunds: round2(revenueSide.refundsByDay.get(date) ?? 0),
+    })),
     ordersByStatus: toStatusCounts(current.byStatus),
     revenueBySource: toSources(current.bySource),
     revenueByCountry: toMarkets(current.byCountry),
@@ -681,6 +687,8 @@ interface RevenueSide {
   tax: number
   /** Issued in the period, on each refund's own date — the statement's line. */
   refunds: number
+  /** The same money by the day it went out, for the chart. */
+  refundsByDay: Map<string, number>
   /**
    * The refunds Metorik has already netted off `net`, which are the ones
    * recorded against orders *created* in the period.
@@ -706,15 +714,33 @@ interface RevenueSide {
  *
  * `amount` is store currency; `amount_original` is what the customer saw.
  */
-async function refundsIssued(apiKey: string, range: DateRange): Promise<number> {
+async function refundsIssued(
+  apiKey: string,
+  range: DateRange,
+  timeZone: string,
+): Promise<{ total: number; byDay: Map<string, number> }> {
   const rows = await collectAllRows(apiKey, '/refunds', {
     filters: JSON.stringify([
       { field: 'refund_created_at', operator: 'between', value: [range.start, range.end] },
     ]),
   })
-  // Guarded against a negative: a refund is a magnitude here, and the sign is
-  // applied by the statement line that deducts it.
-  return round2(rows.reduce((sum, row) => sum + Math.max(0, num(row.amount)), 0))
+
+  const byDay = new Map<string, number>()
+  let total = 0
+
+  for (const row of rows) {
+    // Guarded against a negative: a refund is a magnitude here, and the sign
+    // is applied by whatever deducts or plots it.
+    const amount = Math.max(0, num(row.amount))
+    total += amount
+    // Bucketed on the store's clock like every other timestamp — the
+    // timestamps arrive in UTC, and a late-evening refund would otherwise be
+    // plotted on the following day and fall off the end of the range.
+    const day = toStoreTime(String(row.refund_created_at ?? ''), timeZone).slice(0, 10)
+    if (day) byDay.set(day, round2((byDay.get(day) ?? 0) + amount))
+  }
+
+  return { total: round2(total), byDay }
 }
 
 /**
@@ -724,7 +750,11 @@ async function refundsIssued(apiKey: string, range: DateRange): Promise<number> 
  * Refunds cannot come from that call at all — see {@link refundsIssued} — so
  * they are fetched alongside it rather than read off it.
  */
-async function paidOrderTotals(apiKey: string, range: DateRange): Promise<RevenueSide> {
+async function paidOrderTotals(
+  apiKey: string,
+  range: DateRange,
+  timeZone: string,
+): Promise<RevenueSide> {
   const dates = { field: 'order_created_at', operator: 'between', value: [range.start, range.end] }
   const [paid, refunds] = await Promise.all([
     metorik(
@@ -732,7 +762,7 @@ async function paidOrderTotals(apiKey: string, range: DateRange): Promise<Revenu
       '/orders/totals',
       withFilters([dates, { field: 'status', operator: 'in', value: [...PAID_STATUSES] }]),
     ),
-    refundsIssued(apiKey, range),
+    refundsIssued(apiKey, range, timeZone),
   ])
 
   const data = isRecord(paid.data) ? paid.data : {}
@@ -741,7 +771,8 @@ async function paidOrderTotals(apiKey: string, range: DateRange): Promise<Revenu
     discount: num(data.total_discount),
     shipping: num(data.total_shipping),
     tax: num(data.total_tax),
-    refunds,
+    refunds: refunds.total,
+    refundsByDay: refunds.byDay,
     refundsInNet: num(data.total_refunds),
   }
 }
