@@ -140,29 +140,35 @@ function buildStatement({
   const refunds = round2(pnl.refunds)
   const netSales = netSalesOf(pnl)
   const totalSales = totalSalesOf(pnl)
+  const totalRevenue = totalRevenueOf(pnl)
   // The three charges that ride on the goods. Taken from the lines themselves
   // rather than from the payload's `totalCost`, which also carries Metorik's
   // extra costs and would leave the heading naming more than it lists.
   const cogs = round2(pnl.productCost + pnl.shippingCost + pnl.transactionCost)
-  // What the sale left after the cost of the goods sold.
-  const grossProfit = round2(totalSales - cogs)
+  // What the sale left after the cost of the goods sold. Struck from total
+  // revenue rather than total sales: money handed back was never the store's
+  // to take a margin on.
+  const grossProfit = round2(totalRevenue - cogs)
 
-  total('Total sales', totalSales)
+  total('Total revenue', totalRevenue)
+  // Total sales is what the store billed; total revenue is what it kept. Both
+  // are worth naming, so the larger sits inside the smaller as its first line
+  // rather than above it as a second heading.
+  subtotal('Total sales', totalSales)
   part('Gross sales', grossSalesOf(pnl), '')
   // More coupons is worse, so its polarity inverts against the group's.
   part('Coupons', pnl.discounts, '−', 'down-good')
-  // A refund is money handed over and returned, not a cost of trading, so it
-  // comes off here with the coupons rather than down among the overheads.
-  part('Refunds', refunds, '−', 'down-good', true)
-  // Struck in the totals' ink because it is a figure to stop at, and sitting
-  // below the deductions that produce it rather than above them. Shown only
-  // where the lines under it move it: with no shipping or tax it would
-  // restate total sales under a second name.
+  // Shown only where the lines under it move it: with no shipping or tax it
+  // would restate total sales under a second name.
   if (netSales !== totalSales) {
     subtotal('Net sales', netSales)
   }
   part('Shipping charged', pnl.shippingCharged, '+')
   part('Tax collected', pnl.taxCollected, '+')
+  // A refund is money handed over and returned, not a cost of trading, so it
+  // comes off the sale rather than down among the overheads. It is deducted
+  // here and nowhere else — the lines above are all before refunds.
+  part('Refunds', refunds, '−', 'down-good', true)
 
   // The cost of the goods themselves: what was bought, what it cost to ship,
   // and what the processor took. Advertising and operations are costs of
@@ -205,30 +211,37 @@ const grossSalesOf = (pnl: ProfitAndLoss): number =>
   round2(pnl.grossSales + pnl.discounts - pnl.shippingCharged - pnl.taxCollected)
 
 /**
- * What the goods themselves earned: gross sales less the coupons and less
- * what was returned. Shipping and tax are no part of it — they are money the
- * customer handed over on top and are added after, on the way to total sales.
+ * What the goods themselves earned: gross sales less the coupons. Shipping and
+ * tax are no part of it — they are money the customer handed over on top and
+ * are added after, on the way to total sales.
+ *
+ * Refunds are no part of it either. They come off once, at total revenue,
+ * where the money actually left.
  */
 const netSalesOf = (pnl: ProfitAndLoss): number =>
-  round2(grossSalesOf(pnl) - pnl.discounts - round2(pnl.refunds))
+  round2(grossSalesOf(pnl) - pnl.discounts)
 
-/** Net sales plus the shipping and tax charged on top of it. */
+/** Net sales plus the shipping and tax charged on top of it: what was billed. */
 const totalSalesOf = (pnl: ProfitAndLoss): number =>
   round2(netSalesOf(pnl) + pnl.shippingCharged + pnl.taxCollected)
 
+/** What was billed, less what was handed back: the money the store kept. */
+const totalRevenueOf = (pnl: ProfitAndLoss): number =>
+  round2(totalSalesOf(pnl) - round2(pnl.refunds))
+
 /**
- * The figure everything else is a share of: total sales, the line the whole
+ * The figure everything else is a share of: total revenue, the line the whole
  * statement resolves to.
  *
- * It is not the largest figure — gross sales stands above it, and reads over
- * 100% by however much the coupons took. That is the point of measuring
- * against the total rather than against the widest line: every share answers
- * "what part of what we sold is this", and a discount that ran to a tenth of
- * sales should read as more than a tenth of them.
+ * It is not the largest figure — total sales and gross sales both stand above
+ * it, and read over 100% by the refunds and the coupons respectively. That is
+ * the point of measuring against the total rather than against the widest
+ * line: every share answers "what part of what we kept is this", and a
+ * discount that ran to a tenth of revenue should read as more than a tenth.
  */
 const topLine = (pnl: ProfitAndLoss): { label: string; amount: number } => ({
-  label: 'Total sales',
-  amount: totalSalesOf(pnl),
+  label: 'Total revenue',
+  amount: totalRevenueOf(pnl),
 })
 
 export function ProfitSummaryCard({
