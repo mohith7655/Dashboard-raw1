@@ -120,6 +120,12 @@ export const DASHBOARD_TABS: DashboardTab[] = [
     blurb: 'Revenue stepped down through each cost to what is left.',
   },
   {
+    id: 'ads',
+    label: 'Ad Spend',
+    icon: Megaphone,
+    blurb: 'Spend across every platform, measured against store revenue.',
+  },
+  {
     id: 'shipping',
     label: 'Shipping Costs',
     icon: Truck,
@@ -130,12 +136,6 @@ export const DASHBOARD_TABS: DashboardTab[] = [
     label: 'Markets',
     icon: Globe,
     blurb: 'Where revenue comes from, by country and by currency billed.',
-  },
-  {
-    id: 'ads',
-    label: 'Ad Spend',
-    icon: Megaphone,
-    blurb: 'Spend across every platform, measured against store revenue.',
   },
   {
     id: 'traffic',
