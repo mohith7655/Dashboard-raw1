@@ -15,6 +15,7 @@ import { ShippingSection } from './components/sections/ShippingSection'
 import { InsightsSection } from './components/sections/InsightsSection'
 import { SearchFeedSection } from './components/sections/SearchFeedSection'
 import { MarkifactSection } from './components/sections/MarkifactSection'
+import { RevenueBreakdownCard } from './components/sections/RevenueBreakdownCard'
 import { RevenueAndRefunds } from './components/charts/RevenueAndRefunds'
 import { OrdersByStatus } from './components/charts/OrdersByStatus'
 import { RevenueByTrafficSource } from './components/charts/RevenueByTrafficSource'
@@ -465,6 +466,14 @@ export default function App() {
               refunds={woo.data?.refundSeries ?? []}
               loading={woo.isLoading}
               unavailable={woo.error ? 'Revenue data unavailable' : undefined}
+            />
+
+            {/* Directly under the plot it tabulates: the chart shows the shape
+                of the period, this shows which day made it that shape. */}
+            <RevenueBreakdownCard
+              rows={woo.data?.dailyBreakdown ?? []}
+              loading={woo.isLoading}
+              unavailable={woo.error ? 'Revenue breakdown unavailable' : undefined}
             />
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

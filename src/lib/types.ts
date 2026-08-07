@@ -87,6 +87,40 @@ export interface StatusCount {
   count: number
 }
 
+/**
+ * One period of the revenue breakdown — a day as it comes off the orders, or
+ * the week or month those days were folded into.
+ *
+ * The statement on the CEO Dashboard says what a whole period earned. This says
+ * the same thing a row at a time, which is the only way to see which day the
+ * discounting happened on, or that the refunds all landed in one week.
+ *
+ * Every figure is store currency and covers paid orders only, so a column
+ * summed down its length reconciles to the statement's line of the same name.
+ */
+export interface RevenueBreakdownRow {
+  /** `yyyy-MM-dd`. The bucket's first day when the rows are grouped. */
+  date: string
+  orders: number
+  /** Product sales before any coupon comes off. */
+  grossSales: number
+  discounts: number
+  shippingCharged: number
+  taxCollected: number
+  /**
+   * Issued on this date, not on the date the order was placed. A refund can
+   * land in a period the order it belongs to was never in, which is why the
+   * column can exceed the gross sales of the row it sits on.
+   */
+  refunds: number
+  /** Gross less coupons, plus shipping and tax: what was billed. */
+  totalSales: number
+}
+
+/** How the breakdown's rows are grouped. */
+export const BREAKDOWN_GRAINS = ['day', 'week', 'month'] as const
+export type BreakdownGrain = (typeof BREAKDOWN_GRAINS)[number]
+
 export interface SourceRevenue {
   source: string
   revenue: number
@@ -147,6 +181,8 @@ export interface WooMetrics {
   revenueSeries: RevenuePoint[]
   /** What went back each day, on each refund's own date. */
   refundSeries: RefundPoint[]
+  /** The statement a day at a time; the table groups these into weeks or months. */
+  dailyBreakdown: RevenueBreakdownRow[]
   ordersByStatus: StatusCount[]
   revenueBySource: SourceRevenue[]
   revenueByCountry: MarketRevenue[]

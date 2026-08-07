@@ -5,6 +5,7 @@ import type {
   OrderStatus,
   OrdersPage,
   ProfitAndLoss,
+  RevenueBreakdownRow,
   RevenuePoint,
   ShippingChargedPayload,
   ShippingChargedRow,
@@ -627,8 +628,36 @@ interface MarketTally {
   shippingCost: number
 }
 
+/**
+ * What one day earned, accumulated order by order.
+ *
+ * The revenue-side lines — coupons, shipping, tax — are only reported in
+ * aggregate by `/orders/totals`, so a per-day copy of them cannot come from
+ * there without a call per day. They are summed off the order rows instead,
+ * which the aggregate is already walking for everything else. That makes the
+ * breakdown free where asking Metorik for it a day at a time would cost a
+ * request per row on screen.
+ */
+interface DayTally {
+  orders: number
+  grossSales: number
+  discounts: number
+  shippingCharged: number
+  taxCollected: number
+  total: number
+}
+
+const emptyDay = (): DayTally => ({
+  orders: 0,
+  grossSales: 0,
+  discounts: 0,
+  shippingCharged: 0,
+  taxCollected: 0,
+  total: 0,
+})
+
 interface Aggregate extends WooTotals {
-  byDay: Map<string, number>
+  byDay: Map<string, DayTally>
   byStatus: Map<OrderStatus, number>
   bySource: Map<string, number>
   byCountry: Map<string, MarketTally>
@@ -670,6 +699,7 @@ async function loadMetrics(
       date,
       refunds: round2(revenueSide.refundsByDay.get(date) ?? 0),
     })),
+    dailyBreakdown: toBreakdown(range, current.byDay, revenueSide.refundsByDay),
     ordersByStatus: toStatusCounts(current.byStatus),
     revenueBySource: toSources(current.bySource),
     revenueByCountry: toMarkets(current.byCountry),
@@ -1420,7 +1450,19 @@ async function aggregate(
       const day = order.date.slice(0, 10)
       agg.totalOrders++
       agg.totalRevenue += order.total
-      agg.byDay.set(day, (agg.byDay.get(day) ?? 0) + order.total)
+
+      // The same order read twice: once as a figure on the running total, once
+      // as a line on its own day. `subtotal` is the goods before any coupon —
+      // Woo puts shipping and tax outside it, which is what makes it the gross
+      // sales figure rather than the order total.
+      const tallyDay = agg.byDay.get(day) ?? emptyDay()
+      tallyDay.orders++
+      tallyDay.total += order.total
+      tallyDay.grossSales += pick(row, ['subtotal', 'order_subtotal', 'line_items_subtotal'])
+      tallyDay.discounts += pick(row, ['discount_total', 'total_discount', 'cart_discount'])
+      tallyDay.shippingCharged += pick(row, ['shipping_total', 'order_shipping', 'shipping'])
+      tallyDay.taxCollected += pick(row, ['total_tax', 'order_tax', 'tax_total'])
+      agg.byDay.set(day, tallyDay)
 
       const shipping = pick(row, ['shipping_cogs', 'shipping_cost', 'shipping_total'])
       agg.productCost += pick(row, ['product_cogs', 'cost_of_goods', 'cogs', 'cost_total'])
@@ -1520,9 +1562,54 @@ async function countNewCustomers(apiKey: string, range: DateRange): Promise<numb
   return Math.max(0, num(data.count))
 }
 
-function toSeries(range: DateRange, byDay: Map<string, number>): RevenuePoint[] {
+function toSeries(range: DateRange, byDay: Map<string, DayTally>): RevenuePoint[] {
   // Every calendar day appears, so gaps render as zero rather than vanishing.
-  return eachDay(range).map((date) => ({ date, revenue: round2(byDay.get(date) ?? 0) }))
+  return eachDay(range).map((date) => ({
+    date,
+    revenue: round2(byDay.get(date)?.total ?? 0),
+  }))
+}
+
+/**
+ * The statement a day at a time.
+ *
+ * Every calendar day is emitted, including the ones that sold nothing: a table
+ * that simply skipped them would put two dates side by side and invite the
+ * reader to draw a line between them.
+ *
+ * Refunds come from their own map, keyed on the day the money went out rather
+ * than the day the order came in. That is why a row can show more refunded than
+ * it sold — the order being refunded may have been placed weeks earlier — and
+ * it is the honest way round: the cash left on this date.
+ */
+function toBreakdown(
+  range: DateRange,
+  byDay: Map<string, DayTally>,
+  refundsByDay: Map<string, number>,
+): RevenueBreakdownRow[] {
+  return eachDay(range).map((date) => {
+    const day = byDay.get(date) ?? emptyDay()
+    const grossSales = round2(day.grossSales)
+    const discounts = round2(day.discounts)
+    const shippingCharged = round2(day.shippingCharged)
+    const taxCollected = round2(day.taxCollected)
+
+    return {
+      date,
+      orders: day.orders,
+      grossSales,
+      discounts,
+      shippingCharged,
+      taxCollected,
+      refunds: round2(refundsByDay.get(date) ?? 0),
+      // Struck from the lines rather than taken from the order total, so the
+      // row's own columns add up to its total on screen. The two agree to the
+      // penny in the ordinary case; where a store books something outside these
+      // four, a total that disagreed with the row above it would be the more
+      // confusing of the two errors.
+      totalSales: round2(grossSales - discounts + shippingCharged + taxCollected),
+    }
+  })
 }
 
 function toStatusCounts(byStatus: Map<OrderStatus, number>): StatusCount[] {

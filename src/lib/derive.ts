@@ -80,6 +80,7 @@ export function buildWooMetrics(
     WooMetrics,
     | 'revenueSeries'
     | 'refundSeries'
+    | 'dailyBreakdown'
     | 'ordersByStatus'
     | 'revenueBySource'
     | 'revenueByCountry'
