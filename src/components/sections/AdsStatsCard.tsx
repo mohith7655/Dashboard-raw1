@@ -70,7 +70,28 @@ export function AdsStatsCard({
     <div className="card">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="kpi-label truncate">All ads</div>
+          {/* The two figures the card exists to report, up beside the name of
+              it. Everything below is these two broken apart; a reader after
+              nothing more than "what did we spend and what came back" should
+              not have to read a table to find out. */}
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            <span className="kpi-label">All ads</span>
+            {!loading && metrics && (
+              <>
+                <HeadlineFigure label="Spend" value={formatCurrency(metrics.spend.value)} />
+                <HeadlineFigure
+                  label="ROAS"
+                  // An em dash rather than 0x where no platform attributes:
+                  // a return that was never reported is not a return of none.
+                  value={
+                    metrics.reportsConversions === false
+                      ? '—'
+                      : formatRoas(metrics.roas.value)
+                  }
+                />
+              </>
+            )}
+          </div>
           {subtitle && <p className="mt-1 text-[12px] text-muted">{subtitle}</p>}
         </div>
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-icon-btn text-muted">
@@ -106,6 +127,16 @@ export function AdsStatsCard({
         </>
       )}
     </div>
+  )
+}
+
+/** A figure carried up onto the title row, its label kept quiet beside it. */
+function HeadlineFigure({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="flex items-baseline gap-1.5">
+      <span className="text-[11px] uppercase tracking-[0.06em] text-label">{label}</span>
+      <span className="text-[14px] font-semibold tabular-nums text-ink">{value}</span>
+    </span>
   )
 }
 

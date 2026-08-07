@@ -8,6 +8,7 @@ import { KpiCard } from '../KpiCard'
 import { CardRow } from '../CardRow'
 import { SectionLabel } from '../SectionLabel'
 import { ProfitWaterfall } from '../charts/ProfitWaterfall'
+import { BlendedRoasCard } from './BlendedRoasCard'
 import { OperatingCostsCard } from './OperatingCostsCard'
 
 interface ProfitLossSectionProps {
@@ -129,6 +130,15 @@ export function ProfitLossSection({
           />
         </CardRow>
       )}
+
+      {/* Directly under the profit lines the ad spend was struck from: the
+          waterfall says what advertising cost, and this says what came back. */}
+      <BlendedRoasCard
+        woo={woo}
+        reportedAds={reportedAds}
+        loading={loading}
+        wooFailed={failed}
+      />
 
       <OperatingCostsCard
         costs={costs}

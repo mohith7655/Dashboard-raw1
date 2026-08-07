@@ -526,6 +526,216 @@ export interface InsightsAnswer {
   answeredAt: string
 }
 
+/* ----------------------------- Search Console ----------------------------- */
+
+export const GSC_DIMENSIONS = ['query', 'page', 'country', 'device'] as const
+export type GscDimension = (typeof GSC_DIMENSIONS)[number]
+
+export const GSC_DIMENSION_LABELS: Record<GscDimension, string> = {
+  query: 'Search query',
+  page: 'Landing page',
+  country: 'Country',
+  device: 'Device',
+}
+
+/**
+ * The four figures Search Console reports for any cut of the data.
+ *
+ * `ctr` is a fraction, not a percentage, matching every other rate on the
+ * dashboard. `position` is an average rank where **lower is better** — the one
+ * measure here whose polarity inverts.
+ */
+export interface GscMeasures {
+  clicks: number
+  impressions: number
+  ctr: number
+  position: number
+}
+
+export interface GscRow extends GscMeasures {
+  /** The dimension value — the query text, the URL, the country code. */
+  key: string
+}
+
+export interface GscReport {
+  /** The property queried, in Search Console's own notation (`sc-domain:example.com`). */
+  siteUrl: string
+  dimension: GscDimension
+  totals: GscMeasures
+  /** The same measures over the comparison window, or null when comparison is off. */
+  previousTotals: GscMeasures | null
+  rows: GscRow[]
+  /** One point per day, for the trend. */
+  series: { date: string; clicks: number; impressions: number }[]
+  /**
+   * The most recent day that returned data.
+   *
+   * Search Console finalises two to three days late. Without this the last days
+   * of any range read as a collapse in traffic rather than as data that has not
+   * arrived, which is the single most common misreading of this report.
+   */
+  freshestDate: string | null
+}
+
+/* ----------------------------- Merchant Center ----------------------------- */
+
+/** One product-data problem, and how many items it affects. */
+export interface FeedIssue {
+  code: string
+  description: string
+  detail: string
+  documentation: string
+  /**
+   * What the issue costs: `disapproved` items do not serve at all, `demoted`
+   * ones serve worse, `unaffected` is advisory. Merchant Center's own wording.
+   */
+  servability: string
+  affected: number
+}
+
+/** Item counts for one destination in one country. */
+export interface FeedDestination {
+  destination: string
+  country: string
+  active: number
+  pending: number
+  disapproved: number
+  expiring: number
+}
+
+/** A problem with the account rather than with the products in it. */
+export interface FeedAccountIssue {
+  title: string
+  severity: string
+  detail: string
+  documentation: string
+}
+
+export interface MerchantFeed {
+  merchantId: string
+  /** False when the store's domain is not claimed, which stops items serving. */
+  websiteClaimed: boolean
+  totals: { active: number; pending: number; disapproved: number; expiring: number }
+  destinations: FeedDestination[]
+  issues: FeedIssue[]
+  accountIssues: FeedAccountIssue[]
+}
+
+/* -------------------------------- Markifact -------------------------------- */
+
+export interface MarkifactConnection {
+  id: string
+  /** Platform slug as Markifact names it — `gads`, `ga4`, `meta_ads`. */
+  type: string
+  displayName: string
+  /** Unix seconds. */
+  createdAt: number
+}
+
+export interface MarkifactCredits {
+  limit: number
+  used: number
+  remaining: number
+  tier: string
+  /** Unix seconds; when the allowance resets. */
+  periodEnd: number
+}
+
+/** One operation an agent or client ran, as Markifact logged it. */
+export interface MarkifactLog {
+  id: string
+  operationId: string
+  status: string
+  /** What ran it — an agent's name, a workflow, or the MCP client. */
+  source: string
+  startedAt: number
+  creditsUsed: number
+  cacheHit: boolean
+}
+
+/** The same operations rolled up, so a costly or failing one is visible at a glance. */
+export interface MarkifactOperationRollup {
+  operationId: string
+  runs: number
+  failures: number
+  credits: number
+}
+
+export interface MarkifactAccount {
+  credits: MarkifactCredits
+  connections: MarkifactConnection[]
+  logs: MarkifactLog[]
+  operations: MarkifactOperationRollup[]
+}
+
+/* --------------------------- Scheduled reports --------------------------- */
+
+export const REPORT_FREQUENCIES = ['daily', 'weekly', 'monthly'] as const
+export type ReportFrequency = (typeof REPORT_FREQUENCIES)[number]
+
+/**
+ * Which window an unattended run analyses.
+ *
+ * Named rather than dated: a schedule outlives any particular fortnight, and a
+ * stored pair of dates would have every Monday's report describe the same week.
+ * Only periods that are over or running are offered — `today` would be analysed
+ * at whatever hour the run fires.
+ */
+export const REPORT_PERIODS = [
+  'yesterday',
+  'last7',
+  'last30',
+  'thisMonth',
+  'lastMonth',
+] as const
+export type ReportPeriod = (typeof REPORT_PERIODS)[number]
+
+/**
+ * When the dashboard should write a report without being asked.
+ *
+ * Every field is on the store's calendar, not the reader's — the same dashboard
+ * is opened from three countries and a schedule that meant a different hour to
+ * each of them would be unreadable. See `timeZone.ts`.
+ */
+export interface InsightsSchedule {
+  enabled: boolean
+  frequency: ReportFrequency
+  /** `HH:mm`, 24-hour. The run fires on the first hour at or after it. */
+  time: string
+  /** 0 = Sunday … 6 = Saturday. Read only when `frequency` is `weekly`. */
+  weekday: number
+  /** 1–28. Read only when `frequency` is `monthly`; see `MAX_DAY_OF_MONTH`. */
+  dayOfMonth: number
+  period: ReportPeriod
+}
+
+/**
+ * Capped below 29 deliberately: a monthly schedule on the 31st would skip
+ * February entirely, and silently missing a month is worse than running on a
+ * day the reader did not pick.
+ */
+export const MAX_DAY_OF_MONTH = 28
+
+/** A report that was kept, with enough of its run attached to be trusted. */
+export interface StoredInsightsReport {
+  report: InsightsReport
+  /** The period it describes — a stored report is read long after its range left the screen. */
+  range: DateRange
+  /** Whether the schedule produced it or someone clicked Analyze. */
+  trigger: 'scheduled' | 'manual'
+}
+
+/** The settings and everything the last run left behind. */
+export interface InsightsAutomation {
+  schedule: InsightsSchedule
+  /** The most recent report from either trigger, or null before the first one. */
+  latest: StoredInsightsReport | null
+  /** ISO timestamp of the last scheduled attempt, successful or not. */
+  lastRunAt: string | null
+  /** Why the last scheduled attempt failed, or null when it did not. */
+  lastError: string | null
+}
+
 /** Every upstream error is normalised into this shape before it reaches the UI. */
 export interface SourceError {
   /** Human label for the failing connector, e.g. "Facebook Ads". */

@@ -13,6 +13,7 @@ import {
   Megaphone,
   Package,
   Percent,
+  Search,
   Send,
   Settings,
   ShoppingCart,
@@ -26,6 +27,7 @@ import {
   Upload,
   UserCircle,
   Users,
+  Workflow,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -91,6 +93,8 @@ export type DashboardView =
   | 'shipping'
   | 'markets'
   | 'ads'
+  | 'search'
+  | 'markifact'
   | 'insights'
 
 export interface DashboardTab {
@@ -139,6 +143,21 @@ export const DASHBOARD_TABS: DashboardTab[] = [
     // provider, not from the orders already loaded. Worth it here: a country's
     // revenue only means something beside the traffic that produced it.
     blurb: 'Where the visitors come from and where the money does, country by country.',
+  },
+  {
+    id: 'search',
+    label: 'Search & Feed',
+    icon: Search,
+    // Two upstream calls of its own, so it loads only once opened. Organic
+    // search and the Shopping feed are halves of one question — how often the
+    // store was shown, and whether it was eligible to be.
+    blurb: 'Organic search from Search Console, and whether the product feed is serving.',
+  },
+  {
+    id: 'markifact',
+    label: 'Markifact',
+    icon: Workflow,
+    blurb: 'The automation workspace — connections, credits, and what the agents have been running.',
   },
   {
     id: 'insights',

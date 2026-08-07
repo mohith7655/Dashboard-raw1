@@ -59,7 +59,7 @@ interface StatementInput {
 }
 
 /**
- * The statement in full, opening on total sales and breaking down from there.
+ * The statement in full, opening on revenue and breaking down from there.
  *
  * The Profit tab's waterfall runs in accumulation order — gross sales, then
  * each adjustment, arriving at total revenue — because a waterfall has to, its
@@ -151,8 +151,15 @@ function buildStatement({
   const grossProfit = round2(revenue - cogs)
 
   // The statement's base, so every share below answers "what part of what we
-  // billed is this".
-  total('Total sales', totalSales)
+  // kept is this".
+  //
+  // Revenue leads and total sales sits inside the group it heads, the two
+  // having swapped places. Money billed and money kept are different claims,
+  // and the one the statement opens on is the one the rest of the page is
+  // built from: gross profit is struck from revenue, and every heading below
+  // descends from that. Opening on the wider figure meant the lead line was
+  // the only one on the card nothing else was measured against.
+  total('Revenue', revenue)
   part('Gross sales', grossSalesOf(pnl), '')
   // More coupons is worse, so its polarity inverts against the group's.
   part('Coupons', pnl.discounts, '−', 'down-good')
@@ -163,14 +170,18 @@ function buildStatement({
   }
   part('Shipping charged', pnl.shippingCharged, '+')
   part('Tax collected', pnl.taxCollected, '+')
+  // What was billed — the resting point between the money added on top and the
+  // money handed back. Dropped when refunds are zero, on the same grounds as
+  // net sales above: with nothing to deduct it is the revenue line again under
+  // a second name.
+  if (totalSales !== revenue) {
+    subtotal('Total sales', totalSales)
+  }
   // A refund is money handed over and returned, not a cost of trading, so it
   // comes off the sale rather than down among the overheads. It is deducted
-  // here and nowhere else — every line above is before refunds. It sits below
-  // total sales rather than inside it, the way advertising sits below gross
-  // profit: a deduction on the way to the next heading, not a part of the one
-  // above.
+  // here and nowhere else — every line above it is before refunds, and it is
+  // the last movement on the way to the revenue this group heads.
   part('Refunds', refunds, '−', 'down-good', true)
-  total('Revenue', revenue)
 
   // The cost of the goods themselves: what was bought, what it cost to ship,
   // and what the processor took. Advertising and operations are costs of
@@ -180,12 +191,12 @@ function buildStatement({
   part('Product cost', pnl.productCost, '−', 'down-good')
   part('Shipping cost', pnl.shippingCost, '−', 'down-good')
   part('Transaction cost', pnl.transactionCost, '−', 'down-good')
-  // A heading in its own right, flush with total sales and cost of goods sold:
-  // the statement's three landmarks, each with what produced it underneath.
+  // A heading in its own right, flush with revenue and cost of goods sold: the
+  // statement's three landmarks, each with what produced it underneath.
   //
-  // Struck from the total sales line rather than from the payload's own gross
+  // Struck from the revenue line rather than from the payload's own gross
   // profit, which is taken before refunds and against a sales figure this
-  // statement no longer shows. Two figures a few rows apart that do not
+  // statement no longer leads on. Two figures a few rows apart that do not
   // subtract to the one between them is how a statement stops being believed.
   total('Gross profit', grossProfit)
   // Absent rather than zero when no platform reported, so the line never
@@ -232,18 +243,19 @@ const revenueOf = (pnl: ProfitAndLoss): number =>
   round2(totalSalesOf(pnl) - round2(pnl.refunds))
 
 /**
- * The figure everything else is a share of: total sales, what the store billed
- * over the period.
+ * The figure everything else is a share of: revenue, what the store kept over
+ * the period.
  *
- * The base is the billed figure rather than the kept one so that every share
- * answers the same question — "what part of what we sold is this" — and the
- * deductions read as fractions of the thing they come off. Gross sales still
- * stands above it, reading over 100% by the coupons, which is the point of
- * measuring against a named total rather than against the widest line.
+ * The kept figure rather than the billed one, so every share answers the
+ * question the rest of the card is built on — "what part of what we kept is
+ * this" — and gross profit, which is struck from this line, reads as a share
+ * of the line it is struck from. Gross sales stands above it reading over
+ * 100%, by the coupons and the refunds, which is the point of measuring
+ * against a named total rather than against the widest line.
  */
 const topLine = (pnl: ProfitAndLoss): { label: string; amount: number } => ({
-  label: 'Total sales',
-  amount: totalSalesOf(pnl),
+  label: 'Revenue',
+  amount: revenueOf(pnl),
 })
 
 export function ProfitSummaryCard({
@@ -319,7 +331,7 @@ export function ProfitSummaryCard({
     <div className="card">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="kpi-label truncate">{top?.label ?? 'Gross sales'}</div>
+          <div className="kpi-label truncate">{top?.label ?? 'Revenue'}</div>
 
           <div className="mt-2">
             {loading ? (

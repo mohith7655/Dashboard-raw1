@@ -26,6 +26,16 @@ interface AdSpendSectionProps {
   reportedAds: { name: string; metrics: AdsMetrics }[]
   loading: boolean
   wooFailed: boolean
+  /**
+   * Each platform's own figures, folded behind its heading.
+   *
+   * Passed in rather than built from `reportedAds`: a platform that failed is
+   * absent from that list by design, and these sections say so out loud
+   * instead of quietly disappearing. They live on this tab because it is the
+   * one about ad spend — on the overview they were three collapsed headings
+   * between the store's figures and its charts.
+   */
+  platformSections?: React.ReactNode
 }
 
 const PER_PAGE = 10
@@ -35,6 +45,7 @@ export function AdSpendSection({
   reportedAds,
   loading,
   wooFailed,
+  platformSections,
 }: AdSpendSectionProps) {
   const blended = blendedAds(woo, reportedAds)
   const shared = { loading, unavailable: wooFailed || !blended }
@@ -154,6 +165,10 @@ export function AdSpendSection({
           </div>
         )}
       </div>
+
+      {/* Between the platform table and the campaigns: the same platforms, one
+          step further in, and one step short of the campaigns inside them. */}
+      {platformSections && <div className="flex flex-col gap-4">{platformSections}</div>}
 
       <DataTable
         title="Campaigns"

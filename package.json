@@ -8,6 +8,7 @@
     "dev:vite": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "google:auth": "node scripts/ga4-auth.mjs",
     "ga4:auth": "node scripts/ga4-auth.mjs",
     "preview": "vite preview"
   },

@@ -12,8 +12,14 @@ import type {
   DateRange,
   Ga4Dimension,
   Ga4Report,
+  GscDimension,
+  GscReport,
+  MarkifactAccount,
+  MerchantFeed,
   InsightsAnswer,
+  InsightsAutomation,
   InsightsReport,
+  InsightsSchedule,
   OperatingCost,
   OrdersPage,
   OrdersQuery,
@@ -30,7 +36,11 @@ import * as openaiAds from './adapters/openaiAds'
 import * as costs from './adapters/costs'
 import * as shippingCosts from './adapters/shippingCosts'
 import * as ga4 from './adapters/ga4'
+import * as searchConsole from './adapters/searchConsole'
+import * as merchantCenter from './adapters/merchantCenter'
+import * as markifact from './adapters/markifact'
 import * as insights from './adapters/insights'
+import * as insightsSchedule from './adapters/insightsSchedule'
 
 /**
  * Each section subscribes to its own query, so one failing connector never
@@ -66,9 +76,17 @@ export const queryKeys = {
   // row has nothing to be compared against.
   ga4: (range: DateRange, dimension: Ga4Dimension) =>
     ['ga4', range.start, range.end, dimension] as const,
-  // Not range-scoped: the stored lists are the same whatever period is on screen.
+  // Search Console does carry deltas — the totals are compared window to
+  // window — so unlike GA4 its key has to hold the comparison too.
+  searchConsole: (range: DateRange, dimension: GscDimension, against: DateRange | null) =>
+    ['searchConsole', range.start, range.end, dimension, vs(against)] as const,
+  // Not range-scoped: the stored lists, the feed's current state and the
+  // Markifact workspace are the same whatever period is on screen.
   costs: () => ['costs'] as const,
   shippingCosts: () => ['shippingCosts'] as const,
+  insightsAutomation: () => ['insightsAutomation'] as const,
+  merchantFeed: () => ['merchantFeed'] as const,
+  markifact: () => ['markifact'] as const,
 }
 
 /** Adapters never throw; rethrow their error so the query layer can retry it. */
@@ -203,6 +221,53 @@ export function useGa4Report(
   )
 }
 
+/**
+ * Organic search for the period.
+ *
+ * `enabled` gates it on the tab rather than the range: Search Console is four
+ * upstream calls per view, and a tab nobody has opened should not be paying
+ * for them on every date change.
+ */
+export function useSearchConsole(
+  range: DateRange,
+  dimension: GscDimension,
+  against: DateRange | null,
+  enabled: boolean,
+): SourceQuery<GscReport> {
+  return toSourceQuery(
+    useQuery({
+      queryKey: queryKeys.searchConsole(range, dimension, against),
+      queryFn: () => unwrap(searchConsole.fetchReport(range, dimension, against)),
+      enabled,
+      // Switching breakdown keeps the previous table on screen rather than
+      // collapsing the card to a skeleton on every click.
+      placeholderData: (prev) => prev,
+    }),
+  )
+}
+
+/** The feed as it stands. No range — a feed has a state, not a history. */
+export function useMerchantFeed(enabled: boolean): SourceQuery<MerchantFeed> {
+  return toSourceQuery(
+    useQuery({
+      queryKey: queryKeys.merchantFeed(),
+      queryFn: () => unwrap(merchantCenter.fetchFeed()),
+      enabled,
+    }),
+  )
+}
+
+/** The Markifact workspace: credits, connections and recent operations. */
+export function useMarkifact(enabled: boolean): SourceQuery<MarkifactAccount> {
+  return toSourceQuery(
+    useQuery({
+      queryKey: queryKeys.markifact(),
+      queryFn: () => unwrap(markifact.fetchAccount()),
+      enabled,
+    }),
+  )
+}
+
 export function useOperatingCosts(): SourceQuery<OperatingCost[]> {
   return toSourceQuery(
     useQuery({
@@ -214,7 +279,8 @@ export function useOperatingCosts(): SourceQuery<OperatingCost[]> {
 
 export interface Insights {
   report: InsightsReport | undefined
-  analyse: (snapshot: Record<string, unknown>) => void
+  /** The range is carried so the report can be stored knowing what it describes. */
+  analyse: (snapshot: Record<string, unknown>, range: DateRange) => void
   running: boolean
   error: SourceError | null
 }
@@ -224,15 +290,64 @@ export interface Insights {
  * it fires when the operator asks for it and never on render or refocus.
  */
 export function useInsights(): Insights {
+  const client = useQueryClient()
   const mutation = useMutation({
-    mutationFn: (snapshot: Record<string, unknown>) => unwrap(insights.analyse(snapshot)),
+    mutationFn: ({ snapshot }: { snapshot: Record<string, unknown>; range: DateRange }) =>
+      unwrap(insights.analyse(snapshot)),
+    onSuccess: async (report, { range }) => {
+      // Kept alongside the scheduled ones so a reload does not throw away a
+      // report that has just been paid for. A store that refuses is swallowed
+      // deliberately: the report is on screen and readable either way, and
+      // failing the run over its filing would be the worse outcome.
+      const automation = await insightsSchedule
+        .saveLatestReport({ report, range, trigger: 'manual' })
+        .catch(() => null)
+      if (automation) client.setQueryData(queryKeys.insightsAutomation(), automation)
+    },
   })
 
   return {
     report: mutation.data,
-    analyse: (snapshot) => mutation.mutate(snapshot),
+    analyse: (snapshot, range) => mutation.mutate({ snapshot, range }),
     running: mutation.isPending,
     error: mutation.error instanceof SourceFailure ? mutation.error.sourceError : null,
+  }
+}
+
+/**
+ * The report schedule and whatever the last run left behind.
+ *
+ * Polled rather than read once: a report written overnight should appear on a
+ * dashboard that was left open, and the read is a single small blob rather
+ * than an upstream call.
+ */
+export function useInsightsAutomation(): SourceQuery<InsightsAutomation> {
+  return toSourceQuery(
+    useQuery({
+      queryKey: queryKeys.insightsAutomation(),
+      queryFn: () => unwrap(insightsSchedule.fetchAutomation()),
+      refetchInterval: 10 * 60_000,
+    }),
+  )
+}
+
+export interface SaveSchedule {
+  save: (schedule: InsightsSchedule) => void
+  saving: boolean
+  error: string | null
+}
+
+export function useSaveInsightsSchedule(): SaveSchedule {
+  const client = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: insightsSchedule.saveSchedule,
+    onSuccess: (saved) => client.setQueryData(queryKeys.insightsAutomation(), saved),
+  })
+
+  return {
+    save: (next) => mutation.mutate(next),
+    saving: mutation.isPending,
+    error: mutation.error ? mutation.error.message : null,
   }
 }
 

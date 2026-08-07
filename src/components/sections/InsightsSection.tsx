@@ -1,16 +1,28 @@
 import { useState } from 'react'
-import { AlertTriangle, CheckCircle2, Loader2, SendHorizonal, Sparkles, XCircle } from 'lucide-react'
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
+  SendHorizonal,
+  Settings2,
+  Sparkles,
+  XCircle,
+} from 'lucide-react'
 import type {
   InsightFinding,
   InsightLevel,
   InsightSeverity,
+  InsightsAutomation,
   InsightsReport,
+  InsightsSchedule,
   SourceError,
 } from '../../lib/types'
 import { useAskInsights } from '../../lib/queries'
+import { formatRangeLabel } from '../../lib/dateRange'
 import { Pill, PILL_COLORS } from '../Pill'
 import { SectionLabel } from '../SectionLabel'
 import { Skeleton } from '../Skeleton'
+import { InsightsScheduleCard } from './InsightsScheduleCard'
 
 interface InsightsSectionProps {
   report: InsightsReport | undefined
@@ -26,6 +38,12 @@ interface InsightsSectionProps {
    * able to describe different periods.
    */
   getSnapshot: () => Record<string, unknown>
+  /** The schedule, and the last report anything wrote — shown when this session has none. */
+  automation: InsightsAutomation | undefined
+  automationLoading: boolean
+  automationError: string | null
+  savingSchedule: boolean
+  onSaveSchedule: (schedule: InsightsSchedule) => void
 }
 
 const SEVERITY: Record<
@@ -58,37 +76,85 @@ export function InsightsSection({
   ready,
   rangeLabel,
   getSnapshot,
+  automation,
+  automationLoading,
+  automationError,
+  savingSchedule,
+  onSaveSchedule,
 }: InsightsSectionProps) {
+  const [showSettings, setShowSettings] = useState(false)
+
+  // This session's report wins, and the last stored one stands in until there
+  // is one. Without that, a report written overnight — or one paid for before
+  // a reload — would be invisible, and the reader would buy it twice.
+  const stored = automation?.latest
+  const shown = report ?? stored?.report
+  const shownRange = report ? rangeLabel : stored ? formatRangeLabel(stored.range) : rangeLabel
+  const scheduled = !report && stored?.trigger === 'scheduled'
+
   return (
     <section className="flex flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <SectionLabel>Insights</SectionLabel>
           <p className="mt-1 text-[12px] text-muted">
-            {report
-              ? `Analysed ${rangeLabel} with ${report.model} · ${new Date(
-                  report.generatedAt,
-                ).toLocaleTimeString()}`
+            {shown
+              ? `${scheduled ? 'Written on schedule for' : 'Analysed'} ${shownRange} with ${
+                  shown.model
+                } · ${new Date(shown.generatedAt).toLocaleString()}`
               : `Reads the figures for ${rangeLabel} and writes up what changed and what to do.`}
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={onAnalyse}
-          disabled={running || !ready}
-          className="flex h-9 items-center gap-2 rounded-lg border border-btn-border bg-btn px-3 text-[13px] text-ink transition-colors hover:border-[#3a3a40] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {running ? (
-            <Loader2 size={14} className="animate-spin text-muted" />
-          ) : (
-            <Sparkles size={14} className="text-muted" />
-          )}
-          {running ? 'Analyzing…' : report ? 'Re-analyze' : 'Analyze'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowSettings((open) => !open)}
+            aria-expanded={showSettings}
+            className={`flex h-9 items-center gap-2 rounded-lg border border-btn-border bg-btn px-3 text-[13px] transition-colors hover:border-[#3a3a40] ${
+              showSettings ? 'text-ink' : 'text-muted'
+            }`}
+          >
+            <Settings2 size={14} />
+            Schedule
+          </button>
+
+          <button
+            type="button"
+            onClick={onAnalyse}
+            disabled={running || !ready}
+            className="flex h-9 items-center gap-2 rounded-lg border border-btn-border bg-btn px-3 text-[13px] text-ink transition-colors hover:border-[#3a3a40] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {running ? (
+              <Loader2 size={14} className="animate-spin text-muted" />
+            ) : (
+              <Sparkles size={14} className="text-muted" />
+            )}
+            {running ? 'Analyzing…' : shown ? 'Re-analyze' : 'Analyze'}
+          </button>
+        </div>
       </div>
 
-      {!ready && !report && (
+      {showSettings && (
+        <InsightsScheduleCard
+          automation={automation}
+          loading={automationLoading}
+          error={automationError}
+          saving={savingSchedule}
+          onSave={onSaveSchedule}
+        />
+      )}
+
+      {/* The way an operator finds out an unattended run failed is by opening
+          a dashboard with no new report on it, so the reason has to be here
+          rather than only in the function log. */}
+      {automation?.lastError && (
+        <p className="text-[12px] leading-relaxed text-neg">
+          The last scheduled run failed: {automation.lastError}
+        </p>
+      )}
+
+      {!ready && !shown && (
         <p className="text-[12px] text-muted">Waiting for the connectors to load…</p>
       )}
 
@@ -102,37 +168,48 @@ export function InsightsSection({
         </div>
       )}
 
-      {running && !report && <LoadingBody />}
+      {running && !shown && <LoadingBody />}
 
-      {report && (
+      {shown && (
         <div className="flex flex-col gap-4">
+          {/* A stored report describes the period it was written for, which is
+              rarely the one the picker is showing. Saying so outright is the
+              only thing that stops it being read as this period's. */}
+          {!report && stored && (
+            <p className="text-[12px] text-muted">
+              Kept from the last run — it describes{' '}
+              <span className="text-ink">{formatRangeLabel(stored.range)}</span>, not
+              the period selected above. Click Analyze for {rangeLabel}.
+            </p>
+          )}
+
           <div className="card">
             <h3 className="text-[15px] font-semibold leading-snug text-ink">
-              {report.headline}
+              {shown.headline}
             </h3>
-            {report.summary && (
+            {shown.summary && (
               <p className="mt-2 max-w-prose text-[13px] leading-relaxed text-muted">
-                {report.summary}
+                {shown.summary}
               </p>
             )}
           </div>
 
-          {report.findings.length > 0 && (
+          {shown.findings.length > 0 && (
             <div>
               <h3 className="mb-3 text-[15px] font-semibold text-ink">What the data shows</h3>
               <div className="flex flex-col gap-3">
-                {report.findings.map((finding, i) => (
+                {shown.findings.map((finding, i) => (
                   <FindingCard key={i} finding={finding} />
                 ))}
               </div>
             </div>
           )}
 
-          {report.actions.length > 0 && (
+          {shown.actions.length > 0 && (
             <div>
               <h3 className="mb-3 text-[15px] font-semibold text-ink">What to do next</h3>
               <ol className="flex flex-col gap-3">
-                {report.actions.map((action, i) => (
+                {shown.actions.map((action, i) => (
                   <li key={i} className="card">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <h4 className="flex min-w-0 items-baseline gap-2 text-[14px] font-medium text-ink">
@@ -159,7 +236,7 @@ export function InsightsSection({
           )}
 
           <p className="text-[12px] leading-relaxed text-muted">
-            Written by {report.model} from the aggregates on the other tabs — totals
+            Written by {shown.model} from the aggregates on the other tabs — totals
             and breakdowns only, no order or customer records. Check the figures it
             quotes before acting on them.
           </p>

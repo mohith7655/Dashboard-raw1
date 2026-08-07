@@ -13,6 +13,8 @@ import { MarketsTrafficSection } from './components/sections/MarketsTrafficSecti
 import { ProfitLossSection } from './components/sections/ProfitLossSection'
 import { ShippingSection } from './components/sections/ShippingSection'
 import { InsightsSection } from './components/sections/InsightsSection'
+import { SearchFeedSection } from './components/sections/SearchFeedSection'
+import { MarkifactSection } from './components/sections/MarkifactSection'
 import { RevenueAndRefunds } from './components/charts/RevenueAndRefunds'
 import { OrdersByStatus } from './components/charts/OrdersByStatus'
 import { RevenueByTrafficSource } from './components/charts/RevenueByTrafficSource'
@@ -32,6 +34,8 @@ import type { DashboardView } from './lib/navigation'
 import {
   useGoogleAdsMetrics,
   useInsights,
+  useInsightsAutomation,
+  useSaveInsightsSchedule,
   useMetaMetrics,
   useOpenAiAdsMetrics,
   useOperatingCosts,
@@ -41,6 +45,9 @@ import {
   useShippingCharged,
   useSaveShippingCosts,
   useGa4Report,
+  useMarkifact,
+  useMerchantFeed,
+  useSearchConsole,
   useTrafficMetrics,
   useWooMetrics,
 } from './lib/queries'
@@ -50,6 +57,7 @@ import type {
   Comparison,
   DateRange,
   Ga4Dimension,
+  GscDimension,
   OrderSortField,
   SortDirection,
   SourceError,
@@ -66,6 +74,7 @@ export default function App() {
   const [direction, setDirection] = useState<SortDirection>('desc')
   const [dismissed, setDismissed] = useState<string[]>([])
   const [ga4Dimension, setGa4Dimension] = useState<Ga4Dimension>('country')
+  const [gscDimension, setGscDimension] = useState<GscDimension>('query')
 
   // Resolved once here rather than inside each hook: the modes are relative to
   // the range, so every source has to be asking about the same window.
@@ -105,7 +114,15 @@ export default function App() {
   // picker is showing. Keyed identically when the picker is on Country, so it
   // is the same cached query there rather than a second call.
   const ga4Countries = useGa4Report(range, 'country')
+  // Both gated on their tab. Search Console is four upstream calls per view and
+  // Merchant Center one; neither belongs on the bill of a dashboard whose
+  // reader never opened the tab.
+  const searchConsole = useSearchConsole(range, gscDimension, against, view === 'search')
+  const merchantFeed = useMerchantFeed(view === 'search')
+  const markifact = useMarkifact(view === 'markifact')
   const insights = useInsights()
+  const automation = useInsightsAutomation()
+  const saveSchedule = useSaveInsightsSchedule()
   const failedOrders = failedOrderCount(woo.data)
 
   // Every connector has answered one way or the other. Analysing before this
@@ -133,7 +150,9 @@ export default function App() {
     })
 
   const runAnalysis = () => {
-    insights.analyse(snapshotOf())
+    // The range travels with the snapshot so the report can be filed knowing
+    // which period it describes — it outlives the picker that produced it.
+    insights.analyse(snapshotOf(), range)
   }
 
   const onRangeChange = (next: DateRange) => {
@@ -220,6 +239,26 @@ export default function App() {
         ? `${reportedAds[0].name} only — the other platforms did not report.`
         : ''
 
+  // Built once and mounted in two places — its own tab, and at the head of the
+  // overview. One element rather than two copies of the props: the two would
+  // drift, and a reader comparing the same section in two tabs would have no
+  // way to tell which of them was current.
+  const insightsSection = (
+    <InsightsSection
+      report={insights.report}
+      onAnalyse={runAnalysis}
+      running={insights.running}
+      error={insights.error}
+      ready={connectorsSettled}
+      rangeLabel={formatRangeLabel(range)}
+      getSnapshot={snapshotOf}
+      automation={automation.data}
+      automationLoading={automation.isLoading}
+      automationError={saveSchedule.error ?? automation.error?.message ?? null}
+      savingSchedule={saveSchedule.saving}
+      onSaveSchedule={saveSchedule.save}
+    />
+  )
 
   return (
     <div className="min-h-screen bg-bg">
@@ -280,17 +319,30 @@ export default function App() {
           />
         )}
 
-        {view === 'insights' && (
-          <InsightsSection
-            report={insights.report}
-            onAnalyse={runAnalysis}
-            running={insights.running}
-            error={insights.error}
-            ready={connectorsSettled}
-            rangeLabel={formatRangeLabel(range)}
-            getSnapshot={snapshotOf}
+        {view === 'search' && (
+          <SearchFeedSection
+            report={searchConsole.data}
+            dimension={gscDimension}
+            onDimensionChange={setGscDimension}
+            loading={searchConsole.isLoading}
+            fetching={searchConsole.isFetching}
+            error={searchConsole.error?.message ?? null}
+            feed={merchantFeed.data}
+            feedLoading={merchantFeed.isLoading}
+            feedError={merchantFeed.error?.message ?? null}
+            rangeEnd={range.end}
           />
         )}
+
+        {view === 'markifact' && (
+          <MarkifactSection
+            account={markifact.data}
+            loading={markifact.isLoading}
+            error={markifact.error?.message ?? null}
+          />
+        )}
+
+        {view === 'insights' && insightsSection}
 
         {view === 'markets' && (
           <MarketsTrafficSection
@@ -317,11 +369,45 @@ export default function App() {
             reportedAds={reportedAds}
             loading={woo.isLoading || adsLoading}
             wooFailed={!!woo.error}
+            platformSections={
+              <>
+                <AdsSection
+                  title="Facebook Meta Ads"
+                  glyph={<FacebookGlyph />}
+                  collapsible
+                  metrics={meta.data}
+                  loading={meta.isLoading}
+                  failed={!!meta.error}
+                />
+                <AdsSection
+                  title="Google Ads"
+                  glyph={<GoogleGlyph />}
+                  collapsible
+                  metrics={google.data}
+                  loading={google.isLoading}
+                  failed={!!google.error}
+                />
+                <AdsSection
+                  title="OpenAI Ads"
+                  glyph={<OpenAiGlyph />}
+                  collapsible
+                  metrics={openai.data}
+                  loading={openai.isLoading}
+                  failed={!!openai.error}
+                />
+              </>
+            }
           />
         )}
 
         {view === 'overview' && (
           <div className="flex flex-col gap-8">
+            {/* Ahead of the figures rather than after them: the report is the
+                one thing on the page that says what the figures mean, and a
+                reader who scrolled past every card to reach it would already
+                have formed the view it exists to correct. */}
+            {insightsSection}
+
             <WooCommerceSection
               metrics={woo.data}
               loading={woo.isLoading}
@@ -369,33 +455,6 @@ export default function App() {
               blended={woo.error ? null : blended}
               subtitle={combinedScope}
               loading={adsLoading}
-            />
-
-            <AdsSection
-              title="Facebook Meta Ads"
-              glyph={<FacebookGlyph />}
-              collapsible
-              metrics={meta.data}
-              loading={meta.isLoading}
-              failed={!!meta.error}
-            />
-
-            <AdsSection
-              title="Google Ads"
-              glyph={<GoogleGlyph />}
-              collapsible
-              metrics={google.data}
-              loading={google.isLoading}
-              failed={!!google.error}
-            />
-
-            <AdsSection
-              title="OpenAI Ads"
-              glyph={<OpenAiGlyph />}
-              collapsible
-              metrics={openai.data}
-              loading={openai.isLoading}
-              failed={!!openai.error}
             />
 
             {/* One plot, two scales: a refund spike is read against the day

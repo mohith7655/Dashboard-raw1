@@ -1,13 +1,14 @@
 /**
- * Mints a Google refresh token that carries BOTH `analytics.readonly` and
- * `adwords`, so one token serves the GA4 breakdowns and the Google Ads
- * connector.
+ * Mints one Google refresh token carrying every scope this dashboard needs, so
+ * a single token serves the GA4 breakdowns, the Google Ads connector, the
+ * Search Console report and the Merchant Center feed.
  *
- * The Ads flow only ever consents `adwords`, which is why a token that works
- * for Ads gets a 403 ACCESS_TOKEN_SCOPE_INSUFFICIENT from the GA4 Data API.
- * Re-consenting the same OAuth client for both scopes is the fix.
+ * Each Google flow only ever consents its own scope, which is why a token that
+ * works for Ads gets a 403 ACCESS_TOKEN_SCOPE_INSUFFICIENT from the GA4 Data
+ * API, and a token that works for both still gets one from Search Console.
+ * Re-consenting the same OAuth client for all four is the fix.
  *
- *   npm run ga4:auth
+ *   npm run google:auth
  *
  * Reads the client id and secret from `.env` (GA4_CLIENT_ID / GA4_CLIENT_SECRET,
  * falling back to the GOOGLE_ADS_* pair). Prints the refresh token; nothing is
@@ -21,10 +22,29 @@ import { dirname, join } from 'node:path'
 
 const PORT = 8976
 const REDIRECT = `http://localhost:${PORT}/oauth2callback`
-const SCOPES = [
+
+/**
+ * Ordered so the two the dashboard cannot work without come first — the check
+ * below refuses on those and only warns about the rest, because a store with no
+ * Merchant Center account should still be able to mint a usable token.
+ */
+const REQUIRED_SCOPES = [
   'https://www.googleapis.com/auth/analytics.readonly',
   'https://www.googleapis.com/auth/adwords',
 ]
+const OPTIONAL_SCOPES = [
+  // Search & Feed tab: organic search, then the Shopping feed behind it.
+  'https://www.googleapis.com/auth/webmasters.readonly',
+  'https://www.googleapis.com/auth/content',
+]
+const SCOPES = [...REQUIRED_SCOPES, ...OPTIONAL_SCOPES]
+
+const SCOPE_USES = {
+  'https://www.googleapis.com/auth/analytics.readonly': 'GA4 breakdowns',
+  'https://www.googleapis.com/auth/adwords': 'Google Ads',
+  'https://www.googleapis.com/auth/webmasters.readonly': 'Search Console',
+  'https://www.googleapis.com/auth/content': 'Merchant Center',
+}
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -142,13 +162,22 @@ if (!res.ok || !body.refresh_token) {
   process.exit(1)
 }
 
-const granted = String(body.scope ?? '')
-const missing = SCOPES.filter((s) => !granted.includes(s))
+const grantedList = String(body.scope ?? '')
+  .split(' ')
+  .filter(Boolean)
+const has = (scope) => grantedList.includes(scope)
 
 console.log('\nGranted scopes:')
-for (const scope of granted.split(' ').filter(Boolean)) console.log('  ' + scope)
+for (const scope of SCOPES) {
+  console.log(`  ${has(scope) ? '✓' : '✗'} ${scope}  — ${SCOPE_USES[scope]}`)
+}
+// Anything Google threw in beyond what was asked for; listed rather than
+// hidden, since `include_granted_scopes` can widen the grant.
+for (const scope of grantedList.filter((s) => !SCOPES.includes(s))) {
+  console.log(`  · ${scope}`)
+}
 
-if (missing.includes(SCOPES[0])) {
+if (!has(REQUIRED_SCOPES[0])) {
   console.error(
     '\nanalytics.readonly was NOT granted, so this token still cannot read GA4.\n' +
       'Make sure the Google Analytics Data API is enabled for this project and\n' +
@@ -161,6 +190,25 @@ console.log('\nRefresh token:\n')
 console.log(body.refresh_token)
 console.log('\nSet it as GA4_REFRESH_TOKEN in .env and in Netlify')
 console.log('(Project configuration → Environment variables), then redeploy.')
-if (!missing.includes(SCOPES[1])) {
+console.log('Every connector falls back to it, so one variable covers all four.')
+
+if (has(REQUIRED_SCOPES[1])) {
   console.log('It also carries `adwords`, so it can replace GOOGLE_ADS_REFRESH_TOKEN.')
+}
+
+// Named individually, because each missing scope disables a specific thing and
+// has its own reason for not being granted.
+const missingOptional = OPTIONAL_SCOPES.filter((s) => !has(s))
+if (missingOptional.length > 0) {
+  console.warn('\nNot granted:')
+  for (const scope of missingOptional) {
+    console.warn(`  ${SCOPE_USES[scope]} (${scope})`)
+  }
+  console.warn(
+    '\nThe Search & Feed tab needs these. The usual cause is the API not being\n' +
+      'enabled in the Google Cloud project — "Google Search Console API" and\n' +
+      '"Content API for Shopping" — or the permission not being ticked on the\n' +
+      'consent screen. Enable them, revoke the grant at\n' +
+      'https://myaccount.google.com/permissions, and run this again.',
+  )
 }
