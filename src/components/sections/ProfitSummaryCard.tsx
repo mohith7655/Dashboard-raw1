@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import { ArrowDown, ArrowUp, TrendingUp } from 'lucide-react'
+import { useId, useMemo, useState } from 'react'
+import { ArrowDown, ArrowUp, ChevronDown, TrendingUp } from 'lucide-react'
 import type {
   AdsMetrics,
   DateRange,
@@ -8,10 +8,16 @@ import type {
   ProfitAndLoss,
   WooMetrics,
 } from '../../lib/types'
+import { blendedAds, combinedAds } from '../../lib/pnl'
 import { costLines, totalOperatingCost } from '../../lib/operatingCosts'
 import { daysInRange } from '../../lib/dateRange'
 import { deltaPct, round2 } from '../../lib/derive'
-import { formatCurrency, formatDeltaPercent, formatPercent } from '../../lib/format'
+import {
+  formatCurrency,
+  formatDeltaPercent,
+  formatPercent,
+  formatRoas,
+} from '../../lib/format'
 import { Skeleton } from '../Skeleton'
 
 interface ProfitSummaryCardProps {
@@ -52,13 +58,34 @@ interface Line {
   polarity: Polarity
 }
 
-/** One column of the daily-average strip under the headline. */
+/** One column of the strip under the headline. */
 interface PerDayFigure {
+  /** Stable across renders, so the open panel survives a refetch. */
+  key: string
   label: string
   /** Pre-formatted, or an em dash where the figure did not report. */
   value: string
   change: number | null
+  /**
+   * The same figure over the comparison window, formatted. A percentage says a
+   * direction and a size but not a scale, and these are the figures read first.
+   */
+  previous?: string
   polarity: Polarity
+  /**
+   * True for the amounts that are per day. The return on advertising is a
+   * ratio, not a daily amount, so it carries no `/ day` in its label.
+   */
+  perDay?: boolean
+  /**
+   * What the figure is made of, shown when it is opened.
+   *
+   * A rate lists the total and the days it was divided by; a ratio lists the
+   * two figures it was struck from; a sum lists the platforms it was summed
+   * over. In every case the arithmetic on screen should be reproducible from
+   * the panel without leaving the card.
+   */
+  detail: { label: string; value: string }[]
 }
 
 /** Everything a statement is built from, for either window. */
@@ -360,12 +387,29 @@ export function ProfitSummaryCard({
     const days = daysInRange(range)
     const daysBefore = against ? daysInRange(against) : null
     const netProfit = lines.find((line) => line.label === 'Net profit')?.amount ?? null
+    const grossProfit = lines.find((line) => line.label === 'Gross profit')?.amount ?? null
 
     const rate = (amount: number) => amount / days
-    const change = (amount: number, before: number | null | undefined): number | null =>
+    const priorRate = (before: number | null | undefined): number | null =>
       before === null || before === undefined || daysBefore === null
         ? null
-        : deltaPct(rate(amount), before / daysBefore)
+        : before / daysBefore
+
+    const change = (amount: number, before: number | null | undefined): number | null => {
+      const prior = priorRate(before)
+      return prior === null ? null : deltaPct(rate(amount), prior)
+    }
+    /** The daily rate the change was struck against, for the column beside it. */
+    const was = (before: number | null | undefined): string | undefined => {
+      const prior = priorRate(before)
+      return prior === null ? undefined : formatCurrency(prior)
+    }
+    /** As above for a ratio or a total, neither of which is divided by the days. */
+    const wasFlat = (
+      before: number | null | undefined,
+      format: (n: number) => string,
+    ): string | undefined =>
+      before === null || before === undefined ? undefined : format(before)
 
     // Taken from the payload rather than from the statement's own `Total sales`
     // row, which is dropped whenever refunds are zero — on a period with none,
@@ -373,49 +417,209 @@ export function ProfitSummaryCard({
     const sales = woo ? totalSalesOf(woo.pnl) : null
     const salesBefore = woo?.pnlPrevious ? totalSalesOf(woo.pnlPrevious) : null
 
-    return [
+    /**
+     * What the advertising returned, straight after the spend it returned on.
+     *
+     * Read through the same two functions the All ads card calls rather than
+     * divided again here: these are the same claim on two cards, and a second
+     * derivation is how two cards that agree today stop agreeing later.
+     *
+     * Both are shown because they answer different questions. Blended is the
+     * store's own — total sales over everything spent, including platforms that
+     * attribute nothing. Reported is what the platforms claim for themselves,
+     * struck against the narrower base of those that answer for conversions at
+     * all. The gap between the two is itself the reading.
+     */
+    const combined = reportedAds.length > 0 ? combinedAds(reportedAds) : null
+    const blended = woo && reportedAds.length > 0 ? blendedAds(woo, reportedAds) : null
+    const attributed = !!combined && combined.reportsConversions !== false
+    const priorReportedRoas =
+      combined?.previousTotals && combined.previousTotals.spend > 0
+        ? combined.previousTotals.conversionValue / combined.previousTotals.spend
+        : null
+
+    const rows: PerDayFigure[] = [
       {
+        key: 'revenue',
         label: 'Revenue',
         value: formatCurrency(rate(top.amount)),
         change: change(top.amount, previousByLabel?.get('Revenue')),
+        previous: was(previousByLabel?.get('Revenue')),
         polarity: 'up-good',
+        perDay: true,
+        detail: [
+          { label: 'Revenue over the period', value: formatCurrency(top.amount) },
+          { label: 'Days in period', value: String(days) },
+        ],
       },
       {
         // What was billed, where Revenue is what was kept: the two differ by
         // the refunds, and a day's takings before anything went back is the
         // figure the store's own sales reports are written in.
+        key: 'sales',
         label: 'Sales',
         value: sales === null ? '—' : formatCurrency(rate(sales)),
         change: sales === null ? null : change(sales, salesBefore),
+        previous: sales === null ? undefined : was(salesBefore),
         polarity: 'up-good',
+        perDay: true,
+        detail:
+          sales === null
+            ? []
+            : [
+                { label: 'Total sales, billed', value: formatCurrency(sales) },
+                { label: 'Less refunds', value: formatCurrency(sales - top.amount) },
+                { label: 'Revenue, kept', value: formatCurrency(top.amount) },
+                { label: 'Days in period', value: String(days) },
+              ],
       },
       {
+        key: 'net-profit',
         label: 'Net profit',
         value: netProfit === null ? '—' : formatCurrency(rate(netProfit)),
         change: netProfit === null ? null : change(netProfit, previousByLabel?.get('Net profit')),
+        previous: netProfit === null ? undefined : was(previousByLabel?.get('Net profit')),
         polarity: 'up-good',
+        perDay: true,
+        detail:
+          netProfit === null
+            ? []
+            : [
+                ...(grossProfit === null
+                  ? []
+                  : [{ label: 'Gross profit', value: formatCurrency(grossProfit) }]),
+                {
+                  label: 'Less advertising',
+                  value: adSpend === null ? '—' : formatCurrency(adSpend),
+                },
+                { label: 'Net profit over the period', value: formatCurrency(netProfit) },
+                { label: 'Days in period', value: String(days) },
+              ],
       },
       {
         // Absent rather than zero when no platform reported: a store whose ads
         // connector failed did not advertise for nothing.
+        key: 'ad-spend',
         label: 'Ad spend',
         value: adSpend === null ? '—' : formatCurrency(rate(adSpend)),
         change: adSpend === null ? null : change(adSpend, prevAdSpend),
+        previous: adSpend === null ? undefined : was(prevAdSpend),
         polarity: 'down-good',
+        perDay: true,
+        detail:
+          adSpend === null
+            ? []
+            : [
+                ...reportedAds.map((p) => ({
+                  label: p.name,
+                  value: `${formatCurrency(p.metrics.spend.value / days)} / day`,
+                })),
+                { label: 'Ad spend over the period', value: formatCurrency(adSpend) },
+                { label: 'Days in period', value: String(days) },
+              ],
       },
     ]
-  }, [woo, top, lines, previousByLabel, adSpend, prevAdSpend, range, against])
+
+    if (blended) {
+      rows.push({
+        key: 'blended-roas',
+        label: 'Blended ROAS',
+        value: formatRoas(blended.blendedRoas),
+        change: blended.previous
+          ? deltaPct(blended.blendedRoas, blended.previous.blendedRoas)
+          : null,
+        previous: wasFlat(blended.previous?.blendedRoas ?? null, formatRoas),
+        polarity: 'up-good',
+        detail: [
+          {
+            label: 'Store sales',
+            value: formatCurrency(blended.blendedRoas * blended.spend),
+          },
+          { label: 'Ad spend, every platform', value: formatCurrency(blended.spend) },
+          { label: 'Cost per order', value: formatCurrency(blended.costPerOrder) },
+        ],
+      })
+    }
+
+    if (combined && attributed) {
+      rows.push({
+        key: 'reported-roas',
+        label: 'Reported ROAS',
+        value: formatRoas(combined.roas.value),
+        change: combined.roas.deltaPct,
+        previous: wasFlat(priorReportedRoas, formatRoas),
+        polarity: 'up-good',
+        detail: reportedAds.map((p) => ({
+          label: p.name,
+          value:
+            p.metrics.reportsConversions === false
+              ? 'reports no attribution'
+              : formatRoas(p.metrics.roas.value),
+        })),
+      })
+    }
+
+    if (adSpend !== null) {
+      rows.push({
+        key: 'ad-spend-total',
+        // The period total the rate above was struck from, and the denominator
+        // both returns beside it are divided by.
+        label: 'Ad spend total',
+        value: formatCurrency(adSpend),
+        change: prevAdSpend === null ? null : deltaPct(adSpend, prevAdSpend),
+        previous: wasFlat(prevAdSpend, formatCurrency),
+        polarity: 'down-good',
+        detail: reportedAds.map((p) => ({
+          label: p.name,
+          value: `${formatCurrency(p.metrics.spend.value)}${
+            adSpend > 0 ? ` · ${formatPercent(p.metrics.spend.value / adSpend)}` : ''
+          }`,
+        })),
+      })
+    }
+
+    return rows
+  }, [woo, top, lines, previousByLabel, adSpend, prevAdSpend, reportedAds, range, against])
   // Signed, so a deduction reads `−13.6%` beside its `−$448.18`. A share
   // printed bare made a line that comes off the total look like one that adds
   // to it, which is the one thing the figure beside it already says.
+  // The statement and the per-figure detail open independently: the breakdown
+  // of one figure is a different question from the whole statement, and folding
+  // them together would mean opening everything to read anything.
+  const [open, setOpen] = useState(true)
+  const [openFigure, setOpenFigure] = useState<string | null>(null)
+  const bodyId = useId()
+
   const share = (line: Line): number => (base === 0 ? 0 : line.signed / base)
   const anyChange = lines.some((line) => changeOf(line) !== null)
+  const openPanel = perDay.find((figure) => figure.key === openFigure)
+
 
   return (
     <div className="card">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="kpi-label truncate">{top?.label ?? 'Revenue'}</div>
+          {/* The whole title row opens the statement, as the coupon card's
+              does. The headline figure and the strip stay visible closed: they
+              are the answer most readings want, and the lines that produced
+              them are what unfolds. */}
+          <button
+            type="button"
+            onClick={() => setOpen((current) => !current)}
+            aria-expanded={open}
+            aria-controls={bodyId}
+            className="group flex w-full items-center justify-between gap-3 text-left"
+          >
+            <span className="kpi-label truncate transition-colors group-hover:text-ink">
+              {top?.label ?? 'Revenue'}
+            </span>
+            <ChevronDown
+              size={15}
+              className={`shrink-0 text-muted transition-all group-hover:text-ink ${
+                open ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
 
           <div className="mt-2">
             {loading ? (
@@ -437,37 +641,39 @@ export function ProfitSummaryCard({
           claim at a different scale — and above the statement, which breaks the
           period down rather than restating it. */}
       {!loading && !failed && perDay.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 border-t border-row-line pt-2.5">
-          {perDay.map((figure) => (
-            <div key={figure.label} className="min-w-0">
-              <div className="text-[10.5px] uppercase tracking-wide text-label">
-                {figure.label} / day
-              </div>
-              <div className="mt-0.5 flex items-baseline gap-1.5">
-                <span className="text-[13.5px] font-semibold tabular-nums text-ink">
-                  {figure.value}
-                </span>
-                {figure.change !== null && (
-                  <span
-                    className={`flex items-center gap-0.5 text-[11px] tabular-nums ${changeColor(
-                      figure.change,
-                      figure.polarity,
-                    )}`}
-                  >
-                    {figure.change < 0 ? (
-                      <ArrowDown size={10} strokeWidth={3} />
-                    ) : (
-                      <ArrowUp size={10} strokeWidth={3} />
-                    )}
-                    {formatDeltaPercent(figure.change)}
-                  </span>
-                )}
-              </div>
-            </div>
-          ))}
+        <div className="mt-3 border-t border-row-line pt-2.5">
+          <div className="flex flex-wrap items-start gap-x-2 gap-y-2">
+            {perDay.map((figure) => (
+              <StripFigure
+                key={figure.key}
+                figure={figure}
+                open={openFigure === figure.key}
+                onToggle={() =>
+                  setOpenFigure((current) =>
+                    current === figure.key ? null : figure.key,
+                  )
+                }
+              />
+            ))}
+          </div>
+
+          {openPanel && openPanel.detail.length > 0 && (
+            <dl className="mt-2 flex flex-col rounded-lg border border-btn-border bg-btn px-3 py-2">
+              {openPanel.detail.map((row) => (
+                <div
+                  key={row.label}
+                  className="flex items-baseline justify-between gap-4 border-b border-row-line py-1 text-[11px] last:border-0"
+                >
+                  <dt className="min-w-0 truncate text-muted">{row.label}</dt>
+                  <dd className="shrink-0 tabular-nums text-ink">{row.value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
         </div>
       )}
 
+      <div id={bodyId} hidden={!open}>
       {loading ? (
         <div className="mt-4 flex flex-col gap-2 border-t border-row-line pt-3">
           <Skeleton className="h-3.5 w-full" />
@@ -506,7 +712,76 @@ export function ProfitSummaryCard({
           </dl>
         </div>
       )}
+      </div>
     </div>
+  )
+}
+
+/**
+ * One figure of the strip, in a box that opens what it is made of.
+ *
+ * The baseline reads inline after the change — `+22.9% vs $552.44` is one
+ * sentence, where a figure on a second line doubles the height of every column.
+ */
+function StripFigure({
+  figure,
+  open,
+  onToggle,
+}: {
+  figure: PerDayFigure
+  open: boolean
+  onToggle: () => void
+}) {
+  const openable = figure.detail.length > 0
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={!openable}
+      aria-expanded={open}
+      className={`min-w-0 rounded-lg border px-2 py-1 text-left transition-colors ${
+        open
+          ? 'border-[#3a3a40] bg-btn'
+          : 'border-transparent hover:border-btn-border hover:bg-btn'
+      } disabled:cursor-default disabled:hover:border-transparent disabled:hover:bg-transparent`}
+    >
+      <div className="flex items-center gap-1 text-[10.5px] uppercase tracking-wide text-label">
+        {figure.perDay ? `${figure.label} / day` : figure.label}
+        {openable && (
+          <ChevronDown
+            size={10}
+            className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+          />
+        )}
+      </div>
+      <div className="mt-0.5 flex items-baseline gap-1.5">
+        <span className="text-[13.5px] font-semibold tabular-nums text-ink">
+          {figure.value}
+        </span>
+        {figure.change !== null && (
+          <span
+            className={`flex items-center gap-0.5 text-[11px] tabular-nums ${changeColor(
+              figure.change,
+              figure.polarity,
+            )}`}
+          >
+            {figure.change < 0 ? (
+              <ArrowDown size={10} strokeWidth={3} />
+            ) : (
+              <ArrowUp size={10} strokeWidth={3} />
+            )}
+            {formatDeltaPercent(figure.change)}
+          </span>
+        )}
+        {/* Inline after the change, not under it: `+22.9% vs $552.44` is one
+            sentence, where a figure on its own line is a second thing to look
+            at on every figure in the strip. */}
+        {figure.previous !== undefined && (
+          <span className="text-[11px] tabular-nums text-label">vs {figure.previous}</span>
+        )}
+      </div>
+    </button>
   )
 }
 

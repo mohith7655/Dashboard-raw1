@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   Loader2,
   SendHorizonal,
   Settings2,
@@ -111,33 +112,14 @@ export function InsightsSection({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowSettings((open) => !open)}
-            aria-expanded={showSettings}
-            className={`flex h-9 items-center gap-2 rounded-lg border border-btn-border bg-btn px-3 text-[13px] transition-colors hover:border-[#3a3a40] ${
-              showSettings ? 'text-ink' : 'text-muted'
-            }`}
-          >
-            <Settings2 size={14} />
-            Schedule
-          </button>
-
-          <button
-            type="button"
-            onClick={onAnalyse}
-            disabled={running || !ready}
-            className="flex h-9 items-center gap-2 rounded-lg border border-btn-border bg-btn px-3 text-[13px] text-ink transition-colors hover:border-[#3a3a40] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {running ? (
-              <Loader2 size={14} className="animate-spin text-muted" />
-            ) : (
-              <Sparkles size={14} className="text-muted" />
-            )}
-            {running ? 'Analyzing…' : shown ? 'Re-analyze' : 'Analyze'}
-          </button>
-        </div>
+        <InsightsMenu
+          running={running}
+          ready={ready}
+          hasReport={!!shown}
+          scheduleOpen={showSettings}
+          onAnalyse={onAnalyse}
+          onToggleSchedule={() => setShowSettings((open) => !open)}
+        />
       </div>
 
       {showSettings && (
@@ -248,6 +230,117 @@ export function InsightsSection({
         </div>
       )}
     </section>
+  )
+}
+
+/**
+ * Both controls behind one small button.
+ *
+ * Two full-height buttons for actions taken once a session was a lot of
+ * furniture above the figures. The menu keeps them one click away and gives
+ * the running state somewhere to show without the header changing width as the
+ * label goes from `Analyze` to `Analyzing…`.
+ *
+ * Closed by a transparent sheet behind it rather than a document listener: the
+ * sheet unmounts with the menu, so there is nothing left bound to the document
+ * when this section is not on screen.
+ */
+function InsightsMenu({
+  running,
+  ready,
+  hasReport,
+  scheduleOpen,
+  onAnalyse,
+  onToggleSchedule,
+}: {
+  running: boolean
+  ready: boolean
+  hasReport: boolean
+  scheduleOpen: boolean
+  onAnalyse: () => void
+  onToggleSchedule: () => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  const close = () => setOpen(false)
+  const pick = (run: () => void) => () => {
+    close()
+    run()
+  }
+
+  return (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="flex h-6 items-center gap-1 rounded-md border border-btn-border bg-btn pl-1.5 pr-1 text-[11px] text-muted transition-colors hover:border-[#3a3a40] hover:text-ink"
+      >
+        {running ? (
+          <Loader2 size={11} className="animate-spin" />
+        ) : (
+          <Sparkles size={11} />
+        )}
+        {running ? 'Analyzing…' : 'Analyze'}
+        <ChevronDown size={11} className={open ? 'rotate-180' : ''} />
+      </button>
+
+      {open && (
+        <>
+          <button
+            type="button"
+            aria-hidden
+            tabIndex={-1}
+            onClick={close}
+            className="fixed inset-0 z-10 cursor-default"
+          />
+          <div
+            role="menu"
+            className="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-lg border border-btn-border bg-card py-1 shadow-lg"
+          >
+            <MenuItem
+              icon={Sparkles}
+              // Disabled rather than hidden: the reason it cannot run — a
+              // connector still loading — is temporary, and an item that
+              // vanished would read as a feature that was not there.
+              disabled={running || !ready}
+              onClick={pick(onAnalyse)}
+            >
+              {running ? 'Analyzing…' : hasReport ? 'Re-analyze' : 'Analyze now'}
+            </MenuItem>
+            <MenuItem icon={Settings2} onClick={pick(onToggleSchedule)}>
+              {scheduleOpen ? 'Hide schedule' : 'Schedule…'}
+            </MenuItem>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function MenuItem({
+  icon: Icon,
+  disabled = false,
+  onClick,
+  children,
+}: {
+  icon: typeof Sparkles
+  disabled?: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      onClick={onClick}
+      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] text-muted transition-colors hover:bg-btn hover:text-ink disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
+    >
+      <Icon size={12} className="shrink-0" />
+      {children}
+    </button>
   )
 }
 

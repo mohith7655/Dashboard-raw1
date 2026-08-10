@@ -2,6 +2,10 @@ import type {
   DateRange,
   MarketRevenue,
   Order,
+  CustomerOrder,
+  CustomerOrderLine,
+  CustomerOrders,
+  CustomerSummary,
   OrderStatus,
   OrdersPage,
   ProfitAndLoss,
@@ -88,6 +92,11 @@ export default async function handler(request: Request): Promise<Response> {
     const resource = url.searchParams.get('resource')
     if (resource === 'orders') {
       return json(await loadOrdersPage(apiKey, range, url, timeZone))
+    }
+    // Not date-scoped: a customer's history is the whole of it, and the range
+    // is what the reader is trying to look beyond.
+    if (resource === 'customer-orders') {
+      return json(await loadCustomerOrders(apiKey, url, timeZone))
     }
     if (resource === 'customers') {
       return json(await loadCustomersPage(apiKey, range, url, timeZone))
@@ -567,7 +576,119 @@ async function loadOrdersPage(
     total: num(totalData.count) || parsed.total,
     page,
     perPage,
+    customers: await loadCustomerSummaries(apiKey, orders),
   }
+}
+
+/**
+ * Lifetime history for the buyers on one page of orders, in a single call.
+ *
+ * Metorik's `in` operator takes the whole list of emails at once, so ten rows
+ * cost one request rather than ten. The result is keyed by lowercased email
+ * because the same person checks out as `Sam@` and `sam@` and the store treats
+ * those as one customer.
+ *
+ * A failure here is swallowed: the history is an annotation on a table that is
+ * already complete without it, and losing the orders because the badge could
+ * not be drawn would be the worse trade.
+ */
+async function loadCustomerSummaries(
+  apiKey: string,
+  orders: Order[],
+): Promise<Record<string, CustomerSummary>> {
+  const emails = [
+    ...new Set(orders.map((o) => o.email.trim().toLowerCase()).filter(Boolean)),
+  ]
+  if (emails.length === 0) return {}
+
+  try {
+    const body = await metorik(apiKey, '/customers', {
+      ...withFilters([{ field: 'email', operator: 'in', value: emails }]),
+      per_page: String(Math.min(100, emails.length)),
+    })
+
+    const summaries: Record<string, CustomerSummary> = {}
+    for (const row of readPage(body).rows) {
+      const email = String(row.email ?? '').trim().toLowerCase()
+      if (!email) continue
+      summaries[email] = {
+        orderCount: Math.max(0, Math.round(num(row.order_count))),
+        itemCount: Math.max(0, Math.round(num(row.item_count))),
+        totalSpent: round2(num(row.total_spent)),
+        firstOrderDate: typeof row.first_order_date === 'string' ? row.first_order_date : '',
+      }
+    }
+    return summaries
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Every order one customer has placed, newest first.
+ *
+ * Scoped by `billing_address_email` rather than by customer id: the id on an
+ * order row is the store's, and a guest checkout carries none, while the email
+ * is what identifies the same buyer across years of orders. `/orders` rejects
+ * `email` outright — see the filter probe in the commit that added this.
+ *
+ * Deliberately not date-filtered. The point of opening it is the history, and
+ * a range that hid every order but the one already on screen would answer the
+ * question with the thing that prompted it.
+ */
+async function loadCustomerOrders(
+  apiKey: string,
+  url: URL,
+  timeZone: string,
+): Promise<CustomerOrders> {
+  const email = (url.searchParams.get('email') ?? '').trim().toLowerCase()
+  if (!email) throw new BadRequest('`email` is required')
+
+  const body = await metorik(apiKey, '/orders', {
+    ...withFilters([
+      { field: 'billing_address_email', operator: 'in', value: [email] },
+    ]),
+    order_by: 'order_created_at',
+    order_dir: 'desc',
+    // A long-standing customer's whole history, capped so one account with
+    // hundreds of orders cannot hold the request open.
+    per_page: '50',
+  })
+
+  const orders: CustomerOrder[] = readPage(body).rows.map((row) => {
+    const order = normaliseOrder(row, timeZone)
+    return {
+      id: order.id,
+      number: order.number,
+      date: order.date,
+      status: order.status,
+      total: order.total,
+      currency: order.currency,
+      items: Math.max(0, Math.round(num(row.total_items))),
+      lines: readOrderLines(row),
+    }
+  })
+
+  return { email, orders }
+}
+
+/**
+ * The goods on an order, largest line first and folded by name.
+ *
+ * A single product bought in three variants is three line items and reads as
+ * three products; the reader wants to know what was bought, not how the cart
+ * was itemised.
+ */
+function readOrderLines(row: Record<string, unknown>): CustomerOrderLine[] {
+  const byName = new Map<string, number>()
+  for (const item of asArray(row.line_items).filter(isRecord)) {
+    const name = String(item.name ?? '').split(' - ')[0].trim()
+    if (!name) continue
+    byName.set(name, (byName.get(name) ?? 0) + Math.max(0, Math.round(num(item.quantity))))
+  }
+  return [...byName.entries()]
+    .map(([name, quantity]) => ({ name, quantity }))
+    .sort((a, b) => b.quantity - a.quantity)
 }
 
 const clamp = (n: number, min: number, max: number): number =>

@@ -37,6 +37,7 @@ import {
   useGoogleAdsMetrics,
   useInsights,
   useInsightsAutomation,
+  useCustomerOrders,
   useSaveInsightsSchedule,
   useTargets,
   useSaveTargets,
@@ -79,6 +80,9 @@ export default function App() {
   const [dismissed, setDismissed] = useState<string[]>([])
   const [ga4Dimension, setGa4Dimension] = useState<Ga4Dimension>('country')
   const [gscDimension, setGscDimension] = useState<GscDimension>('query')
+  // Which buyer's history is open in the orders table. One at a time, so the
+  // page never has ten histories in flight.
+  const [openCustomer, setOpenCustomer] = useState<string | null>(null)
 
   // Resolved once here rather than inside each hook: the modes are relative to
   // the range, so every source has to be asking about the same window.
@@ -124,6 +128,7 @@ export default function App() {
   const searchConsole = useSearchConsole(range, gscDimension, against, view === 'search')
   const merchantFeed = useMerchantFeed(view === 'search')
   const markifact = useMarkifact(view === 'markifact')
+  const customerOrders = useCustomerOrders(range, openCustomer)
   const insights = useInsights()
   const automation = useInsightsAutomation()
   const saveSchedule = useSaveInsightsSchedule()
@@ -168,6 +173,7 @@ export default function App() {
     setRange(clampRangeToAvailable(next))
     setPage(1)
     setDismissed([])
+    setOpenCustomer(null)
   }
 
   const onSortChange = (field: OrderSortField) => {
@@ -421,37 +427,38 @@ export default function App() {
               range={range}
               against={against}
               summary={
+                <ProfitSummaryCard
+                  woo={woo.data}
+                  reportedAds={reportedAds}
+                  costs={costs.data}
+                  range={range}
+                  against={against}
+                  loading={woo.isLoading || adsLoading || costs.isLoading}
+                  failed={!!woo.error}
+                />
+              }
+              footer={
                 // The statement names coupons as one line — a single figure
                 // come off gross sales. Which codes that figure was, and
-                // whether they are being reached for more than before, reads
-                // directly beneath it.
-                <div className="flex flex-col gap-4">
-                  <ProfitSummaryCard
-                    woo={woo.data}
-                    reportedAds={reportedAds}
-                    costs={costs.data}
-                    range={range}
-                    against={against}
-                    loading={woo.isLoading || adsLoading || costs.isLoading}
-                    failed={!!woo.error}
-                  />
-                  <CouponUsageCard
-                    couponsUsed={coupons.data?.couponsUsed}
-                    discountTotal={
-                    // The statement directly above reads its coupon figure off
-                    // the order totals, which is the authority. Metorik's
-                    // per-coupon report can leave a code's discount at zero, and
-                    // a card that summed those would state a smaller total than
-                    // the line it sits beneath.
+                // whether they are being reached for more than before, closes
+                // the section rather than interrupting it: it is a footnote to
+                // both the statement and the order counts above it.
+                <CouponUsageCard
+                  couponsUsed={coupons.data?.couponsUsed}
+                  discountTotal={
+                    // The statement above reads its coupon figure off the order
+                    // totals, which is the authority. Metorik's per-coupon
+                    // report can leave a code's discount at zero, and a card
+                    // that summed those would state a smaller total than the
+                    // line it descends from.
                     woo.data ? { value: woo.data.pnl.discounts, deltaPct: null } : undefined
                   }
-                    coupons={coupons.data?.topCoupons ?? []}
-                    lapsedCodes={coupons.data?.lapsedCodes}
-                    against={against}
-                    loading={coupons.isLoading}
-                    failed={!!coupons.error}
-                  />
-                </div>
+                  coupons={coupons.data?.topCoupons ?? []}
+                  lapsedCodes={coupons.data?.lapsedCodes}
+                  against={against}
+                  loading={coupons.isLoading}
+                  failed={!!coupons.error}
+                />
               }
             />
 
@@ -501,11 +508,22 @@ export default function App() {
               sort={sort}
               direction={direction}
               onSortChange={onSortChange}
-              onPageChange={setPage}
+              // Closed on the way out: the row it belonged to is not on the
+              // next page, and an expansion under a different customer's name
+              // would attribute one buyer's history to another.
+              onPageChange={(next) => {
+                setPage(next)
+                setOpenCustomer(null)
+              }}
               loading={orders.isLoading}
               fetching={orders.isFetching}
               unavailable={orders.error ? 'Orders unavailable' : undefined}
               failedOrders={failedOrders}
+              openEmail={openCustomer}
+              onOpenEmail={setOpenCustomer}
+              history={customerOrders.data}
+              historyLoading={customerOrders.isLoading}
+              historyError={customerOrders.error?.message ?? null}
             />
 
             {/* Last on the tab because it is the one section that reads

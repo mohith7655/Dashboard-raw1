@@ -12,6 +12,14 @@ interface WooCommerceSectionProps {
   against: DateRange | null
   /** Leads the section, above the store figures — the statement in full. */
   summary?: React.ReactNode
+  /**
+   * Closes the section, below the store figures.
+   *
+   * Its own slot rather than a second child of `summary`, so the order the
+   * cards read in is stated here instead of depending on how the caller
+   * happened to nest them.
+   */
+  footer?: React.ReactNode
 }
 
 /**
@@ -30,11 +38,16 @@ export function WooCommerceSection({
   range,
   against,
   summary,
+  footer,
 }: WooCommerceSectionProps) {
   return (
     <section>
       <SectionLabel>CEO Dashboard</SectionLabel>
 
+      {/* Statement, then who bought, then what was given away to make them buy.
+          Orders and customers sits directly under the statement because it is
+          the same period counted a second way; the coupons that discounted it
+          are a footnote to both and read last. */}
       <div className="flex flex-col gap-4">
         {summary}
         <StoreStatsCard
@@ -44,6 +57,7 @@ export function WooCommerceSection({
           loading={loading}
           failed={failed}
         />
+        {footer}
       </div>
     </section>
   )

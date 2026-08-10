@@ -197,37 +197,37 @@ export function DashboardPage() {
             range={range}
             against={against}
             summary={
+              <ProfitSummaryCard
+                woo={woo.data}
+                reportedAds={reportedAds}
+                costs={costs.data}
+                range={range}
+                against={against}
+                loading={woo.isLoading || adsLoading || costs.isLoading}
+                failed={!!woo.error}
+              />
+            }
+            footer={
               // The statement names coupons as one line — a single figure come
               // off gross sales. Which codes that figure was, and whether they
-              // are being reached for more than before, reads directly beneath
-              // it rather than a page away.
-              <div className="flex flex-col gap-4">
-                <ProfitSummaryCard
-                  woo={woo.data}
-                  reportedAds={reportedAds}
-                  costs={costs.data}
-                  range={range}
-                  against={against}
-                  loading={woo.isLoading || adsLoading || costs.isLoading}
-                  failed={!!woo.error}
-                />
-                <CouponUsageCard
-                  couponsUsed={coupons.data?.couponsUsed}
-                  discountTotal={
-                    // The statement directly above reads its coupon figure off
-                    // the order totals, which is the authority. Metorik's
-                    // per-coupon report can leave a code's discount at zero, and
-                    // a card that summed those would state a smaller total than
-                    // the line it sits beneath.
-                    woo.data ? { value: woo.data.pnl.discounts, deltaPct: null } : undefined
-                  }
-                  coupons={coupons.data?.topCoupons ?? []}
-                  lapsedCodes={coupons.data?.lapsedCodes}
-                  against={against}
-                  loading={coupons.isLoading}
-                  failed={!!coupons.error}
-                />
-              </div>
+              // are being reached for more than before, closes the section: it
+              // is a footnote to both the statement and the order counts above.
+              <CouponUsageCard
+                couponsUsed={coupons.data?.couponsUsed}
+                discountTotal={
+                  // The statement above reads its coupon figure off the order
+                  // totals, which is the authority. Metorik's per-coupon report
+                  // can leave a code's discount at zero, and a card that summed
+                  // those would state a smaller total than the line it
+                  // descends from.
+                  woo.data ? { value: woo.data.pnl.discounts, deltaPct: null } : undefined
+                }
+                coupons={coupons.data?.topCoupons ?? []}
+                lapsedCodes={coupons.data?.lapsedCodes}
+                against={against}
+                loading={coupons.isLoading}
+                failed={!!coupons.error}
+              />
             }
           />
 

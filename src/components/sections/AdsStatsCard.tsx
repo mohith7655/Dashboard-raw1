@@ -1,5 +1,7 @@
-import { ArrowDown, ArrowUp, Megaphone } from 'lucide-react'
+import { useId, useState } from 'react'
+import { ArrowDown, ArrowUp, ChevronDown, Megaphone } from 'lucide-react'
 import type { AdsMetrics, DateRange, Polarity } from '../../lib/types'
+import type { BlendedAds } from '../../lib/pnl'
 import { nonAttributing } from '../../lib/pnl'
 import { daysInRange } from '../../lib/dateRange'
 import { deltaPct } from '../../lib/derive'
@@ -21,11 +23,7 @@ interface AdsStatsCardProps {
   /** The platforms behind that total, each splitting the row above it. */
   platforms: { name: string; metrics: AdsMetrics }[]
   /** The two figures that only mean anything once spend meets store revenue. */
-  blended: {
-    blendedRoas: number
-    shareOfRevenue: number
-    previous: { blendedRoas: number; shareOfRevenue: number } | null
-  } | null
+  blended: BlendedAds | null
   /** Named rather than implied when only one platform reported. */
   subtitle: string
   /** The selected period, for the spend measured per day of it. */
@@ -103,95 +101,229 @@ export function AdsStatsCard({
       : null
   const attributed = metrics?.reportsConversions !== false
 
+  // Closed to begin with, as the coupon card is. The summary line under the
+  // title is the answer most readings want; the figures and the table they
+  // break into are what unfolds.
+  //
+  // The per-figure detail is its own state, so opening one figure does not
+  // close the card out from under it.
+  const [open, setOpen] = useState(false)
+  const [openFigure, setOpenFigure] = useState<string | null>(null)
+  const bodyId = useId()
+
+  /**
+   * The headline figures, each with what it is made of.
+   *
+   * The detail is the platform split the figure was summed from — the answer to
+   * "who spent that" without reading the table underneath. A ratio has no
+   * platforms to split into, so it lists the two figures it was divided from
+   * instead, which is the only honest breakdown of a quotient.
+   */
+  const figures: FigureSpec[] = []
+  if (metrics) {
+    const spend = metrics.spend.value
+
+    figures.push({
+      key: 'spend',
+      label: 'Spend',
+      value: formatCurrency(spend),
+      change: metrics.spend.deltaPct,
+      previous: prevSpend === null ? undefined : formatCurrency(prevSpend),
+      polarity: 'down-good',
+      detail: platforms.map((p) => ({
+        label: p.name,
+        value: `${formatCurrency(p.metrics.spend.value)}${
+          spend > 0 ? ` · ${formatPercent(p.metrics.spend.value / spend)}` : ''
+        }`,
+      })),
+    })
+
+    figures.push({
+      key: 'spend-per-day',
+      label: 'Spend / day',
+      value: formatCurrency(spendPerDay),
+      change: prevSpendPerDay === null ? null : deltaPct(spendPerDay, prevSpendPerDay),
+      previous: prevSpendPerDay === null ? undefined : formatCurrency(prevSpendPerDay),
+      polarity: 'down-good',
+      detail: [
+        { label: `${days} days in period`, value: formatCurrency(spend) },
+        ...platforms.map((p) => ({
+          label: p.name,
+          value: `${formatCurrency(p.metrics.spend.value / days)} / day`,
+        })),
+      ],
+    })
+
+    figures.push({
+      key: 'roas',
+      label: 'ROAS',
+      // An em dash rather than 0x where no platform attributes: a return that
+      // was never reported is not a return of none.
+      value: attributed ? formatRoas(metrics.roas.value) : '—',
+      change: attributed ? metrics.roas.deltaPct : null,
+      previous: attributed && prevRoas !== null ? formatRoas(prevRoas) : undefined,
+      detail: [
+        ...platforms.map((p) => ({
+          label: p.name,
+          value:
+            p.metrics.reportsConversions === false
+              ? 'reports no attribution'
+              : formatRoas(p.metrics.roas.value),
+        })),
+        ...(unattributed.length > 0
+          ? [
+              {
+                label: 'Struck against',
+                value: `the platforms that attribute, not ${unattributed.join(' or ')}`,
+              },
+            ]
+          : []),
+      ],
+    })
+  }
+
+  if (blended) {
+    // Recovered from the ratio rather than passed alongside it: the two are the
+    // same division, and a sales figure carried separately could disagree with
+    // the return it is supposed to explain.
+    const storeSales = blended.blendedRoas * blended.spend
+
+    figures.push({
+      key: 'blended-roas',
+      label: 'Blended ROAS',
+      value: formatRoas(blended.blendedRoas),
+      change: blended.previous
+        ? deltaPct(blended.blendedRoas, blended.previous.blendedRoas)
+        : null,
+      previous: blended.previous ? formatRoas(blended.previous.blendedRoas) : undefined,
+      detail: [
+        { label: 'Store sales', value: formatCurrency(storeSales) },
+        { label: 'Ad spend, every platform', value: formatCurrency(blended.spend) },
+        { label: 'Cost per order', value: formatCurrency(blended.costPerOrder) },
+      ],
+    })
+
+    figures.push({
+      key: 'spend-share',
+      label: 'Spend % of sales',
+      value: formatPercent(blended.shareOfRevenue),
+      change: blended.previous
+        ? deltaPct(blended.shareOfRevenue, blended.previous.shareOfRevenue)
+        : null,
+      previous: blended.previous
+        ? formatPercent(blended.previous.shareOfRevenue)
+        : undefined,
+      polarity: 'down-good',
+      detail: [
+        { label: 'Ad spend', value: formatCurrency(blended.spend) },
+        { label: 'Store sales', value: formatCurrency(storeSales) },
+      ],
+    })
+  }
+
+  const shown = figures.find((f) => f.key === openFigure)
+
+  /**
+   * The card in one line, for when it is closed.
+   *
+   * What was spent and what came back — the two questions the card exists to
+   * answer. A reader who wants no more than that should not have to open
+   * anything, and a closed card showing only its own name says nothing at all.
+   */
+  const headline = (() => {
+    if (loading) return 'Loading…'
+    if (!metrics) return 'No ad platform reported for this period.'
+
+    const move =
+      metrics.spend.deltaPct === null
+        ? ''
+        : `, ${metrics.spend.deltaPct >= 0 ? 'up' : 'down'} ${formatDeltaPercent(
+            Math.abs(metrics.spend.deltaPct),
+          )}`
+    const back = blended
+      ? ` · ${formatRoas(blended.blendedRoas)} blended return`
+      : attributed
+        ? ` · ${formatRoas(metrics.roas.value)} reported return`
+        : ''
+    return `${formatCurrency(metrics.spend.value)} spent${move}${back}`
+  })()
+
   return (
     <div className="card">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          {/* The figures the card exists to report, up beside the name of it.
-              Everything below is these broken apart; a reader after nothing
-              more than "what did we spend and what came back" should not have
-              to read a table to find out.
+      {/* The whole title row opens the table, as the coupon card's does — the
+          chevron sits out on the right beside the icon rather than tucked
+          against the label, so the target is the row and not four words of it.
 
-              The daily rate sits with the total rather than under it: a spend
-              figure means one thing over a week and another over a quarter, and
-              the two read together say which. */}
-          <div className="flex flex-wrap items-start gap-x-5 gap-y-2">
-            <span className="kpi-label">All ads</span>
-            {!loading && metrics && (
-              <>
-                <HeadlineFigure
-                  label="Spend"
-                  value={formatCurrency(metrics.spend.value)}
-                  change={metrics.spend.deltaPct}
-                  previous={prevSpend === null ? undefined : formatCurrency(prevSpend)}
-                  polarity="down-good"
-                />
-                <HeadlineFigure
-                  label="Spend / day"
-                  value={formatCurrency(spendPerDay)}
-                  change={
-                    prevSpendPerDay === null ? null : deltaPct(spendPerDay, prevSpendPerDay)
-                  }
-                  previous={
-                    prevSpendPerDay === null ? undefined : formatCurrency(prevSpendPerDay)
-                  }
-                  polarity="down-good"
-                />
-                <HeadlineFigure
-                  label="ROAS"
-                  // An em dash rather than 0x where no platform attributes:
-                  // a return that was never reported is not a return of none.
-                  value={attributed ? formatRoas(metrics.roas.value) : '—'}
-                  change={attributed ? metrics.roas.deltaPct : null}
-                  previous={
-                    attributed && prevRoas !== null ? formatRoas(prevRoas) : undefined
-                  }
-                />
-                {/* Up here with the rest rather than at the foot of the table:
-                    these are the two figures that answer whether the spend was
-                    worth it, and they were the last thing on the card. */}
-                {blended && (
-                  <>
-                    <HeadlineFigure
-                      label="Blended ROAS"
-                      value={formatRoas(blended.blendedRoas)}
-                      change={
-                        blended.previous
-                          ? deltaPct(blended.blendedRoas, blended.previous.blendedRoas)
-                          : null
-                      }
-                      previous={
-                        blended.previous ? formatRoas(blended.previous.blendedRoas) : undefined
-                      }
-                    />
-                    <HeadlineFigure
-                      label="Spend % of sales"
-                      value={formatPercent(blended.shareOfRevenue)}
-                      change={
-                        blended.previous
-                          ? deltaPct(blended.shareOfRevenue, blended.previous.shareOfRevenue)
-                          : null
-                      }
-                      previous={
-                        blended.previous
-                          ? formatPercent(blended.previous.shareOfRevenue)
-                          : undefined
-                      }
-                      polarity="down-good"
-                    />
-                  </>
-                )}
-              </>
-            )}
-          </div>
-          {subtitle && <p className="mt-1 text-[12px] text-muted">{subtitle}</p>}
-        </div>
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-icon-btn text-muted">
-          <Megaphone size={15} strokeWidth={2} />
-        </span>
+          The figures below are their own controls. Nesting one button inside
+          another is invalid, and the two answer different questions anyway:
+          what makes up this figure, against the whole table of them. */}
+      <div className="flex items-start justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          aria-expanded={open}
+          aria-controls={bodyId}
+          className="group flex min-w-0 flex-1 items-start justify-between gap-3 text-left"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="kpi-label block truncate transition-colors group-hover:text-ink">
+              All ads
+            </span>
+            <span className="mt-1 block text-[12px] text-muted">{headline}</span>
+          </span>
+          <span className="flex shrink-0 items-center gap-1.5 text-muted transition-colors group-hover:text-ink">
+            <ChevronDown
+              size={15}
+              className={`transition-transform ${open ? 'rotate-180' : ''}`}
+            />
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-icon-btn">
+              <Megaphone size={15} strokeWidth={2} />
+            </span>
+          </span>
+        </button>
       </div>
 
-      {loading ? (
+      <div id={bodyId} hidden={!open}>
+        <div className="min-w-0">
+          {/* The figures the card exists to report, under the name of it.
+              Everything below is these broken apart; a reader after nothing
+              more than "what did we spend and what came back" should not have
+              to read a table to find out. */}
+          {!loading && figures.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-start gap-x-2 gap-y-2">
+              {figures.map((figure) => (
+                <HeadlineFigure
+                  key={figure.key}
+                  figure={figure}
+                  open={openFigure === figure.key}
+                  onToggle={() =>
+                    setOpenFigure((current) =>
+                      current === figure.key ? null : figure.key,
+                    )
+                  }
+                />
+              ))}
+            </div>
+          )}
+
+          {shown && shown.detail.length > 0 && (
+            <dl className="mt-2 flex flex-col rounded-lg border border-btn-border bg-btn px-3 py-2">
+              {shown.detail.map((row) => (
+                <div
+                  key={row.label}
+                  className="flex items-baseline justify-between gap-4 border-b border-row-line py-1 text-[11px] last:border-0"
+                >
+                  <dt className="min-w-0 truncate text-muted">{row.label}</dt>
+                  <dd className="shrink-0 tabular-nums text-ink">{row.value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+
+          {subtitle && <p className="mt-2 text-[12px] text-muted">{subtitle}</p>}
+        </div>
+
+        {loading ? (
         <div className="mt-3 flex flex-col gap-2 border-t border-row-line pt-3">
           <Skeleton className="h-3.5 w-full" />
           <Skeleton className="h-3.5 w-full" />
@@ -211,64 +343,89 @@ export function AdsStatsCard({
             <p className="mt-3 text-[12px] leading-relaxed text-muted">
               {unattributed.join(' and ')} report no attributed conversions, so
               they are counted in spend, impressions and clicks but left out of
-              ROAS. Blended ROAS below includes their spend, since it measures
+              ROAS. Blended ROAS above includes their spend, since it measures
               against the store&apos;s own revenue rather than a platform&apos;s
               claim.
             </p>
           )}
         </>
-      )}
+        )}
+      </div>
     </div>
   )
 }
 
-/**
- * A figure carried up onto the title row, its label kept quiet beside it.
- *
- * The movement and the figure it moved from travel with it. A percentage on its
- * own says a direction and a size but not a scale — `+40%` off a base nobody
- * can see is unreadable — so the previous window's figure is printed under it
- * rather than left to the table below, which no longer carries these at all.
- */
-function HeadlineFigure({
-  label,
-  value,
-  change = null,
-  previous,
-  polarity = 'up-good',
-}: {
+/** One headline figure and the breakdown behind it. */
+interface FigureSpec {
+  key: string
   label: string
   value: string
-  change?: number | null
+  change: number | null
   /** Pre-formatted figure for the comparison window; omitted when it is off. */
   previous?: string
   polarity?: Polarity
+  detail: { label: string; value: string }[]
+}
+
+/**
+ * A figure carried up beside the card's name, in a box that opens what it is
+ * made of.
+ *
+ * The baseline reads inline after the change rather than under it — `+11.5% vs
+ * $2,890.30` is one sentence, where a figure on a second line is a second
+ * thing to look at and doubles the height of every headline on the card.
+ */
+function HeadlineFigure({
+  figure,
+  open,
+  onToggle,
+}: {
+  figure: FigureSpec
+  open: boolean
+  onToggle: () => void
 }) {
+  const { label, value, change, previous, polarity = 'up-good', detail } = figure
+  const openable = detail.length > 0
+
   return (
-    <span className="flex flex-col">
-      <span className="flex items-baseline gap-1.5">
-        <span className="text-[11px] uppercase tracking-[0.06em] text-label">{label}</span>
-        <span className="text-[14px] font-semibold tabular-nums text-ink">{value}</span>
-        {change !== null && (
-          <span
-            className={`flex items-center gap-0.5 text-[11px] tabular-nums ${changeColor(
-              change,
-              polarity,
-            )}`}
-          >
-            {change < 0 ? (
-              <ArrowDown size={10} strokeWidth={3} />
-            ) : (
-              <ArrowUp size={10} strokeWidth={3} />
-            )}
-            {formatDeltaPercent(change)}
-          </span>
-        )}
-      </span>
-      {previous !== undefined && (
-        <span className="text-[10.5px] tabular-nums text-label">was {previous}</span>
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={!openable}
+      aria-expanded={open}
+      className={`flex items-baseline gap-1.5 rounded-lg border px-2 py-1 text-left transition-colors ${
+        open
+          ? 'border-[#3a3a40] bg-btn'
+          : 'border-transparent hover:border-btn-border hover:bg-btn'
+      } disabled:cursor-default disabled:hover:border-transparent disabled:hover:bg-transparent`}
+    >
+      <span className="text-[11px] uppercase tracking-[0.06em] text-label">{label}</span>
+      <span className="text-[14px] font-semibold tabular-nums text-ink">{value}</span>
+      {change !== null && (
+        <span
+          className={`flex items-center gap-0.5 text-[11px] tabular-nums ${changeColor(
+            change,
+            polarity,
+          )}`}
+        >
+          {change < 0 ? (
+            <ArrowDown size={10} strokeWidth={3} />
+          ) : (
+            <ArrowUp size={10} strokeWidth={3} />
+          )}
+          {formatDeltaPercent(change)}
+        </span>
       )}
-    </span>
+      {previous !== undefined && (
+        <span className="text-[11px] tabular-nums text-label">vs {previous}</span>
+      )}
+      {openable && (
+        <ChevronDown
+          size={11}
+          className={`shrink-0 text-label transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      )}
+    </button>
   )
 }
 

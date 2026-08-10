@@ -1,5 +1,7 @@
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Loader2 } from 'lucide-react'
 import type {
+  CustomerOrders,
+  CustomerSummary,
   Order,
   OrderSortField,
   OrdersPage,
@@ -27,6 +29,15 @@ interface RecentOrdersProps {
    * the same as none having failed.
    */
   failedOrders?: number | null
+  /**
+   * The buyer history opened from a row, and the setter that opens it. Held by
+   * the page rather than the row so only one is ever fetched at a time.
+   */
+  openEmail?: string | null
+  onOpenEmail?: (email: string | null) => void
+  history?: CustomerOrders | undefined
+  historyLoading?: boolean
+  historyError?: string | null
 }
 
 export function RecentOrders({
@@ -39,6 +50,11 @@ export function RecentOrders({
   fetching,
   unavailable,
   failedOrders = null,
+  openEmail = null,
+  onOpenEmail,
+  history,
+  historyLoading = false,
+  historyError = null,
 }: RecentOrdersProps) {
   const total = page?.total ?? 0
   const perPage = page?.perPage ?? 10
@@ -114,7 +130,26 @@ export function RecentOrders({
               <tbody>
                 {loading || !page
                   ? Array.from({ length: perPage }, (_, i) => <SkeletonRow key={i} />)
-                  : page.orders.map((order) => <Row key={order.id} order={order} />)}
+                  : page.orders.map((order) => {
+                      const email = order.email.trim().toLowerCase()
+                      const open = !!email && openEmail === email
+                      return (
+                        <Row
+                          key={order.id}
+                          order={order}
+                          summary={email ? page.customers?.[email] : undefined}
+                          open={open}
+                          onToggle={
+                            onOpenEmail
+                              ? () => onOpenEmail(open ? null : email)
+                              : undefined
+                          }
+                          history={open ? history : undefined}
+                          historyLoading={open && historyLoading}
+                          historyError={open ? historyError : null}
+                        />
+                      )
+                    })}
 
                 {page && !loading && page.orders.length === 0 && (
                   <tr>
@@ -158,8 +193,25 @@ export function RecentOrders({
   )
 }
 
-function Row({ order }: { order: Order }) {
+function Row({
+  order,
+  summary,
+  open,
+  onToggle,
+  history,
+  historyLoading,
+  historyError,
+}: {
+  order: Order
+  summary: CustomerSummary | undefined
+  open: boolean
+  onToggle: (() => void) | undefined
+  history: CustomerOrders | undefined
+  historyLoading: boolean
+  historyError: string | null
+}) {
   return (
+    <>
     <tr className="border-b border-row-line transition-colors last:border-0 hover:bg-[#1b1b1f]">
       <Td className="pl-5">
         <span className="font-mono text-ink">#{order.number}</span>
@@ -167,7 +219,15 @@ function Row({ order }: { order: Order }) {
       <Td className="text-muted">{formatDate(order.date)}</Td>
       <Td>
         <div className="min-w-0">
-          <div className="truncate text-ink">{order.customer}</div>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-ink">{order.customer}</span>
+            <CustomerBadge
+              summary={summary}
+              open={open}
+              onToggle={onToggle}
+              loading={historyLoading}
+            />
+          </div>
           {/* The city stays here where there is no email to show instead; the
               country has a column of its own now and would only repeat. */}
           {(order.email || order.city) && (
@@ -206,6 +266,155 @@ function Row({ order }: { order: Order }) {
         {formatCurrency(order.total)}
       </Td>
     </tr>
+
+    {open && (
+      <tr className="border-b border-row-line bg-[#141417] last:border-0">
+        <td colSpan={8} className="px-5 py-3">
+          <CustomerHistory
+            currentOrderId={order.id}
+            summary={summary}
+            history={history}
+            loading={historyLoading}
+            error={historyError}
+          />
+        </td>
+      </tr>
+    )}
+    </>
+  )
+}
+
+/**
+ * Whether this name has bought before, and how much of it there is.
+ *
+ * The count is the control that opens the history, so the figure the reader
+ * wants to interrogate is the thing they click — there is no separate affordance
+ * to find. A first-time buyer has nothing to open and gets a plain label.
+ */
+function CustomerBadge({
+  summary,
+  open,
+  onToggle,
+  loading,
+}: {
+  summary: CustomerSummary | undefined
+  open: boolean
+  onToggle: (() => void) | undefined
+  loading: boolean
+}) {
+  // Undefined where the lookup failed or the order carries no email. Silent
+  // rather than guessing: a guest checkout is not evidence of a first order.
+  if (!summary) return null
+
+  if (summary.orderCount <= 1) {
+    return (
+      <span className="shrink-0 rounded-full border border-[#4ade8033] bg-[#4ade801f] px-1.5 py-px text-[10px] font-medium text-pos">
+        New
+      </span>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={!onToggle}
+      aria-expanded={open}
+      title={`${summary.orderCount} orders, ${summary.itemCount} items, ${formatCurrency(
+        summary.totalSpent,
+      )} lifetime`}
+      className="flex shrink-0 items-center gap-1 rounded-full border border-btn-border bg-btn px-1.5 py-px text-[10px] font-medium text-muted transition-colors hover:border-[#3a3a40] hover:text-ink disabled:cursor-default"
+    >
+      {loading ? (
+        <Loader2 size={9} className="animate-spin" />
+      ) : (
+        <ChevronDown size={9} className={open ? 'rotate-180' : ''} />
+      )}
+      {summary.orderCount} orders · {summary.itemCount} items
+    </button>
+  )
+}
+
+/** The other orders behind the count, newest first. */
+function CustomerHistory({
+  currentOrderId,
+  summary,
+  history,
+  loading,
+  error,
+}: {
+  currentOrderId: string
+  summary: CustomerSummary | undefined
+  history: CustomerOrders | undefined
+  loading: boolean
+  error: string | null
+}) {
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-3 w-64" />
+        <Skeleton className="h-3 w-80" />
+      </div>
+    )
+  }
+
+  if (error) return <p className="text-[12px] text-neg">{error}</p>
+
+  const orders = history?.orders ?? []
+  if (orders.length === 0) {
+    return <p className="text-[12px] text-muted">No other orders found for this customer.</p>
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {summary && (
+        <p className="text-[11px] text-label">
+          {formatInteger(summary.orderCount)} orders ·{' '}
+          {formatInteger(summary.itemCount)} items ·{' '}
+          {formatCurrency(summary.totalSpent)} lifetime
+          {summary.firstOrderDate &&
+            ` · first ordered ${formatDate(summary.firstOrderDate)}`}
+        </p>
+      )}
+
+      <div className="flex flex-col">
+        {orders.map((entry) => {
+          // The row this was opened from is kept in the list rather than
+          // filtered out: a history with a gap where the current order should
+          // be reads as a history that is missing something.
+          const isCurrent = entry.id === currentOrderId
+          return (
+            <div
+              key={entry.id}
+              className={`flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-row-line py-1.5 last:border-0 ${
+                isCurrent ? 'text-ink' : 'text-muted'
+              }`}
+            >
+              <span className="w-[5.5rem] shrink-0 font-mono text-[11px]">
+                #{entry.number}
+              </span>
+              <span className="w-[6rem] shrink-0 text-[11px] tabular-nums">
+                {formatDate(entry.date)}
+              </span>
+              <span className="w-[5rem] shrink-0 text-[11px]">
+                {STATUS_LABELS[entry.status]}
+              </span>
+              <span className="w-[4.5rem] shrink-0 text-right text-[11px] tabular-nums">
+                {formatCurrency(entry.total)}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[11px]">
+                {entry.lines
+                  .map((line) => `${line.name}${line.quantity > 1 ? ` ×${line.quantity}` : ''}`)
+                  .join(', ')}
+              </span>
+              {isCurrent && (
+                <span className="shrink-0 text-[10px] text-label">this order</span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 

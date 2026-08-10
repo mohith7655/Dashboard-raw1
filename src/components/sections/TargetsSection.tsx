@@ -14,13 +14,12 @@ import type {
   MerchantFeed,
   Target,
   TargetGoal,
-  TargetHorizon,
   TargetNote,
   TargetPlan,
   WooMetrics,
 } from '../../lib/types'
 import { planTarget } from '../../lib/targets'
-import { formatCurrency, formatPercent, formatRoas } from '../../lib/format'
+import { formatCurrency, formatDay, formatPercent, formatRoas } from '../../lib/format'
 import { SectionLabel } from '../SectionLabel'
 import { Skeleton } from '../Skeleton'
 
@@ -45,9 +44,17 @@ const TONE: Record<
   bad: { icon: XCircle, className: 'text-neg' },
 }
 
-const HORIZON_LABEL: Record<TargetHorizon, string> = {
-  monthly: 'a month',
-  quarterly: 'a quarter',
+/** A month out: far enough to plan against, near enough to mean something. */
+function defaultDeadline(): string {
+  const date = new Date()
+  date.setMonth(date.getMonth() + 1)
+  return toIsoDate(date)
+}
+
+/** The local calendar day, not UTC — a deadline is read in the store's own days. */
+function toIsoDate(date: Date): string {
+  const offset = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10)
 }
 
 const newTarget = (): Target => ({
@@ -57,8 +64,8 @@ const newTarget = (): Target => ({
   name: 'New target',
   goal: 'sales',
   amount: 0,
-  budget: 0,
-  horizon: 'monthly',
+  budgetPct: 0,
+  deadline: defaultDeadline(),
 })
 
 /**
@@ -86,10 +93,17 @@ export function TargetsSection({
 }: TargetsSectionProps) {
   const [editing, setEditing] = useState<Target | null>(null)
 
+  // Fixed for the life of the mount rather than read per plan: every card must
+  // count its days from the same day, and a render that straddled midnight
+  // would otherwise date two targets differently.
+  const today = useMemo(() => toIsoDate(new Date()), [])
+
   const plans = useMemo(
     (): TargetPlan[] =>
-      (targets ?? []).map((target) => planTarget({ target, woo, blended, range, feed })),
-    [targets, woo, blended, range, feed],
+      (targets ?? []).map((target) =>
+        planTarget({ target, woo, blended, range, feed, today }),
+      ),
+    [targets, woo, blended, range, feed, today],
   )
 
   const commit = (next: Target[]) => {
@@ -177,8 +191,13 @@ function PlanCard({
   const { target } = plan
   const goalLabel =
     target.goal === 'sales'
-      ? `${formatCurrency(target.amount)} of sales ${HORIZON_LABEL[target.horizon]}`
-      : `${formatRoas(target.amount)} return ${HORIZON_LABEL[target.horizon]}`
+      ? `${formatCurrency(target.amount)} of sales`
+      : `${formatRoas(target.amount)} return`
+
+  const due =
+    plan.daysLeft === 0
+      ? 'overdue'
+      : `${plan.daysLeft} ${plan.daysLeft === 1 ? 'day' : 'days'} left`
 
   return (
     <div className="card">
@@ -191,10 +210,13 @@ function PlanCard({
             <h3 className="truncate text-[14px] font-medium text-ink">{target.name}</h3>
           </div>
           <p className="mt-1 text-[12px] text-muted">
-            {goalLabel}
-            {target.budget > 0
-              ? ` on ${formatCurrency(target.budget)} of ad budget`
-              : ' — no budget set'}
+            {goalLabel} by {formatDay(target.deadline)}{' '}
+            <span className={plan.daysLeft === 0 ? 'text-neg' : 'text-label'}>
+              ({due})
+            </span>
+            {target.budgetPct > 0
+              ? ` · ad budget ${formatPercent(target.budgetPct / 100)} of sales`
+              : ' · no budget set'}
           </p>
         </div>
 
@@ -228,10 +250,8 @@ function PlanCard({
       <div className="mt-3 border-t border-row-line pt-3">
         <div className="text-[10.5px] uppercase tracking-wide text-label">
           {plan.basisIsImplied
-            ? `To reach it — spending ${formatCurrency(plan.budgetBasis)} over the ${
-                plan.target.horizon === 'monthly' ? 'month' : 'quarter'
-              }`
-            : 'Your budget, split'}
+            ? `To reach it — ${formatCurrency(plan.budgetBasis)} over the ${plan.daysLeft} days left`
+            : `Your budget, ${formatCurrency(plan.budgetBasis)} over the ${plan.daysLeft} days left`}
         </div>
         <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
           <Figure label="Per day" value={formatCurrency(plan.perDay)} />
@@ -320,6 +340,14 @@ function TargetEditor({
 
   const amountLabel = draft.goal === 'sales' ? 'Sales target' : 'Return target (x)'
 
+  // What the percentage resolves to, for a sales goal where the base is known.
+  // A share is easier to hold to and harder to picture; the money is shown so
+  // the operator is never typing a number they cannot see the size of.
+  const budgetPreview =
+    draft.goal === 'sales' && draft.amount > 0 && draft.budgetPct > 0
+      ? formatCurrency((draft.amount * draft.budgetPct) / 100)
+      : null
+
   return (
     <form
       className="card flex flex-col gap-3"
@@ -349,39 +377,52 @@ function TargetEditor({
           </select>
         </Field>
 
+        {/* `step="any"` throughout, never a round increment: a step the browser
+            can enforce is a validation rule, and `step=100` refuses 10,050 with
+            "the two nearest valid values are 10,000 and 10,100". The spinner
+            arrows are a convenience; they must not decide what a target may be. */}
         <Field label={amountLabel}>
           <input
             type="number"
             min={0}
-            step={draft.goal === 'sales' ? 100 : 0.1}
+            step="any"
             value={draft.amount || ''}
             onChange={(e) => set('amount', Math.max(0, Number(e.target.value) || 0))}
             className="input-base tabular-nums"
           />
         </Field>
 
-        <Field label="Ad budget">
+        <Field label="Ad budget (% of sales)">
           <input
             type="number"
             min={0}
-            step={100}
-            value={draft.budget || ''}
-            onChange={(e) => set('budget', Math.max(0, Number(e.target.value) || 0))}
+            max={100}
+            step="any"
+            value={draft.budgetPct || ''}
+            onChange={(e) =>
+              set('budgetPct', clamp(Number(e.target.value) || 0, 0, 100))
+            }
             className="input-base tabular-nums"
           />
         </Field>
 
-        <Field label="Over">
-          <select
-            value={draft.horizon}
-            onChange={(e) => set('horizon', e.target.value as TargetHorizon)}
-            className="input-base"
-          >
-            <option value="monthly">A month</option>
-            <option value="quarterly">A quarter</option>
-          </select>
+        <Field label="Target date">
+          <input
+            type="date"
+            value={draft.deadline}
+            min={toIsoDate(new Date())}
+            onChange={(e) => set('deadline', e.target.value || draft.deadline)}
+            className="input-base tabular-nums"
+          />
         </Field>
       </div>
+
+      {budgetPreview && (
+        <p className="text-[11px] text-label">
+          {formatPercent(draft.budgetPct / 100)} of {formatCurrency(draft.amount)} is{' '}
+          <span className="text-muted">{budgetPreview}</span> of ad spend.
+        </p>
+      )}
 
       <div className="flex items-center gap-2">
         <button
@@ -403,6 +444,9 @@ function TargetEditor({
     </form>
   )
 }
+
+const clamp = (n: number, min: number, max: number): number =>
+  Math.min(max, Math.max(min, n))
 
 function Field({
   label,

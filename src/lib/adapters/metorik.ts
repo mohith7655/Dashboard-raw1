@@ -1,5 +1,6 @@
 import type {
   AdapterResult,
+  CustomerOrders,
   DateRange,
   OrdersPage,
   OrdersQuery,
@@ -54,6 +55,25 @@ export async function fetchShippingCharged(
     callFunction<ShippingChargedPayload>('metorik', range, {
       resource: 'shipping',
       countries: countries.join(','),
+    }),
+  )
+}
+
+/**
+ * One customer's whole order history, opened from a row in the orders table.
+ *
+ * The range still travels because `callFunction` requires one, but the server
+ * ignores it here — the history is the point, and scoping it to the window on
+ * screen would answer the question with what prompted it.
+ */
+export async function fetchCustomerOrders(
+  range: DateRange,
+  email: string,
+): Promise<AdapterResult<CustomerOrders>> {
+  return toResult(SOURCE, HINT, () =>
+    callFunction<CustomerOrders>('metorik', range, {
+      resource: 'customer-orders',
+      email,
     }),
   )
 }

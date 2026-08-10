@@ -22,9 +22,6 @@ import type {
 import { daysInRange } from './dateRange'
 import { formatCurrency, formatPercent, formatRoas } from './format'
 
-/** Days in the horizon a target is set over. Calendar-average, not exact. */
-const HORIZON_DAYS = { monthly: 30, quarterly: 91 } as const
-
 /** Below this the return is treated as unknown rather than as poor. */
 const MIN_MEANINGFUL_SPEND = 1
 
@@ -42,10 +39,33 @@ export interface PlanInput {
   range: DateRange
   /** Feed health, where the Search & Feed tab has loaded it. */
   feed: MerchantFeed | undefined
+  /** Today in the store's calendar, so a deadline is counted in its days. */
+  today: string
 }
 
-export function planTarget({ target, woo, blended, range, feed }: PlanInput): TargetPlan {
-  const days = HORIZON_DAYS[target.horizon]
+/**
+ * Days from `today` to `deadline`, counting both. Zero once it has passed.
+ *
+ * Clamped at zero rather than going negative: an overdue target is reported as
+ * overdue, and a negative divisor would print a negative daily spend as though
+ * the store were owed money.
+ */
+export function daysUntil(today: string, deadline: string): number {
+  const from = Date.parse(`${today}T00:00:00Z`)
+  const to = Date.parse(`${deadline}T00:00:00Z`)
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return 0
+  return Math.max(0, Math.round((to - from) / 86_400_000) + 1)
+}
+
+export function planTarget({
+  target,
+  woo,
+  blended,
+  range,
+  feed,
+  today,
+}: PlanInput): TargetPlan {
+  const daysLeft = daysUntil(today, target.deadline)
 
   const spend = blended?.spend ?? 0
   const periodDays = daysInRange(range)
@@ -59,24 +79,44 @@ export function planTarget({ target, woo, blended, range, feed }: PlanInput): Ta
 
   const isSales = target.goal === 'sales'
 
+  /**
+   * The sales the percentage is a percentage of.
+   *
+   * A sales goal names it outright. A return goal does not, so the store's own
+   * run rate over the days remaining stands in — which makes the budget the
+   * same quantity the All ads card calls "spend % of sales", measured against
+   * what the store is actually on pace to sell.
+   */
+  const salesBasis = isSales
+    ? target.amount
+    : woo
+      ? (woo.totalRevenue.value / periodDays) * daysLeft
+      : 0
+
+  const budget = (salesBasis * target.budgetPct) / 100
+
   // A sales goal divides into the budget it needs; a return goal is already a
   // rate and implies no budget of its own.
   const impliedBudget = isSales && roas && roas > 0 ? target.amount / roas : null
-  const projected = isSales && roas ? target.budget * roas : null
+  const projected = isSales && roas ? budget * roas : null
 
   const attainment = attainmentOf(target, roas, projected)
 
-  // With no budget entered, the split is struck from the one the goal implies
-  // — which is the figure the reader came for. Zero only survives where there
-  // is no implied budget either, and then there is genuinely nothing to divide.
-  const basisIsImplied = target.budget <= 0 && impliedBudget !== null
-  const budgetBasis = basisIsImplied ? (impliedBudget as number) : target.budget
-  const perDay = budgetBasis / days
+  // With no budget set, the split is struck from the one the goal implies —
+  // which is the figure the reader came for. Zero only survives where there is
+  // no implied budget either, and then there is genuinely nothing to divide.
+  const basisIsImplied = budget <= 0 && impliedBudget !== null
+  const budgetBasis = basisIsImplied ? (impliedBudget as number) : budget
+  // Divided by the days that are left, not by the days the target covers. With
+  // a week to go on a quarterly goal, the money still to spend has a week to be
+  // spent in, and a rate that said otherwise would be arithmetic about the past.
+  const perDay = daysLeft > 0 ? budgetBasis / daysLeft : 0
 
   return {
     target,
     budgetBasis,
     basisIsImplied,
+    daysLeft,
     perDay,
     perWeek: perDay * 7,
     perMonth: perDay * 30,
@@ -89,6 +129,8 @@ export function planTarget({ target, woo, blended, range, feed }: PlanInput): Ta
       roas,
       perDay,
       basisIsImplied,
+      budget,
+      daysLeft,
       pacingPerDay,
       impliedBudget,
       projected,
@@ -123,6 +165,9 @@ interface AdviceInput {
   perDay: number
   /** The daily figure is a recommendation, not a plan the operator set. */
   basisIsImplied: boolean
+  /** The percentage resolved into money, for the window that is left. */
+  budget: number
+  daysLeft: number
   pacingPerDay: number | null
   impliedBudget: number | null
   projected: number | null
@@ -160,9 +205,20 @@ function adviseOn(input: AdviceInput): TargetNote[] {
 
 /** Whether the budget as set reaches the goal at the return being achieved. */
 function budgetNote(
-  { target, roas, impliedBudget, projected }: AdviceInput,
+  { target, roas, budget, daysLeft, impliedBudget, projected }: AdviceInput,
   notes: TargetNote[],
 ): void {
+  // A deadline that has passed is the first thing worth saying, and it makes
+  // every rate below it a division by nothing.
+  if (daysLeft === 0) {
+    notes.push({
+      tone: 'bad',
+      title: 'The target date has passed',
+      detail: `${target.name} was due by ${target.deadline}. Move the date to plan against it, or remove it — a rate cannot be struck against days that are gone.`,
+    })
+    return
+  }
+
   if (roas === null) return
 
   if (target.goal === 'roas') {
@@ -181,24 +237,24 @@ function budgetNote(
 
   // No budget entered at all. Nothing has been decided yet, so this states the
   // cost rather than reporting a shortfall against a figure nobody set.
-  if (target.budget <= 0) {
+  if (budget <= 0) {
     notes.push({
       tone: 'warn',
       title: 'No budget set yet',
-      detail: `At the current ${formatRoas(roas)} blended return, ${formatCurrency(target.amount)} of sales needs roughly ${formatCurrency(impliedBudget)} of ad spend over the ${target.horizon === 'monthly' ? 'month' : 'quarter'}. The daily, weekly and monthly figures above are that budget split down; enter a budget to plan against your own number instead.`,
+      detail: `At the current ${formatRoas(roas)} blended return, ${formatCurrency(target.amount)} of sales needs roughly ${formatCurrency(impliedBudget)} of ad spend — ${formatPercent(impliedBudget / target.amount)} of the target. The daily and weekly figures above are that budget spread over the ${daysLeft} days left; set a budget percentage to plan against your own number instead.`,
     })
     return
   }
 
-  const shortfall = impliedBudget - target.budget
+  const shortfall = impliedBudget - budget
   // A percent either way is rounding, not a decision.
-  const material = Math.abs(shortfall) > target.budget * 0.01
+  const material = Math.abs(shortfall) > budget * 0.01
 
   if (!material) {
     notes.push({
       tone: 'good',
       title: 'Budget matches the goal',
-      detail: `At ${formatRoas(roas)} blended return, ${formatCurrency(target.budget)} buys about ${formatCurrency(projected)} — near enough the ${formatCurrency(target.amount)} asked for.`,
+      detail: `At ${formatRoas(roas)} blended return, ${formatPercent(target.budgetPct / 100)} of the target — ${formatCurrency(budget)} — buys about ${formatCurrency(projected)}, near enough the ${formatCurrency(target.amount)} asked for.`,
     })
     return
   }
@@ -208,14 +264,14 @@ function budgetNote(
     title: shortfall > 0 ? 'Increase the budget' : 'Budget is more than the goal needs',
     detail:
       shortfall > 0
-        ? `${formatCurrency(target.budget)} buys about ${formatCurrency(projected)} at the current ${formatRoas(roas)} return, short of ${formatCurrency(target.amount)}. Reaching it needs roughly ${formatCurrency(impliedBudget)} over the ${target.horizon === 'monthly' ? 'month' : 'quarter'} — ${formatCurrency(shortfall)} more — or a better return on what is already being spent.`
-        : `${formatCurrency(target.budget)} would buy about ${formatCurrency(projected)} at the current ${formatRoas(roas)} return, past the ${formatCurrency(target.amount)} asked for. About ${formatCurrency(impliedBudget)} reaches it; the rest is available for another target.`,
+        ? `${formatPercent(target.budgetPct / 100)} of the target is ${formatCurrency(budget)}, which buys about ${formatCurrency(projected)} at the current ${formatRoas(roas)} return — short of ${formatCurrency(target.amount)}. Reaching it needs roughly ${formatCurrency(impliedBudget)}, or ${formatPercent(impliedBudget / target.amount)} of the target: ${formatCurrency(shortfall)} more over the ${daysLeft} days left, or a better return on what is already being spent.`
+        : `${formatPercent(target.budgetPct / 100)} of the target is ${formatCurrency(budget)}, which would buy about ${formatCurrency(projected)} at the current ${formatRoas(roas)} return — past the ${formatCurrency(target.amount)} asked for. About ${formatPercent(impliedBudget / target.amount)} reaches it; the rest is available for another target.`,
   })
 }
 
 /** Whether current spend is on the pace the budget assumes. */
 function pacingNote(
-  { perDay, basisIsImplied, pacingPerDay, target }: AdviceInput,
+  { perDay, basisIsImplied, pacingPerDay, daysLeft }: AdviceInput,
   notes: TargetNote[],
 ): void {
   // Runs against the recommended daily figure too, not only an entered one:
@@ -245,7 +301,7 @@ function pacingNote(
         : `${allows} ${formatCurrency(perDay)} a day; the period is running at ${formatCurrency(pacingPerDay)}, which is ${formatCurrency(-gap)} a day above it. ${
             basisIsImplied
               ? 'The goal is already funded at this rate — the spend is ahead of what it requires.'
-              : `The budget runs out before the ${target.horizon === 'monthly' ? 'month' : 'quarter'} does.`
+              : `The budget runs out with ${daysLeft} days still to go.`
           }`,
   })
 }
@@ -301,7 +357,10 @@ function feedNote({ feed }: AdviceInput, notes: TargetNote[]): void {
 }
 
 /** Whether the sales the goal asks for are worth having at the current margin. */
-function marginNote({ woo, target, projected }: AdviceInput, notes: TargetNote[]): void {
+function marginNote(
+  { woo, target, budget, projected }: AdviceInput,
+  notes: TargetNote[],
+): void {
   if (!woo || target.goal !== 'sales' || projected === null) return
 
   const margin = woo.grossMargin.value
@@ -310,11 +369,11 @@ function marginNote({ woo, target, projected }: AdviceInput, notes: TargetNote[]
   // The goods behind the sales have to cost less than the sales bring in before
   // any of this is worth doing; the ad spend comes out of what is left.
   const grossOnGoal = target.amount * margin
-  if (grossOnGoal > target.budget) return
+  if (grossOnGoal > budget) return
 
   notes.push({
     tone: 'bad',
     title: 'The goal costs more than it earns',
-    detail: `At ${formatPercent(margin)} gross margin, ${formatCurrency(target.amount)} of sales leaves about ${formatCurrency(grossOnGoal)} before advertising — less than the ${formatCurrency(target.budget)} budgeted to win it. The target is unprofitable as set, whatever the return on the ads.`,
+    detail: `At ${formatPercent(margin)} gross margin, ${formatCurrency(target.amount)} of sales leaves about ${formatCurrency(grossOnGoal)} before advertising — less than the ${formatCurrency(budget)} budgeted to win it. The target is unprofitable as set, whatever the return on the ads.`,
   })
 }

@@ -392,11 +392,62 @@ export interface Order {
   total: number
 }
 
+/**
+ * A buyer's history with the store, as at the moment the page was read.
+ *
+ * Lifetime figures, not period ones: the question the orders table raises is
+ * whether the name on this row has bought before, which the selected range
+ * cannot answer — a customer of eight years who last ordered in March is a
+ * returning customer whatever window is on screen.
+ */
+export interface CustomerSummary {
+  /** Orders ever placed, this one included. One means it is their first. */
+  orderCount: number
+  /** Items ever bought across those orders. */
+  itemCount: number
+  totalSpent: number
+  /** ISO timestamp of their first order, or empty where the store has none. */
+  firstOrderDate: string
+}
+
 export interface OrdersPage {
   orders: Order[]
   total: number
   page: number
   perPage: number
+  /**
+   * Lifetime history for the buyers on this page, keyed by lowercased email.
+   *
+   * Fetched with the page rather than per row: ten rows would otherwise be ten
+   * requests, and the answer for every one of them comes from a single
+   * customers call filtered to the emails on screen. Absent for a row with no
+   * email — a guest checkout has no history to look up.
+   */
+  customers: Record<string, CustomerSummary>
+}
+
+/** One of a customer's other orders, for the history opened from a row. */
+export interface CustomerOrderLine {
+  name: string
+  quantity: number
+}
+
+export interface CustomerOrder {
+  id: string
+  number: string
+  /** ISO timestamp in the store's own timezone. */
+  date: string
+  status: OrderStatus
+  total: number
+  currency: string
+  items: number
+  /** What was on the order, largest line first. */
+  lines: CustomerOrderLine[]
+}
+
+export interface CustomerOrders {
+  email: string
+  orders: CustomerOrder[]
 }
 
 export type OrderSortField = 'date' | 'total'
@@ -811,11 +862,6 @@ export type TargetGoal = 'sales' | 'roas'
 
 export const TARGET_GOALS: TargetGoal[] = ['sales', 'roas']
 
-/** The window a target is set over; the plan divides it down from here. */
-export type TargetHorizon = 'monthly' | 'quarterly'
-
-export const TARGET_HORIZONS: TargetHorizon[] = ['monthly', 'quarterly']
-
 export interface Target {
   id: string
   /** What to call it on the card, e.g. "Q3 sales push". */
@@ -823,9 +869,24 @@ export interface Target {
   goal: TargetGoal
   /** Sales to reach, or the return to hold — read against `goal`. */
   amount: number
-  /** Ad budget allotted to it over the horizon. Zero means unfunded. */
-  budget: number
-  horizon: TargetHorizon
+  /**
+   * Ad budget as a percentage of sales rather than a sum.
+   *
+   * A sum goes stale the moment the target moves: raise the goal and the
+   * budget behind it silently becomes a smaller share of it. A percentage is
+   * the figure the store is actually run on — it is the same quantity the All
+   * ads card reports as "spend % of sales" — so a target and its budget cannot
+   * drift apart. Zero means unfunded.
+   */
+  budgetPct: number
+  /**
+   * `yyyy-MM-dd` the target is to be met by.
+   *
+   * The plan is struck from the days between today and this, not from a fixed
+   * month: a rate that ignored the deadline would go on recommending the same
+   * daily spend with a week left as it did with a quarter.
+   */
+  deadline: string
 }
 
 /**
@@ -847,7 +908,12 @@ export interface TargetPlan {
   budgetBasis: number
   /** True where `budgetBasis` is the implied budget rather than the entered one. */
   basisIsImplied: boolean
-  /** `budgetBasis` split down the horizon. */
+  /**
+   * Days from today to the deadline, inclusive. Zero once it has passed, which
+   * the card reports as overdue rather than dividing by.
+   */
+  daysLeft: number
+  /** `budgetBasis` split across `daysLeft`. */
   perDay: number
   perWeek: number
   perMonth: number

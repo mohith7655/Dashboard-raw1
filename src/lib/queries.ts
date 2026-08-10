@@ -9,6 +9,7 @@ import type {
   AdapterResult,
   AdsMetrics,
   CountryShippingCost,
+  CustomerOrders,
   DateRange,
   Ga4Dimension,
   Ga4Report,
@@ -60,6 +61,7 @@ const vs = (against: DateRange | null): string =>
 export const queryKeys = {
   woo: (range: DateRange, against: DateRange | null) =>
     ['woo', range.start, range.end, vs(against)] as const,
+  customerOrders: (email: string) => ['customer-orders', email] as const,
   orders: (range: DateRange, q: OrdersQuery) =>
     ['orders', range.start, range.end, q.page, q.perPage, q.sort, q.direction] as const,
   meta: (range: DateRange, against: DateRange | null) =>
@@ -137,6 +139,30 @@ export function useOrders(range: DateRange, q: OrdersQuery): SourceQuery<OrdersP
       queryFn: () => unwrap(metorik.fetchOrders(range, q)),
       // Keeps the previous page on screen while the next one loads.
       placeholderData: (prev) => prev,
+    }),
+  )
+}
+
+/**
+ * One customer's order history, fetched only once a row is opened.
+ *
+ * Keyed on the email alone, not on the range: the response ignores the window
+ * deliberately, and keying it by range would refetch the same unchanging
+ * history every time the picker moved. `enabled` keeps it idle until asked —
+ * ten collapsed rows must not be ten upstream calls.
+ */
+export function useCustomerOrders(
+  range: DateRange,
+  email: string | null,
+): SourceQuery<CustomerOrders> {
+  return toSourceQuery(
+    useQuery({
+      queryKey: queryKeys.customerOrders(email ?? ''),
+      queryFn: () => unwrap(metorik.fetchCustomerOrders(range, email as string)),
+      enabled: !!email,
+      // A buyer's history changes when they order again, which is not
+      // something this table needs to chase within a session.
+      staleTime: 5 * 60_000,
     }),
   )
 }
