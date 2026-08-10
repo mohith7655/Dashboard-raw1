@@ -94,16 +94,21 @@ export function InsightsSection({
 
   return (
     <section className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* One line, not two: what the button does is on the button, and the
+            standing explanation cost a paragraph of height on every view. The
+            provenance stays, because a report on screen has to say which period
+            and model it came from — that is a fact about what is being read,
+            not an instruction for how to use it. */}
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
           <SectionLabel>Insights</SectionLabel>
-          <p className="mt-1 text-[12px] text-muted">
-            {shown
-              ? `${scheduled ? 'Written on schedule for' : 'Analysed'} ${shownRange} with ${
-                  shown.model
-                } · ${new Date(shown.generatedAt).toLocaleString()}`
-              : `Reads the figures for ${rangeLabel} and writes up what changed and what to do.`}
-          </p>
+          {shown && (
+            <span className="text-[12px] text-muted">
+              {`${scheduled ? 'Written on schedule for' : 'Analysed'} ${shownRange} with ${
+                shown.model
+              } · ${new Date(shown.generatedAt).toLocaleString()}`}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -352,14 +357,6 @@ function AskBox({
       {error && (
         <p className="text-[12px] text-neg">
           {error.source} failed: {error.message}
-        </p>
-      )}
-
-      {answers.length === 0 && !asking && !error && (
-        <p className="text-[12px] text-muted">
-          Answered from the figures on this dashboard only — nothing order-level
-          or personal is sent, and a figure the period does not hold is said to
-          be missing rather than guessed at.
         </p>
       )}
 
