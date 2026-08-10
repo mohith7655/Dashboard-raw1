@@ -633,10 +633,10 @@ interface MarketTally {
  *
  * The revenue-side lines — coupons, shipping, tax — are only reported in
  * aggregate by `/orders/totals`, so a per-day copy of them cannot come from
- * there without a call per day. They are summed off the order rows instead,
- * which the aggregate is already walking for everything else. That makes the
- * breakdown free where asking Metorik for it a day at a time would cost a
- * request per row on screen.
+ * there without a call per day. They are struck from the line items of the
+ * order rows instead, which the aggregate is already walking for everything
+ * else — see `statementLines`. That makes the breakdown free where asking
+ * Metorik for it a day at a time would cost a request per row on screen.
  */
 interface DayTally {
   orders: number
@@ -655,6 +655,57 @@ const emptyDay = (): DayTally => ({
   taxCollected: 0,
   total: 0,
 })
+
+/** The statement lines of a single order, struck from its line items. */
+interface StatementLines {
+  grossSales: number
+  discounts: number
+  shippingCharged: number
+  taxCollected: number
+}
+
+/**
+ * One order's revenue side, read off the goods it sold.
+ *
+ * A Metorik order row carries `total` and its costs, but none of the four lines
+ * the statement is made of — there is no `subtotal`, `discount_total`,
+ * `shipping_total` or `total_tax` on it, only in the aggregate `/orders/totals`
+ * reports for the period as a whole. The lines are therefore struck from
+ * `line_items`, which does carry them per item: `subtotal` is the goods at list
+ * price and `total` the same goods after any discount, so the difference
+ * between them is what the discount took.
+ *
+ * Shipping is what is left of the order once discounted goods and their tax are
+ * accounted for, because Woo puts both outside the line items. Anything a store
+ * books outside those three — an order-level fee — lands in it too; Metorik
+ * reports fees separately and they are zero here, and a shipping figure that
+ * absorbs a rare fee is a smaller error than one that leaves the row not adding
+ * up to its own total.
+ */
+function statementLines(row: Record<string, unknown>, orderTotal: number): StatementLines {
+  let grossSales = 0
+  let discounts = 0
+  let taxCollected = 0
+  let goods = 0
+
+  for (const item of asArray(row.line_items).filter(isRecord)) {
+    const subtotal = num(item.subtotal)
+    const total = num(item.total)
+    grossSales += subtotal
+    discounts += subtotal - total
+    taxCollected += num(item.total_tax)
+    goods += total
+  }
+
+  return {
+    grossSales,
+    discounts,
+    taxCollected,
+    // Never negative: a row missing its line items would otherwise report the
+    // whole order as shipping.
+    shippingCharged: Math.max(0, orderTotal - goods - taxCollected),
+  }
+}
 
 interface Aggregate extends WooTotals {
   byDay: Map<string, DayTally>
@@ -1452,16 +1503,15 @@ async function aggregate(
       agg.totalRevenue += order.total
 
       // The same order read twice: once as a figure on the running total, once
-      // as a line on its own day. `subtotal` is the goods before any coupon —
-      // Woo puts shipping and tax outside it, which is what makes it the gross
-      // sales figure rather than the order total.
+      // as a line on its own day.
+      const lines = statementLines(row, order.total)
       const tallyDay = agg.byDay.get(day) ?? emptyDay()
       tallyDay.orders++
       tallyDay.total += order.total
-      tallyDay.grossSales += pick(row, ['subtotal', 'order_subtotal', 'line_items_subtotal'])
-      tallyDay.discounts += pick(row, ['discount_total', 'total_discount', 'cart_discount'])
-      tallyDay.shippingCharged += pick(row, ['shipping_total', 'order_shipping', 'shipping'])
-      tallyDay.taxCollected += pick(row, ['total_tax', 'order_tax', 'tax_total'])
+      tallyDay.grossSales += lines.grossSales
+      tallyDay.discounts += lines.discounts
+      tallyDay.shippingCharged += lines.shippingCharged
+      tallyDay.taxCollected += lines.taxCollected
       agg.byDay.set(day, tallyDay)
 
       const shipping = pick(row, ['shipping_cogs', 'shipping_cost', 'shipping_total'])
