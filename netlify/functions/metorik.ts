@@ -1448,11 +1448,22 @@ async function loadTraffic(
     provider: current.provider,
     providerMetric: current.providerMetric,
     visitorDefinition: current.definition,
-    visitors: metric(current.visitors, change(current.visitors, previous?.visitors ?? 0)),
-    orders: metric(current.orders, change(current.orders, previous?.orders ?? 0)),
+    // The baseline travels with the change. `previous` being absent means the
+    // comparison is off, which is not the same as a window that saw nothing.
+    visitors: metric(
+      current.visitors,
+      change(current.visitors, previous?.visitors ?? 0),
+      previous ? previous.visitors : null,
+    ),
+    orders: metric(
+      current.orders,
+      change(current.orders, previous?.orders ?? 0),
+      previous ? previous.orders : null,
+    ),
     conversionRate: metric(
       current.conversionRate,
       change(current.conversionRate, previous?.conversionRate ?? 0),
+      previous ? previous.conversionRate : null,
     ),
     series: current.series,
   }

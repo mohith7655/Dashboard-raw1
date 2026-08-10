@@ -11,6 +11,15 @@ export interface StatRowData {
   /** Share of the heading above it, where the parts add up to one. */
   share: number | null
   change: number | null
+  /**
+   * The same figure over the comparison window, already formatted.
+   *
+   * A percentage says a direction and a size but not a scale: `+40%` off a base
+   * the reader cannot see is unreadable, and on a small base it is noise dressed
+   * as news. Printed beside the change rather than in place of it, so the row
+   * carries both what moved and what it moved from.
+   */
+  previous?: string
   /** Which direction reads as good. Defaults to up. */
   polarity?: Polarity
 }
@@ -32,18 +41,26 @@ function changeColor(change: number, polarity: Polarity): string {
 export function StatRows({ rows }: { rows: StatRowData[] }) {
   const anyChange = rows.some((row) => row.change !== null)
   const anyShare = rows.some((row) => row.share !== null)
+  // Only when a comparison is actually running. With it off no row carries a
+  // baseline, and an empty column would take width from the figures.
+  const anyPrevious = rows.some((row) => row.previous !== undefined)
 
   return (
     // On a narrow screen the rows scroll sideways rather than wrapping a
     // column of figures into unreadable shapes.
     <div className="mt-3 overflow-x-auto border-t border-row-line pt-1">
-      <dl className={`flex flex-col ${anyChange ? 'min-w-[20rem]' : 'min-w-[14.5rem]'}`}>
+      <dl
+        className={`flex flex-col ${
+          anyChange ? (anyPrevious ? 'min-w-[25rem]' : 'min-w-[20rem]') : 'min-w-[14.5rem]'
+        }`}
+      >
         {rows.map((row, index) => (
           <StatRow
             key={`${row.label}-${index}`}
             row={row}
             showChange={anyChange}
             showShare={anyShare}
+            showPrevious={anyPrevious}
           />
         ))}
       </dl>
@@ -55,10 +72,12 @@ function StatRow({
   row,
   showChange,
   showShare,
+  showPrevious,
 }: {
   row: StatRowData
   showChange: boolean
   showShare: boolean
+  showPrevious: boolean
 }) {
   const total = row.kind === 'total'
 
@@ -116,6 +135,14 @@ function StatRow({
                 {formatDeltaPercent(row.change)}
               </>
             )}
+          </span>
+        )}
+        {/* Quieter than the figure it is a baseline for, and quieter than the
+            change: it is context for the two columns before it, not a third
+            number competing with them. */}
+        {showPrevious && (
+          <span className="w-[5rem] text-right text-[11px] tabular-nums text-label">
+            {row.previous ?? ''}
           </span>
         )}
       </dd>

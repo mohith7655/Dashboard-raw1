@@ -63,6 +63,25 @@ body {
   color: var(--color-ink);
 }
 
+/* Text, number and select fields share one shape, so a form reads as a row of
+   the same control rather than as three that happen to sit together. */
+@utility input-base {
+  height: 36px;
+  min-width: 0;
+  background: var(--color-btn);
+  border: 1px solid var(--color-btn-border);
+  border-radius: 8px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--color-ink);
+  outline: none;
+  transition: border-color 0.15s;
+
+  &:focus {
+    border-color: #3d3d44;
+  }
+}
+
 @keyframes shimmer {
   100% {
     transform: translateX(100%);

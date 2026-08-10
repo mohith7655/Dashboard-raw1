@@ -2,7 +2,7 @@ import { Users } from 'lucide-react'
 import type { DateRange, WooMetrics } from '../../lib/types'
 import { daysInRange } from '../../lib/dateRange'
 import { deltaPct, failedOrderCount } from '../../lib/derive'
-import { formatCurrency, formatInteger } from '../../lib/format'
+import { formatCurrency, formatInteger, formatPrevious } from '../../lib/format'
 import { StatRows, type StatRowData } from '../StatRows'
 import { Skeleton } from '../Skeleton'
 
@@ -68,19 +68,22 @@ function buildRows(
     label: string,
     value: string,
     change: number | null,
-  ): StatRowData => ({ label, value, kind: 'total', share: null, change })
+    previous?: string,
+  ): StatRowData => ({ label, value, kind: 'total', share: null, change, previous })
 
   const part = (
     label: string,
     count: number,
     of: number,
     change: number | null,
+    previous?: string,
   ): StatRowData => ({
     label,
     value: formatInteger(count),
     kind: 'part',
     share: of ? count / of : 0,
     change,
+    previous,
   })
 
   // Per day of the period, and compared against the other window's own length.
@@ -97,15 +100,32 @@ function buildRows(
   const failed = failedOrderCount(metrics) ?? 0
 
   return [
-    total('Customers', formatInteger(buyers), metrics.totalCustomers.deltaPct),
-    part('New', metrics.newCustomers.value, buyers, metrics.newCustomers.deltaPct),
+    total(
+      'Customers',
+      formatInteger(buyers),
+      metrics.totalCustomers.deltaPct,
+      formatPrevious(metrics.totalCustomers, formatInteger),
+    ),
+    part(
+      'New',
+      metrics.newCustomers.value,
+      buyers,
+      metrics.newCustomers.deltaPct,
+      formatPrevious(metrics.newCustomers, formatInteger),
+    ),
     part(
       'Returning',
       metrics.returningCustomers.value,
       buyers,
       metrics.returningCustomers.deltaPct,
+      formatPrevious(metrics.returningCustomers, formatInteger),
     ),
-    total('Total orders', formatInteger(metrics.totalOrders.value), metrics.totalOrders.deltaPct),
+    total(
+      'Total orders',
+      formatInteger(metrics.totalOrders.value),
+      metrics.totalOrders.deltaPct,
+      formatPrevious(metrics.totalOrders, formatInteger),
+    ),
     // No delta: the status counts are only kept for the selected period, so
     // there is nothing to measure this against rather than nothing to report.
     { ...part('Failed', failed, placed, null), polarity: 'down-good' },
@@ -113,11 +133,13 @@ function buildRows(
       'Avg order value',
       formatCurrency(metrics.avgOrderValue.value),
       metrics.avgOrderValue.deltaPct,
+      formatPrevious(metrics.avgOrderValue, formatCurrency),
     ),
     total(
       'Avg sales per day',
       formatCurrency(perDay),
       perDayBefore === null ? null : deltaPct(perDay, perDayBefore),
+      perDayBefore === null ? undefined : formatCurrency(perDayBefore),
     ),
   ]
 }

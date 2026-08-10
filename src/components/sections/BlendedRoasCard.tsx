@@ -6,6 +6,7 @@ import {
   formatCurrency,
   formatInteger,
   formatPercent,
+  formatPrevious,
   formatRoas,
 } from '../../lib/format'
 import { StatRows, type StatRowData } from '../StatRows'
@@ -54,6 +55,7 @@ export function BlendedRoasCard({
           kind: 'total',
           share: null,
           change: woo?.totalRevenue.deltaPct ?? null,
+          previous: woo ? formatPrevious(woo.totalRevenue, formatCurrency) : undefined,
         },
         {
           label: 'Ad spend',

@@ -260,20 +260,37 @@ function Movement({ coupon }: { coupon: CouponUsage }) {
   if (delta === null) {
     return previousUsed === 0 ? <span className="text-pos">new</span> : <span className="text-muted">—</span>
   }
+  // The count it moved from, beside the percentage. On the small numbers a
+  // coupon table holds, `+300%` is four redemptions against one — a figure the
+  // percentage alone makes sound like a campaign.
+  //
+  // Null is a code the comparison window knew nothing about, which is not the
+  // same as one it saw go unused; only the second is worth printing.
+  const was =
+    previousUsed === null ? null : (
+      <span className="text-label">from {formatInteger(previousUsed)}</span>
+    )
+
   if (delta === 0) {
     return (
-      <span className="flex items-center gap-0.5 text-muted">
-        <ArrowRight size={10} strokeWidth={3} />
-        {formatDeltaPercent(delta)}
+      <span className="flex items-center gap-1">
+        <span className="flex items-center gap-0.5 text-muted">
+          <ArrowRight size={10} strokeWidth={3} />
+          {formatDeltaPercent(delta)}
+        </span>
+        {was}
       </span>
     )
   }
 
   const Icon = delta < 0 ? ArrowDown : ArrowUp
   return (
-    <span className={`flex items-center gap-0.5 ${delta < 0 ? 'text-neg' : 'text-pos'}`}>
-      <Icon size={10} strokeWidth={3} />
-      {formatDeltaPercent(delta)}
+    <span className="flex items-center gap-1">
+      <span className={`flex items-center gap-0.5 ${delta < 0 ? 'text-neg' : 'text-pos'}`}>
+        <Icon size={10} strokeWidth={3} />
+        {formatDeltaPercent(delta)}
+      </span>
+      {was}
     </span>
   )
 }

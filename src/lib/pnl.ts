@@ -149,6 +149,16 @@ export interface BlendedAds {
   shareOfRevenue: number
   costPerOrder: number
   platforms: PlatformSpend[]
+  /**
+   * The same two figures over the comparison window, or null when it is off or
+   * when neither side of the division reported a baseline.
+   *
+   * Both are ratios of a store figure to an ad figure, so a comparison needs
+   * both windows of both — a previous revenue with no previous spend beside it
+   * would divide this period's spend into last period's revenue and call the
+   * result a change.
+   */
+  previous: { blendedRoas: number; shareOfRevenue: number } | null
 }
 
 /** A campaign with the platform that reported it, for the combined table. */
@@ -274,11 +284,28 @@ export function blendedAds(
   const spend = round2(platforms.reduce((sum, p) => sum + p.spend, 0))
   const revenue = woo?.totalRevenue.value ?? 0
 
+  // A platform with no comparison figures contributes nothing rather than a
+  // zero, which would understate the baseline spend and invent an improvement.
+  const withPrevious = reported.filter((r) => r.metrics.previousTotals)
+  const prevSpend = withPrevious.length
+    ? round2(
+        withPrevious.reduce((sum, { metrics }) => sum + (metrics.previousTotals?.spend ?? 0), 0),
+      )
+    : null
+  const prevRevenue = woo?.pnlPrevious?.totalRevenue ?? null
+
   return {
     spend,
     blendedRoas: ratio(revenue, spend),
     shareOfRevenue: ratio(spend, revenue),
     costPerOrder: round2(ratio(spend, woo?.totalOrders.value ?? 0)),
     platforms,
+    previous:
+      prevSpend === null || prevRevenue === null
+        ? null
+        : {
+            blendedRoas: ratio(prevRevenue, prevSpend),
+            shareOfRevenue: ratio(prevSpend, prevRevenue),
+          },
   }
 }

@@ -119,3 +119,20 @@ export function formatMoneyIn(amount: number, currency: string): string {
   }
   return formatter.format(amount)
 }
+
+/**
+ * A metric's comparison-window figure, formatted, or undefined where it has
+ * none.
+ *
+ * Undefined and zero are kept apart deliberately. A source that ran with the
+ * comparison off knows nothing about the previous window; a source that ran
+ * with it on and found nothing knows the figure was zero. Collapsing the two
+ * would print `$0.00` under half the rows on the dashboard and invite it to be
+ * read as a collapse rather than as an absence.
+ */
+export function formatPrevious(
+  m: { previous?: number | null },
+  format: (n: number) => string,
+): string | undefined {
+  return m.previous === null || m.previous === undefined ? undefined : format(m.previous)
+}

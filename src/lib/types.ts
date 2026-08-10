@@ -45,6 +45,16 @@ export interface Comparison {
 export interface Metric {
   value: number
   deltaPct: number | null
+  /**
+   * The same figure over the comparison window, where the source knew it.
+   *
+   * Carried rather than recovered from `deltaPct`: the arithmetic that would
+   * back it out — `value / (1 + deltaPct/100)` — divides by zero at exactly the
+   * case worth reading, a figure that fell to nothing. Undefined where the
+   * comparison is off or the source never computed one, which the display
+   * treats as "no baseline" rather than as zero.
+   */
+  previous?: number | null
 }
 
 /**
@@ -786,4 +796,69 @@ export interface SourceError {
 export interface AdapterResult<T> {
   data: T | null
   error: SourceError | null
+}
+
+/* ------------------------------- Targets ------------------------------- */
+
+/**
+ * What a target is aiming at.
+ *
+ * `sales` is a figure to reach; `roas` is a return to hold or beat. They are
+ * different arithmetic, not two labels on the same one: a sales target divides
+ * into a budget, while a return target divides a budget into what it may spend.
+ */
+export type TargetGoal = 'sales' | 'roas'
+
+export const TARGET_GOALS: TargetGoal[] = ['sales', 'roas']
+
+/** The window a target is set over; the plan divides it down from here. */
+export type TargetHorizon = 'monthly' | 'quarterly'
+
+export const TARGET_HORIZONS: TargetHorizon[] = ['monthly', 'quarterly']
+
+export interface Target {
+  id: string
+  /** What to call it on the card, e.g. "Q3 sales push". */
+  name: string
+  goal: TargetGoal
+  /** Sales to reach, or the return to hold — read against `goal`. */
+  amount: number
+  /** Ad budget allotted to it over the horizon. Zero means unfunded. */
+  budget: number
+  horizon: TargetHorizon
+}
+
+/**
+ * A target with the arithmetic done and the advice struck from the period's own
+ * figures. Derived on the client from metrics already loaded — nothing here is
+ * stored, so it can never disagree with the cards above it.
+ */
+export interface TargetPlan {
+  target: Target
+  /** Budget split down the horizon. */
+  perDay: number
+  perWeek: number
+  perMonth: number
+  /** What the store is actually spending a day, over the selected period. */
+  pacingPerDay: number | null
+  /**
+   * Budget the goal implies at the current blended return, or null where the
+   * return is unknown — with no revenue per ad dollar there is nothing to
+   * divide by, and a zero would read as "no budget needed".
+   */
+  impliedBudget: number | null
+  /** Sales the budget buys at the current return, for a `sales` goal. */
+  projected: number | null
+  /** Fraction of the goal the current pace reaches, 1 being on target. */
+  attainment: number | null
+  notes: TargetNote[]
+}
+
+export type TargetNoteTone = 'good' | 'warn' | 'bad'
+
+/** One piece of advice, each traceable to a figure on the dashboard. */
+export interface TargetNote {
+  tone: TargetNoteTone
+  title: string
+  detail: string
 }

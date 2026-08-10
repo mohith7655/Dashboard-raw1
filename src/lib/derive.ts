@@ -1,7 +1,11 @@
 import type { AdsCounters, AdsMetrics, Campaign, Metric, WooMetrics } from './types'
 
-export function metric(value: number, deltaPct: number | null): Metric {
-  return { value, deltaPct }
+export function metric(
+  value: number,
+  deltaPct: number | null,
+  previous?: number | null,
+): Metric {
+  return { value, deltaPct, previous }
 }
 
 /** Percentage change of `current` against `previous`, or null if incomputable. */
@@ -92,7 +96,11 @@ export function buildWooMetrics(
   >,
 ): WooMetrics {
   const of = <K extends keyof WooDerived>(key: K): Metric =>
-    metric(current[key], previous ? deltaPct(current[key], previous[key]) : null)
+    metric(
+      current[key],
+      previous ? deltaPct(current[key], previous[key]) : null,
+      previous ? previous[key] : null,
+    )
 
   return {
     totalRevenue: of('totalRevenue'),
@@ -142,7 +150,11 @@ export function buildAdsMetrics(
   campaigns: Campaign[] = [],
 ): AdsMetrics {
   const of = <K extends keyof AdsDerived>(key: K): Metric =>
-    metric(current[key], previous ? deltaPct(current[key], previous[key]) : null)
+    metric(
+      current[key],
+      previous ? deltaPct(current[key], previous[key]) : null,
+      previous ? previous[key] : null,
+    )
 
   return {
     spend: of('spend'),

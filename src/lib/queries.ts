@@ -25,6 +25,7 @@ import type {
   OrdersQuery,
   ShippingChargedPayload,
   SourceError,
+  Target,
   TrafficMetrics,
   WooMetrics,
 } from './types'
@@ -34,6 +35,7 @@ import * as meta from './adapters/meta'
 import * as googleAds from './adapters/googleAds'
 import * as openaiAds from './adapters/openaiAds'
 import * as costs from './adapters/costs'
+import * as targets from './adapters/targets'
 import * as shippingCosts from './adapters/shippingCosts'
 import * as ga4 from './adapters/ga4'
 import * as searchConsole from './adapters/searchConsole'
@@ -83,6 +85,7 @@ export const queryKeys = {
   // Not range-scoped: the stored lists, the feed's current state and the
   // Markifact workspace are the same whatever period is on screen.
   costs: () => ['costs'] as const,
+  targets: () => ['targets'] as const,
   shippingCosts: () => ['shippingCosts'] as const,
   insightsAutomation: () => ['insightsAutomation'] as const,
   merchantFeed: () => ['merchantFeed'] as const,
@@ -431,6 +434,46 @@ export function useSaveOperatingCosts(): SaveCosts {
   const mutation = useMutation({
     mutationFn: costs.saveCosts,
     onSuccess: (saved) => client.setQueryData(queryKeys.costs(), saved),
+  })
+
+  return {
+    save: (next) => mutation.mutate(next),
+    saving: mutation.isPending,
+    error: mutation.error ? mutation.error.message : null,
+  }
+}
+
+/**
+ * The stored target list.
+ *
+ * Server-held rather than browser-held for the same reason the operating costs
+ * are: a target is a statement about the business, not about the machine it was
+ * typed on.
+ */
+export function useTargets(): SourceQuery<Target[]> {
+  return toSourceQuery(
+    useQuery({
+      queryKey: queryKeys.targets(),
+      queryFn: () => unwrap(targets.fetchTargets()),
+    }),
+  )
+}
+
+export interface SaveTargets {
+  save: (targets: Target[]) => void
+  saving: boolean
+  error: string | null
+}
+
+/**
+ * Writes the list back and seeds the cache with what the server stored, so the
+ * card shows the saved rows rather than the optimistic ones.
+ */
+export function useSaveTargets(): SaveTargets {
+  const client = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: targets.saveTargets,
+    onSuccess: (saved) => client.setQueryData(queryKeys.targets(), saved),
   })
 
   return {

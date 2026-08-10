@@ -9,6 +9,7 @@ import type {
   WooMetrics,
 } from '../../lib/types'
 import { costLines, totalOperatingCost } from '../../lib/operatingCosts'
+import { daysInRange } from '../../lib/dateRange'
 import { deltaPct, round2 } from '../../lib/derive'
 import { formatCurrency, formatDeltaPercent, formatPercent } from '../../lib/format'
 import { Skeleton } from '../Skeleton'
@@ -48,6 +49,15 @@ interface Line {
    * green, cost rising is red, and colouring every increase alike would
    * congratulate the store on its coupons.
    */
+  polarity: Polarity
+}
+
+/** One column of the daily-average strip under the headline. */
+interface PerDayFigure {
+  label: string
+  /** Pre-formatted, or an em dash where the figure did not report. */
+  value: string
+  change: number | null
   polarity: Polarity
 }
 
@@ -319,8 +329,82 @@ export function ProfitSummaryCard({
     return before === undefined ? null : deltaPct(line.amount, before)
   }
 
+  /**
+   * The figure the change was struck against, printed beside it.
+   *
+   * A magnitude, matching `amount`: the sign a deduction carries lives in the
+   * column to the left, and repeating it on the baseline would read as a
+   * negative that had grown rather than a cost that had.
+   */
+  const previousOf = (line: Line): string | undefined => {
+    const before = previousByLabel?.get(line.label)
+    return before === undefined ? undefined : formatCurrency(Math.abs(before))
+  }
+
+  const anyPrevious = lines.some((line) => previousOf(line) !== undefined)
+
   const top = woo ? topLine(woo.pnl) : null
   const base = top?.amount ?? 0
+
+  /**
+   * The three figures a period total cannot answer on its own: whether a bigger
+   * month was a better one or merely a longer one.
+   *
+   * Each window is divided by its own length. Under a comparison of unequal
+   * spans — a part-month against the whole of the one before — a single divisor
+   * would report a change in the daily rate that was only ever a change in the
+   * number of days.
+   */
+  const perDay = useMemo((): PerDayFigure[] => {
+    if (!top) return []
+    const days = daysInRange(range)
+    const daysBefore = against ? daysInRange(against) : null
+    const netProfit = lines.find((line) => line.label === 'Net profit')?.amount ?? null
+
+    const rate = (amount: number) => amount / days
+    const change = (amount: number, before: number | null | undefined): number | null =>
+      before === null || before === undefined || daysBefore === null
+        ? null
+        : deltaPct(rate(amount), before / daysBefore)
+
+    // Taken from the payload rather than from the statement's own `Total sales`
+    // row, which is dropped whenever refunds are zero — on a period with none,
+    // a column read off the rows would vanish with it.
+    const sales = woo ? totalSalesOf(woo.pnl) : null
+    const salesBefore = woo?.pnlPrevious ? totalSalesOf(woo.pnlPrevious) : null
+
+    return [
+      {
+        label: 'Revenue',
+        value: formatCurrency(rate(top.amount)),
+        change: change(top.amount, previousByLabel?.get('Revenue')),
+        polarity: 'up-good',
+      },
+      {
+        // What was billed, where Revenue is what was kept: the two differ by
+        // the refunds, and a day's takings before anything went back is the
+        // figure the store's own sales reports are written in.
+        label: 'Sales',
+        value: sales === null ? '—' : formatCurrency(rate(sales)),
+        change: sales === null ? null : change(sales, salesBefore),
+        polarity: 'up-good',
+      },
+      {
+        label: 'Net profit',
+        value: netProfit === null ? '—' : formatCurrency(rate(netProfit)),
+        change: netProfit === null ? null : change(netProfit, previousByLabel?.get('Net profit')),
+        polarity: 'up-good',
+      },
+      {
+        // Absent rather than zero when no platform reported: a store whose ads
+        // connector failed did not advertise for nothing.
+        label: 'Ad spend',
+        value: adSpend === null ? '—' : formatCurrency(rate(adSpend)),
+        change: adSpend === null ? null : change(adSpend, prevAdSpend),
+        polarity: 'down-good',
+      },
+    ]
+  }, [woo, top, lines, previousByLabel, adSpend, prevAdSpend, range, against])
   // Signed, so a deduction reads `−13.6%` beside its `−$448.18`. A share
   // printed bare made a line that comes off the total look like one that adds
   // to it, which is the one thing the figure beside it already says.
@@ -349,6 +433,41 @@ export function ProfitSummaryCard({
         </span>
       </div>
 
+      {/* Directly under the headline the period earned, because it is the same
+          claim at a different scale — and above the statement, which breaks the
+          period down rather than restating it. */}
+      {!loading && !failed && perDay.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 border-t border-row-line pt-2.5">
+          {perDay.map((figure) => (
+            <div key={figure.label} className="min-w-0">
+              <div className="text-[10.5px] uppercase tracking-wide text-label">
+                {figure.label} / day
+              </div>
+              <div className="mt-0.5 flex items-baseline gap-1.5">
+                <span className="text-[13.5px] font-semibold tabular-nums text-ink">
+                  {figure.value}
+                </span>
+                {figure.change !== null && (
+                  <span
+                    className={`flex items-center gap-0.5 text-[11px] tabular-nums ${changeColor(
+                      figure.change,
+                      figure.polarity,
+                    )}`}
+                  >
+                    {figure.change < 0 ? (
+                      <ArrowDown size={10} strokeWidth={3} />
+                    ) : (
+                      <ArrowUp size={10} strokeWidth={3} />
+                    )}
+                    {formatDeltaPercent(figure.change)}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {loading ? (
         <div className="mt-4 flex flex-col gap-2 border-t border-row-line pt-3">
           <Skeleton className="h-3.5 w-full" />
@@ -364,14 +483,20 @@ export function ProfitSummaryCard({
         // fit; the rows scroll sideways rather than wrapping a statement into
         // unreadable shapes or truncating the figures themselves.
         <div className="mt-4 overflow-x-auto border-t border-row-line pt-1">
-          <dl className={`flex flex-col ${anyChange ? 'min-w-[20rem]' : 'min-w-[14.5rem]'}`}>
+          <dl
+            className={`flex flex-col ${
+              anyChange ? (anyPrevious ? 'min-w-[25rem]' : 'min-w-[20rem]') : 'min-w-[14.5rem]'
+            }`}
+          >
             {lines.map((line, index) => (
               <StatementRow
                 key={`${line.label}-${index}`}
                 line={line}
                 share={share(line)}
                 change={changeOf(line)}
+                previous={previousOf(line)}
                 showChange={anyChange}
+                showPrevious={anyPrevious}
                 // The line the statement opens on, and the one every share is
                 // measured against. It carries a little more weight than the
                 // headings below it for both reasons.
@@ -399,13 +524,18 @@ function StatementRow({
   line,
   share,
   change,
+  previous,
   showChange,
+  showPrevious,
   lead = false,
 }: {
   line: Line
   share: number
   change: number | null
+  /** The comparison window's own figure, already formatted. */
+  previous?: string
   showChange: boolean
+  showPrevious: boolean
   /** The statement's opening line, set a size above the headings below it. */
   lead?: boolean
 }) {
@@ -468,6 +598,13 @@ function StatementRow({
                 {formatDeltaPercent(change)}
               </>
             )}
+          </span>
+        )}
+        {/* Set below the change in weight: it is what the change was measured
+            from, not a second claim about this period. */}
+        {showPrevious && (
+          <span className="w-[5rem] text-right text-[11px] tabular-nums text-label">
+            {previous ?? ''}
           </span>
         )}
       </dd>

@@ -236,6 +236,8 @@ export function DashboardPage() {
             platforms={reportedAds}
             blended={woo.error ? null : blended}
             subtitle={combinedScope}
+            range={range}
+            against={against}
             loading={adsLoading}
           />
 

@@ -16,6 +16,7 @@ import { InsightsSection } from './components/sections/InsightsSection'
 import { SearchFeedSection } from './components/sections/SearchFeedSection'
 import { MarkifactSection } from './components/sections/MarkifactSection'
 import { RevenueBreakdownCard } from './components/sections/RevenueBreakdownCard'
+import { TargetsSection } from './components/sections/TargetsSection'
 import { RevenueAndRefunds } from './components/charts/RevenueAndRefunds'
 import { OrdersByStatus } from './components/charts/OrdersByStatus'
 import { RevenueByTrafficSource } from './components/charts/RevenueByTrafficSource'
@@ -37,6 +38,8 @@ import {
   useInsights,
   useInsightsAutomation,
   useSaveInsightsSchedule,
+  useTargets,
+  useSaveTargets,
   useMetaMetrics,
   useOpenAiAdsMetrics,
   useOperatingCosts,
@@ -124,6 +127,8 @@ export default function App() {
   const insights = useInsights()
   const automation = useInsightsAutomation()
   const saveSchedule = useSaveInsightsSchedule()
+  const targets = useTargets()
+  const saveTargets = useSaveTargets()
   const failedOrders = failedOrderCount(woo.data)
 
   // Every connector has answered one way or the other. Analysing before this
@@ -455,6 +460,8 @@ export default function App() {
               platforms={reportedAds}
               blended={woo.error ? null : blended}
               subtitle={combinedScope}
+              range={range}
+              against={against}
               loading={adsLoading}
             />
 
@@ -499,6 +506,27 @@ export default function App() {
               fetching={orders.isFetching}
               unavailable={orders.error ? 'Orders unavailable' : undefined}
               failedOrders={failedOrders}
+            />
+
+            {/* Last on the tab because it is the one section that reads
+                forward. Everything above reports the period; this divides a
+                goal by what the period actually achieved, which only means
+                something once those figures have been seen.
+
+                The feed is passed as whatever the Search & Feed tab has
+                already loaded — undefined here on a first visit. It is not
+                fetched for this section: a disapproval note is worth having
+                when it is free and not worth an upstream call when it is not. */}
+            <TargetsSection
+              targets={targets.data}
+              loading={targets.isLoading}
+              error={saveTargets.error ?? targets.error?.message ?? null}
+              saving={saveTargets.saving}
+              onSave={saveTargets.save}
+              woo={woo.data}
+              blended={woo.error ? null : blended}
+              feed={merchantFeed.data}
+              range={range}
             />
           </div>
         )}
