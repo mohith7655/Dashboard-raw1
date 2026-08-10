@@ -835,7 +835,19 @@ export interface Target {
  */
 export interface TargetPlan {
   target: Target
-  /** Budget split down the horizon. */
+  /**
+   * The budget the split is struck from: the one entered, or the one the goal
+   * implies where none was.
+   *
+   * A target set without a budget is the ordinary case — the reason to write a
+   * goal down is usually to find out what it costs. Splitting a zero into days
+   * would answer that with three zeroes while the card had the figure all
+   * along.
+   */
+  budgetBasis: number
+  /** True where `budgetBasis` is the implied budget rather than the entered one. */
+  basisIsImplied: boolean
+  /** `budgetBasis` split down the horizon. */
   perDay: number
   perWeek: number
   perMonth: number

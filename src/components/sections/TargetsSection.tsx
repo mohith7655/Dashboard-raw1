@@ -191,7 +191,10 @@ function PlanCard({
             <h3 className="truncate text-[14px] font-medium text-ink">{target.name}</h3>
           </div>
           <p className="mt-1 text-[12px] text-muted">
-            {goalLabel} on {formatCurrency(target.budget)} of ad budget
+            {goalLabel}
+            {target.budget > 0
+              ? ` on ${formatCurrency(target.budget)} of ad budget`
+              : ' — no budget set'}
           </p>
         </div>
 
@@ -217,25 +220,42 @@ function PlanCard({
       </div>
 
       {/* The budget split, which is the question most often asked of a target:
-          not what it totals but what it means to spend tomorrow. */}
-      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 border-t border-row-line pt-3">
-        <Figure label="Per day" value={formatCurrency(plan.perDay)} />
-        <Figure label="Per week" value={formatCurrency(plan.perWeek)} />
-        <Figure label="Per month" value={formatCurrency(plan.perMonth)} />
-        <Figure
-          label="Spending now"
-          value={plan.pacingPerDay === null ? '—' : `${formatCurrency(plan.pacingPerDay)} / day`}
-        />
-        {plan.impliedBudget !== null && (
-          <Figure label="Budget needed" value={formatCurrency(plan.impliedBudget)} />
-        )}
-        {plan.attainment !== null && (
+          not what it totals but what it means to spend tomorrow.
+
+          Said outright when the split comes from the budget the goal implies
+          rather than one that was entered — the same figures mean different
+          things depending on who chose them. */}
+      <div className="mt-3 border-t border-row-line pt-3">
+        <div className="text-[10.5px] uppercase tracking-wide text-label">
+          {plan.basisIsImplied
+            ? `To reach it — spending ${formatCurrency(plan.budgetBasis)} over the ${
+                plan.target.horizon === 'monthly' ? 'month' : 'quarter'
+              }`
+            : 'Your budget, split'}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+          <Figure label="Per day" value={formatCurrency(plan.perDay)} />
+          <Figure label="Per week" value={formatCurrency(plan.perWeek)} />
+          <Figure label="Per month" value={formatCurrency(plan.perMonth)} />
           <Figure
-            label="On target"
-            value={formatPercent(plan.attainment)}
-            className={plan.attainment >= 1 ? 'text-pos' : 'text-neg'}
+            label="Spending now"
+            value={
+              plan.pacingPerDay === null ? '—' : `${formatCurrency(plan.pacingPerDay)} / day`
+            }
           />
-        )}
+          {/* Redundant beside the heading above when the split is already the
+              implied budget; shown only where it is a second figure. */}
+          {plan.impliedBudget !== null && !plan.basisIsImplied && (
+            <Figure label="Budget needed" value={formatCurrency(plan.impliedBudget)} />
+          )}
+          {plan.attainment !== null && !plan.basisIsImplied && (
+            <Figure
+              label="On target"
+              value={formatPercent(plan.attainment)}
+              className={plan.attainment >= 1 ? 'text-pos' : 'text-neg'}
+            />
+          )}
+        </div>
       </div>
 
       {plan.notes.length > 0 && (

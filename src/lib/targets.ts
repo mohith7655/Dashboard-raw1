@@ -46,7 +46,6 @@ export interface PlanInput {
 
 export function planTarget({ target, woo, blended, range, feed }: PlanInput): TargetPlan {
   const days = HORIZON_DAYS[target.horizon]
-  const perDay = target.budget / days
 
   const spend = blended?.spend ?? 0
   const periodDays = daysInRange(range)
@@ -67,8 +66,17 @@ export function planTarget({ target, woo, blended, range, feed }: PlanInput): Ta
 
   const attainment = attainmentOf(target, roas, projected)
 
+  // With no budget entered, the split is struck from the one the goal implies
+  // — which is the figure the reader came for. Zero only survives where there
+  // is no implied budget either, and then there is genuinely nothing to divide.
+  const basisIsImplied = target.budget <= 0 && impliedBudget !== null
+  const budgetBasis = basisIsImplied ? (impliedBudget as number) : target.budget
+  const perDay = budgetBasis / days
+
   return {
     target,
+    budgetBasis,
+    basisIsImplied,
     perDay,
     perWeek: perDay * 7,
     perMonth: perDay * 30,
@@ -80,6 +88,7 @@ export function planTarget({ target, woo, blended, range, feed }: PlanInput): Ta
       target,
       roas,
       perDay,
+      basisIsImplied,
       pacingPerDay,
       impliedBudget,
       projected,
@@ -112,6 +121,8 @@ interface AdviceInput {
   target: Target
   roas: number | null
   perDay: number
+  /** The daily figure is a recommendation, not a plan the operator set. */
+  basisIsImplied: boolean
   pacingPerDay: number | null
   impliedBudget: number | null
   projected: number | null
@@ -168,6 +179,17 @@ function budgetNote(
 
   if (impliedBudget === null || projected === null) return
 
+  // No budget entered at all. Nothing has been decided yet, so this states the
+  // cost rather than reporting a shortfall against a figure nobody set.
+  if (target.budget <= 0) {
+    notes.push({
+      tone: 'warn',
+      title: 'No budget set yet',
+      detail: `At the current ${formatRoas(roas)} blended return, ${formatCurrency(target.amount)} of sales needs roughly ${formatCurrency(impliedBudget)} of ad spend over the ${target.horizon === 'monthly' ? 'month' : 'quarter'}. The daily, weekly and monthly figures above are that budget split down; enter a budget to plan against your own number instead.`,
+    })
+    return
+  }
+
   const shortfall = impliedBudget - target.budget
   // A percent either way is rounding, not a decision.
   const material = Math.abs(shortfall) > target.budget * 0.01
@@ -193,18 +215,23 @@ function budgetNote(
 
 /** Whether current spend is on the pace the budget assumes. */
 function pacingNote(
-  { perDay, pacingPerDay, target }: AdviceInput,
+  { perDay, basisIsImplied, pacingPerDay, target }: AdviceInput,
   notes: TargetNote[],
 ): void {
-  if (pacingPerDay === null || target.budget <= 0) return
+  // Runs against the recommended daily figure too, not only an entered one:
+  // "the goal needs £121 a day and you are spending £258" is the same useful
+  // sentence whichever side of it the reader supplied.
+  if (pacingPerDay === null || perDay <= 0) return
 
+  const allows = basisIsImplied ? 'The goal needs' : 'The plan allows'
   const gap = perDay - pacingPerDay
+
   // Under a tenth of the daily budget is drift, not a decision to make.
   if (Math.abs(gap) < perDay * 0.1) {
     notes.push({
       tone: 'good',
       title: 'Spending on pace',
-      detail: `The plan allows ${formatCurrency(perDay)} a day and the period is running at ${formatCurrency(pacingPerDay)}. Nothing to change.`,
+      detail: `${allows} ${formatCurrency(perDay)} a day and the period is running at ${formatCurrency(pacingPerDay)}. Nothing to change.`,
     })
     return
   }
@@ -214,8 +241,12 @@ function pacingNote(
     title: gap > 0 ? 'Spending under pace' : 'Spending over pace',
     detail:
       gap > 0
-        ? `The plan allows ${formatCurrency(perDay)} a day; the period is running at ${formatCurrency(pacingPerDay)}. At this rate the budget goes unspent and the goal goes unmet — raise daily spend by about ${formatCurrency(gap)}.`
-        : `The plan allows ${formatCurrency(perDay)} a day; the period is running at ${formatCurrency(pacingPerDay)}, which is ${formatCurrency(-gap)} a day above it. The budget runs out before the ${target.horizon === 'monthly' ? 'month' : 'quarter'} does.`,
+        ? `${allows} ${formatCurrency(perDay)} a day; the period is running at ${formatCurrency(pacingPerDay)}. At this rate the goal goes unmet — raise daily spend by about ${formatCurrency(gap)}.`
+        : `${allows} ${formatCurrency(perDay)} a day; the period is running at ${formatCurrency(pacingPerDay)}, which is ${formatCurrency(-gap)} a day above it. ${
+            basisIsImplied
+              ? 'The goal is already funded at this rate — the spend is ahead of what it requires.'
+              : `The budget runs out before the ${target.horizon === 'monthly' ? 'month' : 'quarter'} does.`
+          }`,
   })
 }
 
