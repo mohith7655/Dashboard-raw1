@@ -15,6 +15,7 @@ import { deltaPct, round2 } from '../../lib/derive'
 import {
   formatCurrency,
   formatDeltaPercent,
+  formatDifference,
   formatPercent,
   formatRoas,
 } from '../../lib/format'
@@ -71,6 +72,14 @@ interface PerDayFigure {
    * direction and a size but not a scale, and these are the figures read first.
    */
   previous?: string
+  /**
+   * How far the figure moved, in its own units and signed.
+   *
+   * Sits under the percentage as the baseline sits under the figure, so each
+   * column reads down: what it is and what it was, how far it moved in
+   * proportion and how far in currency.
+   */
+  difference?: string
   polarity: Polarity
   /**
    * True for the amounts that are per day. The return on advertising is a
@@ -404,12 +413,27 @@ export function ProfitSummaryCard({
       const prior = priorRate(before)
       return prior === null ? undefined : formatCurrency(prior)
     }
-    /** As above for a ratio or a total, neither of which is divided by the days. */
+    /** How far the daily rate moved in currency, for the column under the change. */
+    const gap = (amount: number, before: number | null | undefined): string | undefined => {
+      const prior = priorRate(before)
+      return prior === null
+        ? undefined
+        : formatDifference(rate(amount) - prior, formatCurrency)
+    }
     const wasFlat = (
       before: number | null | undefined,
       format: (n: number) => string,
     ): string | undefined =>
       before === null || before === undefined ? undefined : format(before)
+    /** The same, as a difference rather than a baseline. */
+    const gapFlat = (
+      now: number,
+      before: number | null | undefined,
+      format: (n: number) => string,
+    ): string | undefined =>
+      before === null || before === undefined
+        ? undefined
+        : formatDifference(now - before, format)
 
     // Taken from the payload rather than from the statement's own `Total sales`
     // row, which is dropped whenever refunds are zero — on a period with none,
@@ -444,6 +468,7 @@ export function ProfitSummaryCard({
         value: formatCurrency(rate(top.amount)),
         change: change(top.amount, previousByLabel?.get('Revenue')),
         previous: was(previousByLabel?.get('Revenue')),
+        difference: gap(top.amount, previousByLabel?.get('Revenue')),
         polarity: 'up-good',
         perDay: true,
         detail: [
@@ -460,6 +485,7 @@ export function ProfitSummaryCard({
         value: sales === null ? '—' : formatCurrency(rate(sales)),
         change: sales === null ? null : change(sales, salesBefore),
         previous: sales === null ? undefined : was(salesBefore),
+        difference: sales === null ? undefined : gap(sales, salesBefore),
         polarity: 'up-good',
         perDay: true,
         detail:
@@ -478,6 +504,8 @@ export function ProfitSummaryCard({
         value: netProfit === null ? '—' : formatCurrency(rate(netProfit)),
         change: netProfit === null ? null : change(netProfit, previousByLabel?.get('Net profit')),
         previous: netProfit === null ? undefined : was(previousByLabel?.get('Net profit')),
+        difference:
+          netProfit === null ? undefined : gap(netProfit, previousByLabel?.get('Net profit')),
         polarity: 'up-good',
         perDay: true,
         detail:
@@ -503,6 +531,7 @@ export function ProfitSummaryCard({
         value: adSpend === null ? '—' : formatCurrency(rate(adSpend)),
         change: adSpend === null ? null : change(adSpend, prevAdSpend),
         previous: adSpend === null ? undefined : was(prevAdSpend),
+        difference: adSpend === null ? undefined : gap(adSpend, prevAdSpend),
         polarity: 'down-good',
         perDay: true,
         detail:
@@ -526,6 +555,7 @@ export function ProfitSummaryCard({
         value: formatRoas(combined.roas.value),
         change: combined.roas.deltaPct,
         previous: wasFlat(priorReportedRoas, formatRoas),
+        difference: gapFlat(combined.roas.value, priorReportedRoas, formatRoas),
         polarity: 'up-good',
         detail: reportedAds.map((p) => ({
           label: p.name,
@@ -546,6 +576,7 @@ export function ProfitSummaryCard({
         value: formatCurrency(adSpend),
         change: prevAdSpend === null ? null : deltaPct(adSpend, prevAdSpend),
         previous: wasFlat(prevAdSpend, formatCurrency),
+        difference: gapFlat(adSpend, prevAdSpend, formatCurrency),
         polarity: 'down-good',
         detail: reportedAds.map((p) => ({
           label: p.name,
@@ -609,6 +640,20 @@ export function ProfitSummaryCard({
   const share = (line: Line): number => (base === 0 ? 0 : line.signed / base)
   const anyChange = lines.some((line) => changeOf(line) !== null)
   const openPanel = perDay.find((figure) => figure.key === openFigure)
+  // The comparison window's revenue, formatted — the same figure the statement's
+  // Revenue row is measured against, so the headline and the row below it can
+  // never disagree about what the period is being compared with.
+  const revenueBefore = (() => {
+    const before = previousByLabel?.get('Revenue')
+    return before === undefined ? undefined : formatCurrency(before)
+  })()
+  /** The same move in currency, beside the baseline it was struck from. */
+  const revenueMove = (() => {
+    const before = previousByLabel?.get('Revenue')
+    return before === undefined || !top
+      ? undefined
+      : formatDifference(top.amount - before, formatCurrency)
+  })()
 
 
   return (
@@ -655,7 +700,7 @@ export function ProfitSummaryCard({
                   )}
                   {blendedReturn.previous !== null && (
                     <span className="text-[11px] tabular-nums text-label">
-                      vs {blendedReturn.previous}
+                      {blendedReturn.previous}
                     </span>
                   )}
                 </span>
@@ -669,21 +714,25 @@ export function ProfitSummaryCard({
             />
           </button>
 
-          {/* Set at the size of the figures in the strip below rather than in
-              `kpi-value`, which the other cards still use.
-
-              The headline was more than twice their height, which made it the
-              only figure on the card the eye read first and the rest read as
-              captions to. Revenue is not a bigger claim than net profit — it is
-              the same kind of claim about a different line, and every one of
-              them now carries the same weight. */}
+          {/* Larger than the strip below it but well short of the 30px it
+              began at: it leads the card without making every figure under it
+              read as a caption. Its own baseline sits under it, in the same
+              grammar every box in the strip uses. */}
           <div className="mt-1.5">
             {loading ? (
-              <Skeleton className="h-[18px] w-28" />
+              <Skeleton className="h-[26px] w-36" />
             ) : (
-              <div className="truncate text-[13.5px] font-semibold tabular-nums text-ink">
-                {failed || !top ? '—' : formatCurrency(top.amount)}
-              </div>
+              <>
+                <div className="truncate text-[24px] font-semibold leading-tight tabular-nums text-ink">
+                  {failed || !top ? '—' : formatCurrency(top.amount)}
+                </div>
+                {!failed && top && revenueBefore !== undefined && (
+                  <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[11px] tabular-nums text-label">
+                    <span>{revenueBefore}</span>
+                    {revenueMove !== undefined && <span>{revenueMove}</span>}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -832,13 +881,16 @@ function StripFigure({
             {formatDeltaPercent(figure.change)}
           </span>
         )}
-        {/* Inline after the change, not under it: `+22.9% vs $552.44` is one
-            sentence, where a figure on its own line is a second thing to look
-            at on every figure in the strip. */}
-        {figure.previous !== undefined && (
-          <span className="text-[11px] tabular-nums text-label">vs {figure.previous}</span>
-        )}
       </div>
+      {/* The second line mirrors the first: what it was sits under what it is,
+          and how far it moved in currency sits under how far it moved in
+          proportion. Each column reads straight down. */}
+      {(figure.previous !== undefined || figure.difference !== undefined) && (
+        <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[11px] tabular-nums text-label">
+          <span>{figure.previous ?? ''}</span>
+          {figure.difference !== undefined && <span>{figure.difference}</span>}
+        </div>
+      )}
     </button>
   )
 }

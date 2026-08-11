@@ -417,12 +417,9 @@ export default function App() {
 
         {view === 'overview' && (
           <div className="flex flex-col gap-8">
-            {/* Ahead of the figures rather than after them: the report is the
-                one thing on the page that says what the figures mean, and a
-                reader who scrolled past every card to reach it would already
-                have formed the view it exists to correct. */}
-            {insightsSection}
-
+            {/* Insights is not mounted here. It has its own tab, and the same
+                element rendered in both places put a paid analysis above the
+                figures on every visit to the Overview. */}
             <WooCommerceSection
               metrics={woo.data}
               loading={woo.isLoading}

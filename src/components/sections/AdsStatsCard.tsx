@@ -11,6 +11,7 @@ import {
   formatDeltaPercent,
   formatInteger,
   formatPercent,
+  formatDifference,
   formatPrevious as was,
   formatRoas,
 } from '../../lib/format'
@@ -129,6 +130,8 @@ export function AdsStatsCard({
       value: formatCurrency(spend),
       change: metrics.spend.deltaPct,
       previous: prevSpend === null ? undefined : formatCurrency(prevSpend),
+      difference:
+        prevSpend === null ? undefined : formatDifference(spend - prevSpend, formatCurrency),
       polarity: 'down-good',
       detail: platforms.map((p) => ({
         label: p.name,
@@ -144,6 +147,10 @@ export function AdsStatsCard({
       value: formatCurrency(spendPerDay),
       change: prevSpendPerDay === null ? null : deltaPct(spendPerDay, prevSpendPerDay),
       previous: prevSpendPerDay === null ? undefined : formatCurrency(prevSpendPerDay),
+      difference:
+        prevSpendPerDay === null
+          ? undefined
+          : formatDifference(spendPerDay - prevSpendPerDay, formatCurrency),
       polarity: 'down-good',
       detail: [
         { label: `${days} days in period`, value: formatCurrency(spend) },
@@ -162,6 +169,10 @@ export function AdsStatsCard({
       value: attributed ? formatRoas(metrics.roas.value) : '—',
       change: attributed ? metrics.roas.deltaPct : null,
       previous: attributed && prevRoas !== null ? formatRoas(prevRoas) : undefined,
+      difference:
+        attributed && prevRoas !== null
+          ? formatDifference(metrics.roas.value - prevRoas, formatRoas)
+          : undefined,
       detail: [
         ...platforms.map((p) => ({
           label: p.name,
@@ -196,6 +207,9 @@ export function AdsStatsCard({
         ? deltaPct(blended.blendedRoas, blended.previous.blendedRoas)
         : null,
       previous: blended.previous ? formatRoas(blended.previous.blendedRoas) : undefined,
+      difference: blended.previous
+        ? formatDifference(blended.blendedRoas - blended.previous.blendedRoas, formatRoas)
+        : undefined,
       detail: [
         { label: 'Store sales', value: formatCurrency(storeSales) },
         { label: 'Ad spend, every platform', value: formatCurrency(blended.spend) },
@@ -212,6 +226,12 @@ export function AdsStatsCard({
         : null,
       previous: blended.previous
         ? formatPercent(blended.previous.shareOfRevenue)
+        : undefined,
+      difference: blended.previous
+        ? formatDifference(
+            blended.shareOfRevenue - blended.previous.shareOfRevenue,
+            formatPercent,
+          )
         : undefined,
       polarity: 'down-good',
       detail: [
@@ -364,6 +384,8 @@ interface FigureSpec {
   change: number | null
   /** Pre-formatted figure for the comparison window; omitted when it is off. */
   previous?: string
+  /** How far it moved, in its own units — under the percentage, as on the CEO card. */
+  difference?: string
   polarity?: Polarity
   detail: { label: string; value: string }[]
 }
@@ -427,10 +449,15 @@ function HeadlineFigure({
             {formatDeltaPercent(change)}
           </span>
         )}
-        {previous !== undefined && (
-          <span className="text-[11px] tabular-nums text-label">vs {previous}</span>
-        )}
       </div>
+      {/* Mirrors the line above it: what it was under what it is, and the move
+          in its own units under the move in proportion. */}
+      {(previous !== undefined || figure.difference !== undefined) && (
+        <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[11px] tabular-nums text-label">
+          <span>{previous ?? ''}</span>
+          {figure.difference !== undefined && <span>{figure.difference}</span>}
+        </div>
+      )}
     </button>
   )
 }

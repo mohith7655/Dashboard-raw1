@@ -136,3 +136,22 @@ export function formatPrevious(
 ): string | undefined {
   return m.previous === null || m.previous === undefined ? undefined : format(m.previous)
 }
+
+/**
+ * A difference, signed and formatted in its own units.
+ *
+ * The percentage beside a figure says how far it moved in proportion; this says
+ * how far it moved in the thing itself. On a small base the two part company —
+ * `+300%` is four redemptions against one — and the pair together is what makes
+ * either of them safe to act on.
+ *
+ * The minus is U+2212, matching the statement's own deductions rather than the
+ * hyphen a keyboard produces.
+ */
+export function formatDifference(
+  difference: number,
+  format: (n: number) => string,
+): string {
+  if (difference === 0) return `±${format(0)}`
+  return `${difference > 0 ? '+' : '−'}${format(Math.abs(difference))}`
+}
