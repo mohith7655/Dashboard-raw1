@@ -1,5 +1,5 @@
 import { useId, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, ChevronDown, TrendingUp } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown } from 'lucide-react'
 import type {
   AdsMetrics,
   DateRange,
@@ -671,7 +671,10 @@ export function ProfitSummaryCard({
 
 
   return (
-    <div className="card">
+    // No card around it. The boxes inside are already bounded, and a panel
+    // drawn around a grid of panels is a second frame saying nothing the first
+    // did not — it only pushed every figure in by its own padding.
+    <div>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           {/* The whole title row opens the statement, as the coupon card's
@@ -690,12 +693,6 @@ export function ProfitSummaryCard({
                 {top?.label ?? 'Revenue'}
               </span>
             </span>
-            <ChevronDown
-              size={15}
-              className={`shrink-0 text-muted transition-all group-hover:text-ink ${
-                open ? 'rotate-180' : ''
-              }`}
-            />
           </button>
 
           {/* Larger than the strip below but well short of the 30px it began
@@ -764,9 +761,6 @@ export function ProfitSummaryCard({
           </div>
         </div>
 
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-icon-btn text-muted">
-          <TrendingUp size={15} strokeWidth={2} />
-        </span>
       </div>
 
       {/* Directly under the headline the period earned, because it is the same
