@@ -1,24 +1,15 @@
 import { useState } from 'react'
-import {
-  BarChart3,
-  ChevronDown,
-  Eye,
-  Gauge,
-  MousePointerClick,
-  Percent,
-  Target,
-  TrendingUp,
-  Wallet,
-} from 'lucide-react'
-import type { AdsMetrics } from '../../lib/types'
+import { ChevronDown } from 'lucide-react'
+import type { AdsMetrics, Polarity } from '../../lib/types'
 import {
   formatCtr,
   formatCurrency,
   formatInteger,
   formatRoas,
 } from '../../lib/format'
-import { KpiCard, type KpiPart } from '../KpiCard'
-import { CardRow } from '../CardRow'
+import { StatRows, type StatRowData } from '../StatRows'
+import { Skeleton } from '../Skeleton'
+import { formatPrevious } from '../../lib/format'
 import { SectionLabel } from '../SectionLabel'
 
 interface AdsSectionProps {
@@ -86,107 +77,88 @@ export function AdsSection({
   collapsible = false,
 }: AdsSectionProps) {
   const [open, setOpen] = useState(false)
-  const shared = { loading, unavailable: failed }
   const bodyId = `ads-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
 
-  const partsFor = (
-    key: AdsMetricKey,
-    format: (n: number) => string,
-  ): KpiPart[] | undefined => {
-    if (!platforms || platforms.length === 0) return undefined
-    const total = metrics?.[key].value ?? 0
-    return platforms.map((platform) => ({
-      label: platform.name,
-      value: format(platform.metrics[key].value),
-      share: ADDITIVE.has(key)
-        ? total
-          ? platform.metrics[key].value / total
-          : 0
-        : undefined,
-      // Each platform's own change, not a share of the combined one — Meta can
-      // be up over the window while Google is down.
-      deltaPct: platform.metrics[key].deltaPct,
-    }))
+  /**
+   * Every figure the section reports, as rows: each heading with the platforms
+   * that make it up indented beneath.
+   *
+   * Eight tiles in two grids put each figure in its own box, which made spend
+   * and the return it bought two unrelated cards a row apart. Set as rows they
+   * share columns and read down.
+   */
+  const rows: StatRowData[] = []
+  if (metrics) {
+    const group = (
+      key: AdsMetricKey,
+      label: string,
+      format: (n: number) => string,
+      polarity: Polarity = 'up-good',
+    ) => {
+      const total = metrics[key].value
+      rows.push({
+        label,
+        value: format(total),
+        kind: 'total',
+        share: null,
+        change: metrics[key].deltaPct,
+        previous: formatPrevious(metrics[key], format),
+        polarity,
+      })
+
+      // Only worth splitting when more than one platform stands behind it;
+      // with one, the part simply restates the row above.
+      if (!platforms || platforms.length < 2) return
+      for (const platform of platforms) {
+        rows.push({
+          label: platform.name,
+          value: format(platform.metrics[key].value),
+          kind: 'part',
+          // Only a sum can be apportioned. Meta's CTR and Google's do not make
+          // up the combined figure in any share sense.
+          share: ADDITIVE.has(key)
+            ? total
+              ? platform.metrics[key].value / total
+              : 0
+            : null,
+          // Each platform's own change, not a share of the combined one — Meta
+          // can be up over the window while Google is down.
+          change: platform.metrics[key].deltaPct,
+          previous: formatPrevious(platform.metrics[key], format),
+          polarity,
+        })
+      }
+    }
+
+    group('spend', 'Spend', formatCurrency, 'down-good')
+    group('impressions', 'Impressions', formatInteger)
+    group('clicks', 'Clicks', formatInteger)
+    group('ctr', 'CTR', formatCtr)
+    group('roas', 'ROAS', formatRoas)
+    group('cpc', 'CPC', formatCurrency, 'down-good')
+    group('cpm', 'CPM', formatCurrency, 'down-good')
+    group('conversions', 'Conversions', formatInteger)
   }
 
   const body = (
     <>
       {subtitle && <p className="-mt-1 mb-3 text-[12px] text-muted">{subtitle}</p>}
 
-      <CardRow>
-        <KpiCard
-          label="Spend"
-          value={metrics ? formatCurrency(metrics.spend.value) : '—'}
-          metric={metrics?.spend}
-          polarity="down-good"
-          icon={Wallet}
-          parts={partsFor('spend', formatCurrency)}
-          {...shared}
-        />
-        <KpiCard
-          label="Impressions"
-          value={metrics ? formatInteger(metrics.impressions.value) : '—'}
-          metric={metrics?.impressions}
-          icon={Eye}
-          parts={partsFor('impressions', formatInteger)}
-          {...shared}
-        />
-        <KpiCard
-          label="Clicks"
-          value={metrics ? formatInteger(metrics.clicks.value) : '—'}
-          metric={metrics?.clicks}
-          icon={MousePointerClick}
-          parts={partsFor('clicks', formatInteger)}
-          {...shared}
-        />
-        <KpiCard
-          label="CTR"
-          value={metrics ? formatCtr(metrics.ctr.value) : '—'}
-          metric={metrics?.ctr}
-          icon={Percent}
-          parts={partsFor('ctr', formatCtr)}
-          {...shared}
-        />
-      </CardRow>
+      {loading ? (
+        <div className="flex flex-col gap-2 border-t border-row-line pt-3">
+          <Skeleton className="h-3.5 w-full" />
+          <Skeleton className="h-3.5 w-full" />
+          <Skeleton className="h-3.5 w-full" />
+        </div>
+      ) : failed || rows.length === 0 ? (
+        <p className="border-t border-row-line pt-3 text-[12px] text-muted">
+          This platform did not report for this period.
+        </p>
+      ) : (
+        <StatRows rows={rows} />
+      )}
 
-      <CardRow className="mt-4">
-        <KpiCard
-          label="ROAS"
-          value={metrics ? formatRoas(metrics.roas.value) : '—'}
-          metric={metrics?.roas}
-          icon={TrendingUp}
-          parts={partsFor('roas', formatRoas)}
-          {...shared}
-        />
-        <KpiCard
-          label="CPC"
-          value={metrics ? formatCurrency(metrics.cpc.value) : '—'}
-          metric={metrics?.cpc}
-          polarity="down-good"
-          icon={Gauge}
-          parts={partsFor('cpc', formatCurrency)}
-          {...shared}
-        />
-        <KpiCard
-          label="CPM"
-          value={metrics ? formatCurrency(metrics.cpm.value) : '—'}
-          metric={metrics?.cpm}
-          polarity="down-good"
-          icon={BarChart3}
-          parts={partsFor('cpm', formatCurrency)}
-          {...shared}
-        />
-        <KpiCard
-          label="Conversions"
-          value={metrics ? formatInteger(metrics.conversions.value) : '—'}
-          metric={metrics?.conversions}
-          icon={Target}
-          parts={partsFor('conversions', formatInteger)}
-          {...shared}
-        />
-      </CardRow>
-
-      {extra && <CardRow className="mt-4">{extra}</CardRow>}
+      {extra && <div className="mt-4">{extra}</div>}
     </>
   )
 

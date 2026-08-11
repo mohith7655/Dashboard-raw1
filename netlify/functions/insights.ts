@@ -1,4 +1,10 @@
-import type { InsightsAnswer, InsightsReport } from '../../src/lib/types'
+import type {
+  InsightsAnswer,
+  InsightsReport,
+  TargetAdvice,
+  TargetNote,
+  TargetNoteTone,
+} from '../../src/lib/types'
 import {
   BadRequest,
   asArray,
@@ -52,6 +58,12 @@ export default async function handler(request: Request): Promise<Response> {
     const question = typeof body.question === 'string' ? body.question.trim() : ''
     if (question && isRecord(body.snapshot)) {
       return jsonNoStore(await answer(body.snapshot, question, apiKey, model))
+    }
+
+    // A posted `target` asks what to do about one goal, given the arithmetic
+    // the client has already done and the period behind it.
+    if (isRecord(body.target) && isRecord(body.plan)) {
+      return jsonNoStore(await adviseTarget(body, apiKey, model))
     }
 
     const report = await analyse(body, apiKey, model)
@@ -108,6 +120,93 @@ async function answer(
     model,
     answeredAt: new Date().toISOString(),
   }
+}
+
+/** Advice on one target costs a fraction of a full report. */
+const ADVICE_MAX_TOKENS = 2000
+
+const TARGET_SYSTEM = `You are an e-commerce analyst advising on one commercial target for a single store.
+
+You are given JSON with three parts:
+- \`target\`: the goal as its owner set it. \`goal\` is "sales" (an amount to reach) or "roas" (a return to hold). \`amount\` reads against that. \`budgetPct\` is the ad budget as a percentage of sales. \`deadline\` is the date it must be met by.
+- \`plan\`: the arithmetic already done on the client — the budget the percentage resolves to, the daily/weekly/monthly split over the days remaining, what the store is currently spending per day, the budget the goal implies at the current return, and how much of the goal is in reach.
+- \`snapshot\`: the period the store has actually just traded, including revenue, costs, margin, ad spend and return by platform.
+
+Rules:
+- Reason only from those figures. Never invent a number, and never estimate one that is absent.
+- Quote the figures behind each point, with units.
+- Money is in the store's own currency, named as \`currency\` in the snapshot. Use that one. Never substitute a different symbol, and where none is given write the amount bare rather than guessing at a country.
+- The client's arithmetic is correct. Do not re-derive it or contradict it; explain what it means and what to do.
+- deltaPct values are percentages against the comparison window (12 means +12%). Rates such as margin and shareOfRevenue are fractions.
+- Blended ROAS is store revenue over total ad spend; platform ROAS is the platform's own attributed figure. They disagree by design.
+- The two goals take opposite advice about budget, and confusing them is the one mistake that makes this section worse than useless:
+  - goal "roas": more spend at a return below target makes the target worse. Never advise raising budget to fix a return.
+  - goal "sales": \`impliedBudget\` is what the goal costs at the current return. Where it exceeds the budget set, raising spend to meet it is the direct lever and should be said plainly, with the shortfall in currency.
+- \`attainment\` is what the budget buys against the goal. \`paceAttainment\` is what current trading reaches against the goal, before any change to spend. They are different questions — name which one you mean, and never quote one as the other.
+- Be specific and short. Each note is one claim with the figures that support it and the action it implies.
+- Never name a JSON field in the prose. Write "current trading reaches 51% of the goal", not "paceAttainment is 0.513". The reader has never seen the payload and should not have to.
+- Write dates as a person would — "31 August", not "2026-08-31". Do not open a note with "Action:"; say what to do in a sentence.
+- Rank them: whether the goal is reachable at all first, then where the money should go, then what is quietly limiting it.
+- Between three and five notes. \`tone\` is "good" where nothing needs doing, "warn" where something should be watched, "bad" where the target is at risk.
+
+Reply with JSON only:
+{"headline": string, "notes": [{"tone": "good"|"warn"|"bad", "title": string, "detail": string}]}`
+
+/**
+ * What to do about one target, written by OpenAI.
+ *
+ * The client posts the plan it has already computed rather than having this
+ * re-derive it: the advice then explains the figures actually on screen, and
+ * the model is never in a position to state a budget that disagrees with the
+ * one printed above it.
+ */
+async function adviseTarget(
+  body: Record<string, unknown>,
+  apiKey: string,
+  model: string,
+): Promise<TargetAdvice> {
+  const content = await complete(
+    apiKey,
+    model,
+    TARGET_SYSTEM,
+    JSON.stringify({
+      target: body.target,
+      plan: body.plan,
+      snapshot: isRecord(body.snapshot) ? body.snapshot : {},
+    }),
+    ADVICE_MAX_TOKENS,
+  )
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(content)
+  } catch {
+    throw new Error('OpenAI API error (PARSE): the model did not return valid JSON.')
+  }
+
+  const record = isRecord(parsed) ? parsed : {}
+  const notes: TargetNote[] = []
+  for (const row of asArray(record.notes).filter(isRecord)) {
+    const title = typeof row.title === 'string' ? row.title.trim() : ''
+    const detail = typeof row.detail === 'string' ? row.detail.trim() : ''
+    if (!title || !detail) continue
+    notes.push({ tone: readTone(row.tone), title, detail })
+  }
+
+  return {
+    headline:
+      typeof record.headline === 'string' && record.headline.trim()
+        ? record.headline.trim()
+        : 'No summary returned.',
+    notes,
+    model,
+    generatedAt: new Date().toISOString(),
+  }
+}
+
+/** Anything the model invents outside the three tones reads as a warning. */
+function readTone(raw: unknown): TargetNoteTone {
+  return raw === 'good' || raw === 'bad' ? raw : 'warn'
 }
 
 async function readSnapshot(request: Request): Promise<Record<string, unknown>> {

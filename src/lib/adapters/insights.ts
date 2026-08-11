@@ -1,4 +1,11 @@
-import type { AdapterResult, InsightsAnswer, InsightsReport } from '../types'
+import type {
+  AdapterResult,
+  InsightsAnswer,
+  InsightsReport,
+  Target,
+  TargetAdvice,
+  TargetPlan,
+} from '../types'
 import { postFunction, toResult } from './client'
 
 const SOURCE = 'OpenAI'
@@ -25,5 +32,22 @@ export async function ask(
 ): Promise<AdapterResult<InsightsAnswer>> {
   return toResult(SOURCE, HINT, () =>
     postFunction<InsightsAnswer>('insights', { question, snapshot }),
+  )
+}
+
+/**
+ * What to do about one target, written by the model.
+ *
+ * The plan the client has already computed travels with it, so the advice
+ * explains the figures printed on the card rather than a second set derived
+ * server-side that could disagree with them.
+ */
+export async function adviseTarget(
+  target: Target,
+  plan: Omit<TargetPlan, 'target' | 'notes'>,
+  snapshot: Record<string, unknown>,
+): Promise<AdapterResult<TargetAdvice>> {
+  return toResult(SOURCE, HINT, () =>
+    postFunction<TargetAdvice>('insights', { target, plan, snapshot }),
   )
 }

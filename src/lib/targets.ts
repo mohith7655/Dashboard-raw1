@@ -112,6 +112,22 @@ export function planTarget({
   // spent in, and a rate that said otherwise would be arithmetic about the past.
   const perDay = daysLeft > 0 ? budgetBasis / daysLeft : 0
 
+  // The goal at the rate it has to be met. A sales target divides; a return
+  // target is already a rate and has nothing to divide into.
+  const goalPerDay = isSales && daysLeft > 0 ? target.amount / daysLeft : null
+
+  /**
+   * What the store is on pace to sell over the days that remain, from the rate
+   * the period on screen actually traded at.
+   *
+   * Set against the goal it answers the question the budget cannot: whether the
+   * target is in reach on current trading, before any change to the spend.
+   */
+  const salesPerDay = woo ? woo.totalRevenue.value / periodDays : null
+  const paceSales = salesPerDay === null ? null : salesPerDay * daysLeft
+  const paceAttainment =
+    paceSales === null || !isSales || target.amount <= 0 ? null : paceSales / target.amount
+
   return {
     target,
     budgetBasis,
@@ -120,6 +136,11 @@ export function planTarget({
     perDay,
     perWeek: perDay * 7,
     perMonth: perDay * 30,
+    goalPerDay,
+    goalPerWeek: goalPerDay === null ? null : goalPerDay * 7,
+    goalPerMonth: goalPerDay === null ? null : goalPerDay * 30,
+    paceSales,
+    paceAttainment,
     pacingPerDay,
     impliedBudget,
     projected,

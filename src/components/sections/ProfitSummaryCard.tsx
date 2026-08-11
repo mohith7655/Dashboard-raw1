@@ -431,7 +431,6 @@ export function ProfitSummaryCard({
      * all. The gap between the two is itself the reading.
      */
     const combined = reportedAds.length > 0 ? combinedAds(reportedAds) : null
-    const blended = woo && reportedAds.length > 0 ? blendedAds(woo, reportedAds) : null
     const attributed = !!combined && combined.reportsConversions !== false
     const priorReportedRoas =
       combined?.previousTotals && combined.previousTotals.spend > 0
@@ -520,27 +519,6 @@ export function ProfitSummaryCard({
       },
     ]
 
-    if (blended) {
-      rows.push({
-        key: 'blended-roas',
-        label: 'Blended ROAS',
-        value: formatRoas(blended.blendedRoas),
-        change: blended.previous
-          ? deltaPct(blended.blendedRoas, blended.previous.blendedRoas)
-          : null,
-        previous: wasFlat(blended.previous?.blendedRoas ?? null, formatRoas),
-        polarity: 'up-good',
-        detail: [
-          {
-            label: 'Store sales',
-            value: formatCurrency(blended.blendedRoas * blended.spend),
-          },
-          { label: 'Ad spend, every platform', value: formatCurrency(blended.spend) },
-          { label: 'Cost per order', value: formatCurrency(blended.costPerOrder) },
-        ],
-      })
-    }
-
     if (combined && attributed) {
       rows.push({
         key: 'reported-roas',
@@ -578,8 +556,46 @@ export function ProfitSummaryCard({
       })
     }
 
-    return rows
+    /**
+     * The order the boxes read in, named rather than left to the order they
+     * happened to be built in.
+     *
+     * Revenue first, then what was kept of it, then what was spent to get it —
+     * daily rate, period total, and the return that spend produced. Sales sits
+     * last: it differs from revenue only by the refunds, so it is the footnote
+     * to the first box rather than a claim of its own.
+     */
+    const ORDER = [
+      'revenue',
+      'net-profit',
+      'ad-spend',
+      'ad-spend-total',
+      'reported-roas',
+      'sales',
+    ]
+    return rows.sort((a, b) => ORDER.indexOf(a.key) - ORDER.indexOf(b.key))
   }, [woo, top, lines, previousByLabel, adSpend, prevAdSpend, reportedAds, range, against])
+
+  /**
+   * The blended return, carried up onto the title beside the revenue it is
+   * struck against.
+   *
+   * It belongs there rather than among the boxes: every box below is a figure
+   * of this period, where this is the rate at which advertising turned into the
+   * headline above it — the one number that relates the two halves of the card.
+   */
+  const blendedReturn = useMemo(() => {
+    if (!woo || reportedAds.length === 0) return null
+    const blended = blendedAds(woo, reportedAds)
+    if (!blended) return null
+    return {
+      value: formatRoas(blended.blendedRoas),
+      change: blended.previous
+        ? deltaPct(blended.blendedRoas, blended.previous.blendedRoas)
+        : null,
+      previous: blended.previous ? formatRoas(blended.previous.blendedRoas) : null,
+    }
+  }, [woo, reportedAds])
   // Signed, so a deduction reads `−13.6%` beside its `−$448.18`. A share
   // printed bare made a line that comes off the total look like one that adds
   // to it, which is the one thing the figure beside it already says.
@@ -610,8 +626,40 @@ export function ProfitSummaryCard({
             aria-controls={bodyId}
             className="group flex w-full items-center justify-between gap-3 text-left"
           >
-            <span className="kpi-label truncate transition-colors group-hover:text-ink">
-              {top?.label ?? 'Revenue'}
+            <span className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="kpi-label truncate transition-colors group-hover:text-ink">
+                {top?.label ?? 'Revenue'}
+              </span>
+              {!loading && !failed && blendedReturn && (
+                <span className="flex items-baseline gap-1.5">
+                  <span className="text-[10px] uppercase tracking-[0.06em] text-label">
+                    Blended ROAS
+                  </span>
+                  <span className="text-[13px] font-semibold tabular-nums text-ink">
+                    {blendedReturn.value}
+                  </span>
+                  {blendedReturn.change !== null && (
+                    <span
+                      className={`flex items-center gap-0.5 text-[11px] tabular-nums ${changeColor(
+                        blendedReturn.change,
+                        'up-good',
+                      )}`}
+                    >
+                      {blendedReturn.change < 0 ? (
+                        <ArrowDown size={10} strokeWidth={3} />
+                      ) : (
+                        <ArrowUp size={10} strokeWidth={3} />
+                      )}
+                      {formatDeltaPercent(blendedReturn.change)}
+                    </span>
+                  )}
+                  {blendedReturn.previous !== null && (
+                    <span className="text-[11px] tabular-nums text-label">
+                      vs {blendedReturn.previous}
+                    </span>
+                  )}
+                </span>
+              )}
             </span>
             <ChevronDown
               size={15}
@@ -621,11 +669,19 @@ export function ProfitSummaryCard({
             />
           </button>
 
-          <div className="mt-2">
+          {/* Set at the size of the figures in the strip below rather than in
+              `kpi-value`, which the other cards still use.
+
+              The headline was more than twice their height, which made it the
+              only figure on the card the eye read first and the rest read as
+              captions to. Revenue is not a bigger claim than net profit — it is
+              the same kind of claim about a different line, and every one of
+              them now carries the same weight. */}
+          <div className="mt-1.5">
             {loading ? (
-              <Skeleton className="h-[30px] w-40" />
+              <Skeleton className="h-[18px] w-28" />
             ) : (
-              <div className="kpi-value truncate">
+              <div className="truncate text-[13.5px] font-semibold tabular-nums text-ink">
                 {failed || !top ? '—' : formatCurrency(top.amount)}
               </div>
             )}
@@ -642,7 +698,11 @@ export function ProfitSummaryCard({
           period down rather than restating it. */}
       {!loading && !failed && perDay.length > 0 && (
         <div className="mt-3 border-t border-row-line pt-2.5">
-          <div className="flex flex-wrap items-start gap-x-2 gap-y-2">
+          {/* A grid of boxes, two to a line, rather than figures flowing
+              inline. Wrapped inline they packed differently at every width and
+              read as a run-on table; boxed and gridded, each figure keeps its
+              own bounds and the column edges line up down the card. */}
+          <div className="grid grid-cols-2 gap-2">
             {perDay.map((figure) => (
               <StripFigure
                 key={figure.key}
@@ -740,11 +800,9 @@ function StripFigure({
       onClick={onToggle}
       disabled={!openable}
       aria-expanded={open}
-      className={`min-w-0 rounded-lg border px-2 py-1 text-left transition-colors ${
-        open
-          ? 'border-[#3a3a40] bg-btn'
-          : 'border-transparent hover:border-btn-border hover:bg-btn'
-      } disabled:cursor-default disabled:hover:border-transparent disabled:hover:bg-transparent`}
+      className={`min-w-0 rounded-lg border px-2.5 py-2 text-left transition-colors ${
+        open ? 'border-[#3a3a40] bg-btn' : 'border-btn-border hover:border-[#3a3a40]'
+      } disabled:cursor-default disabled:hover:border-btn-border`}
     >
       <div className="flex items-center gap-1 text-[10.5px] uppercase tracking-wide text-label">
         {figure.perDay ? `${figure.label} / day` : figure.label}

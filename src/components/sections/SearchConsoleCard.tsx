@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MousePointerClick, Eye, Percent, ArrowUpNarrowWide } from 'lucide-react'
+import { Search } from 'lucide-react'
 import type { GscDimension, GscReport, GscRow, Metric } from '../../lib/types'
 import { GSC_DIMENSIONS, GSC_DIMENSION_LABELS } from '../../lib/types'
 import { deltaPct } from '../../lib/derive'
@@ -9,8 +9,8 @@ import {
   formatInteger,
 } from '../../lib/format'
 import { DataTable, paginateRows, type Column } from '../DataTable'
-import { KpiCard } from '../KpiCard'
-import { CardRow } from '../CardRow'
+import { RowsCard } from '../RowsCard'
+import type { StatRowData } from '../StatRows'
 
 interface SearchConsoleCardProps {
   report: GscReport | undefined
@@ -77,44 +77,64 @@ export function SearchConsoleCard({
     numeric('position', 'Avg. position', (r) => formatDecimal(r.position)),
   ]
 
+  /**
+   * The four headline figures as rows.
+   *
+   * Impressions heads the group: clicks are the part of it that arrived, and
+   * CTR is the share between them — which the rows can state as a share where
+   * four separate tiles could only put the three numbers side by side and leave
+   * the arithmetic to the reader.
+   */
+  const summary: StatRowData[] = totals
+    ? [
+        {
+          label: 'Impressions',
+          value: formatInteger(totals.impressions),
+          kind: 'total',
+          share: null,
+          change: metric((t) => t.impressions)?.deltaPct ?? null,
+          previous: was ? formatInteger(was.impressions) : undefined,
+        },
+        {
+          label: 'Organic clicks',
+          value: formatInteger(totals.clicks),
+          kind: 'part',
+          share: totals.impressions ? totals.clicks / totals.impressions : 0,
+          change: metric((t) => t.clicks)?.deltaPct ?? null,
+          previous: was ? formatInteger(was.clicks) : undefined,
+        },
+        {
+          // No share of its own: it is already the share the row above takes of
+          // the row above that, in the same units.
+          label: 'CTR',
+          value: formatCtr(totals.ctr),
+          kind: 'part',
+          share: null,
+          change: metric((t) => t.ctr)?.deltaPct ?? null,
+          previous: was ? formatCtr(was.ctr) : undefined,
+        },
+        {
+          label: 'Avg. position',
+          value: formatDecimal(totals.position),
+          kind: 'total',
+          share: null,
+          change: metric((t) => t.position)?.deltaPct ?? null,
+          previous: was ? formatDecimal(was.position) : undefined,
+          // Rank 3 beats rank 8: a fall in this number is a rise up the page.
+          polarity: 'down-good',
+        },
+      ]
+    : []
+
   return (
     <div className="flex flex-col gap-4">
-      <CardRow>
-        <KpiCard
-          label="Organic Clicks"
-          value={totals ? formatInteger(totals.clicks) : '—'}
-          metric={metric((t) => t.clicks)}
-          icon={MousePointerClick}
-          loading={loading}
-          unavailable={!!error}
-        />
-        <KpiCard
-          label="Impressions"
-          value={totals ? formatInteger(totals.impressions) : '—'}
-          metric={metric((t) => t.impressions)}
-          icon={Eye}
-          loading={loading}
-          unavailable={!!error}
-        />
-        <KpiCard
-          label="CTR"
-          value={totals ? formatCtr(totals.ctr) : '—'}
-          metric={metric((t) => t.ctr)}
-          icon={Percent}
-          loading={loading}
-          unavailable={!!error}
-        />
-        <KpiCard
-          label="Avg. Position"
-          value={totals ? formatDecimal(totals.position) : '—'}
-          metric={metric((t) => t.position)}
-          // Rank 3 beats rank 8: a fall in this number is a rise up the page.
-          polarity="down-good"
-          icon={ArrowUpNarrowWide}
-          loading={loading}
-          unavailable={!!error}
-        />
-      </CardRow>
+      <RowsCard
+        title="Organic search"
+        icon={Search}
+        rows={summary}
+        loading={loading}
+        unavailable={error ? 'Search Console data unavailable for this period.' : null}
+      />
 
       <div role="tablist" aria-label="Search Console breakdown" className="flex flex-wrap gap-1.5">
         {GSC_DIMENSIONS.map((id) => {

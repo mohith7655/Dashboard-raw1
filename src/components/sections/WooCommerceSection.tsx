@@ -13,6 +13,14 @@ interface WooCommerceSectionProps {
   /** Leads the section, above the store figures — the statement in full. */
   summary?: React.ReactNode
   /**
+   * Between the statement and the store figures.
+   *
+   * Where the advertising sits: it is what the statement's costliest line was
+   * spent on, and it reads before the order counts because those are the thing
+   * the spend was meant to produce.
+   */
+  beforeStats?: React.ReactNode
+  /**
    * Closes the section, below the store figures.
    *
    * Its own slot rather than a second child of `summary`, so the order the
@@ -38,18 +46,21 @@ export function WooCommerceSection({
   range,
   against,
   summary,
+  beforeStats,
   footer,
 }: WooCommerceSectionProps) {
   return (
     <section>
       <SectionLabel>CEO Dashboard</SectionLabel>
 
-      {/* Statement, then who bought, then what was given away to make them buy.
-          Orders and customers sits directly under the statement because it is
-          the same period counted a second way; the coupons that discounted it
-          are a footnote to both and read last. */}
+      {/* Statement, then what was spent to fill it, then who bought, then what
+          was given away to make them buy. The order counts read after the
+          advertising because they are what the advertising was meant to
+          produce; the coupons that discounted them are a footnote to all three
+          and read last. */}
       <div className="flex flex-col gap-4">
         {summary}
+        {beforeStats}
         <StoreStatsCard
           metrics={metrics}
           range={range}

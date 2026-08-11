@@ -207,6 +207,17 @@ export function DashboardPage() {
                 failed={!!woo.error}
               />
             }
+            beforeStats={
+              <AdsStatsCard
+                metrics={combined ?? undefined}
+                platforms={reportedAds}
+                blended={woo.error ? null : blended}
+                subtitle={combinedScope}
+                range={range}
+                against={against}
+                loading={adsLoading}
+              />
+            }
             footer={
               // The statement names coupons as one line — a single figure come
               // off gross sales. Which codes that figure was, and whether they
@@ -231,15 +242,6 @@ export function DashboardPage() {
             }
           />
 
-          <AdsStatsCard
-            metrics={combined ?? undefined}
-            platforms={reportedAds}
-            blended={woo.error ? null : blended}
-            subtitle={combinedScope}
-            range={range}
-            against={against}
-            loading={adsLoading}
-          />
 
           <AdsSection
             title="Facebook Meta Ads"

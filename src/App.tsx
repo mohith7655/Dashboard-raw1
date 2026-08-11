@@ -18,6 +18,7 @@ import { MarkifactSection } from './components/sections/MarkifactSection'
 import { RevenueBreakdownCard } from './components/sections/RevenueBreakdownCard'
 import { TargetsSection } from './components/sections/TargetsSection'
 import { RevenueAndRefunds } from './components/charts/RevenueAndRefunds'
+import { TrafficAndOrders } from './components/charts/TrafficAndOrders'
 import { OrdersByStatus } from './components/charts/OrdersByStatus'
 import { RevenueByTrafficSource } from './components/charts/RevenueByTrafficSource'
 import { RecentOrders } from './components/RecentOrders'
@@ -41,6 +42,7 @@ import {
   useSaveInsightsSchedule,
   useTargets,
   useSaveTargets,
+  useTargetAdvice,
   useMetaMetrics,
   useOpenAiAdsMetrics,
   useOperatingCosts,
@@ -134,6 +136,7 @@ export default function App() {
   const saveSchedule = useSaveInsightsSchedule()
   const targets = useTargets()
   const saveTargets = useSaveTargets()
+  const targetAdviser = useTargetAdvice()
   const failedOrders = failedOrderCount(woo.data)
 
   // Every connector has answered one way or the other. Analysing before this
@@ -437,6 +440,17 @@ export default function App() {
                   failed={!!woo.error}
                 />
               }
+              beforeStats={
+                <AdsStatsCard
+                  metrics={combined ?? undefined}
+                  platforms={reportedAds}
+                  blended={woo.error ? null : blended}
+                  subtitle={combinedScope}
+                  range={range}
+                  against={against}
+                  loading={adsLoading}
+                />
+              }
               footer={
                 // The statement names coupons as one line — a single figure
                 // come off gross sales. Which codes that figure was, and
@@ -462,15 +476,6 @@ export default function App() {
               }
             />
 
-            <AdsStatsCard
-              metrics={combined ?? undefined}
-              platforms={reportedAds}
-              blended={woo.error ? null : blended}
-              subtitle={combinedScope}
-              range={range}
-              against={against}
-              loading={adsLoading}
-            />
 
             {/* One plot, two scales: a refund spike is read against the day
                 that produced it without the smaller series flattening onto
@@ -480,6 +485,21 @@ export default function App() {
               refunds={woo.data?.refundSeries ?? []}
               loading={woo.isLoading}
               unavailable={woo.error ? 'Revenue data unavailable' : undefined}
+            />
+
+            {/* The funnel behind the revenue above: who arrived, how many
+                bought, at what rate, and what went back. */}
+            <TrafficAndOrders
+              traffic={traffic.data?.series ?? []}
+              refunds={woo.data?.refundSeries ?? []}
+              loading={traffic.isLoading || woo.isLoading}
+              unavailable={
+                traffic.error
+                  ? 'Traffic data unavailable'
+                  : traffic.data && !traffic.data.available
+                    ? 'No analytics provider is connected'
+                    : undefined
+              }
             />
 
             {/* Directly under the plot it tabulates: the chart shows the shape
@@ -545,6 +565,8 @@ export default function App() {
               blended={woo.error ? null : blended}
               feed={merchantFeed.data}
               range={range}
+              adviser={targetAdviser}
+              getSnapshot={snapshotOf}
             />
           </div>
         )}

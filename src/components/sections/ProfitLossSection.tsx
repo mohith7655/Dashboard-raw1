@@ -1,11 +1,11 @@
 import { useMemo } from 'react'
-import { Coins, DollarSign, Percent, Receipt, TrendingUp } from 'lucide-react'
+import { Percent, Receipt } from 'lucide-react'
 import type { AdsMetrics, DateRange, OperatingCost, WooMetrics } from '../../lib/types'
 import { profitWaterfall } from '../../lib/pnl'
 import { costLines, totalOperatingCost } from '../../lib/operatingCosts'
-import { formatCurrency, formatPercent } from '../../lib/format'
-import { KpiCard } from '../KpiCard'
-import { CardRow } from '../CardRow'
+import { formatCurrency, formatPercent, formatPrevious } from '../../lib/format'
+import { type StatRowData } from '../StatRows'
+import { RowsCard } from '../RowsCard'
 import { SectionLabel } from '../SectionLabel'
 import { ProfitWaterfall } from '../charts/ProfitWaterfall'
 import { BlendedRoasCard } from './BlendedRoasCard'
@@ -37,7 +37,6 @@ export function ProfitLossSection({
   savingCosts,
   onSaveCosts,
 }: ProfitLossSectionProps) {
-  const shared = { loading, unavailable: failed }
   const adSpend = reportedAds.length
     ? reportedAds.reduce((sum, p) => sum + p.metrics.spend.value, 0)
     : null
@@ -62,42 +61,100 @@ export function ProfitLossSection({
         : 'after Costs'
   const showNet = adSpend !== null || operatingCost > 0
 
+  /**
+   * The headline four, as rows.
+   *
+   * Total sales heads the group and the three under it are indented, so the
+   * shape reads before any figure does: what came in, what it cost, what was
+   * left, and what share of the first that last is.
+   */
+  const headline = useMemo((): StatRowData[] => {
+    if (!woo) return []
+    return [
+      {
+        label: 'Total sales',
+        value: formatCurrency(woo.totalRevenue.value),
+        kind: 'total',
+        share: null,
+        change: woo.totalRevenue.deltaPct,
+        previous: formatPrevious(woo.totalRevenue, formatCurrency),
+      },
+      {
+        label: 'Total cost',
+        value: formatCurrency(woo.totalCost.value),
+        kind: 'part',
+        share: woo.totalRevenue.value ? woo.totalCost.value / woo.totalRevenue.value : 0,
+        change: woo.totalCost.deltaPct,
+        previous: formatPrevious(woo.totalCost, formatCurrency),
+        polarity: 'down-good',
+      },
+      {
+        label: 'Gross profit',
+        value: formatCurrency(woo.grossProfit.value),
+        kind: 'part',
+        share: woo.totalRevenue.value ? woo.grossProfit.value / woo.totalRevenue.value : 0,
+        change: woo.grossProfit.deltaPct,
+        previous: formatPrevious(woo.grossProfit, formatCurrency),
+      },
+      {
+        // No share of its own: it is already the share the row above takes of
+        // the row above that, and printing a second one beside it would be the
+        // same fact twice in the same units.
+        label: 'Gross margin',
+        value: formatPercent(woo.grossMargin.value),
+        kind: 'part',
+        share: null,
+        change: woo.grossMargin.deltaPct,
+        previous: formatPrevious(woo.grossMargin, formatPercent),
+      },
+    ]
+  }, [woo])
+
+  /** What the overheads and the advertising left, once both come off. */
+  const net = useMemo((): StatRowData[] => {
+    if (!woo) return []
+    return [
+      {
+        label: 'Operating costs',
+        value: formatCurrency(operatingCost),
+        kind: 'part',
+        share: woo.totalRevenue.value ? operatingCost / woo.totalRevenue.value : 0,
+        change: null,
+        polarity: 'down-good',
+      },
+      {
+        label: `Net profit ${netLabel}`,
+        value: formatCurrency(netProfit),
+        kind: 'total',
+        share: null,
+        change: null,
+      },
+      {
+        label: 'Net margin',
+        value: formatPercent(netMargin),
+        kind: 'part',
+        share: null,
+        change: null,
+      },
+    ]
+  }, [woo, operatingCost, netProfit, netMargin, netLabel])
+
   return (
     <section className="flex flex-col gap-4">
-      <div>
+      <div className="flex flex-col gap-4">
         <SectionLabel>Profit &amp; Loss</SectionLabel>
 
-        <CardRow>
-          <KpiCard
-            label="Total Sales"
-            value={woo ? formatCurrency(woo.totalRevenue.value) : '—'}
-            metric={woo?.totalRevenue}
-            icon={DollarSign}
-            {...shared}
-          />
-          <KpiCard
-            label="Total Cost"
-            value={woo ? formatCurrency(woo.totalCost.value) : '—'}
-            metric={woo?.totalCost}
-            polarity="down-good"
-            icon={Coins}
-            {...shared}
-          />
-          <KpiCard
-            label="Gross Profit"
-            value={woo ? formatCurrency(woo.grossProfit.value) : '—'}
-            metric={woo?.grossProfit}
-            icon={TrendingUp}
-            {...shared}
-          />
-          <KpiCard
-            label="Gross Margin"
-            value={woo ? formatPercent(woo.grossMargin.value) : '—'}
-            metric={woo?.grossMargin}
-            icon={Percent}
-            {...shared}
-          />
-        </CardRow>
+        {/* The same four figures the KPI tiles held, in the row grammar the
+            CEO Dashboard uses. Nothing is added or dropped — set as rows they
+            carry figure, change and baseline in aligned columns, and the eye
+            reads down one column instead of across four cards. */}
+        <RowsCard
+          title="Profit &amp; Loss"
+          icon={Percent}
+          rows={headline}
+          loading={loading}
+          unavailable={failed ? 'Profit data unavailable for this period.' : null}
+        />
       </div>
 
       <ProfitWaterfall
@@ -107,28 +164,13 @@ export function ProfitLossSection({
       />
 
       {showNet && (
-        <CardRow cols="sm:grid-cols-3">
-          <KpiCard
-            label="Operating Costs"
-            value={formatCurrency(operatingCost)}
-            polarity="down-good"
-            icon={Receipt}
-            loading={costsLoading}
-            unavailable={!!costsError}
-          />
-          <KpiCard
-            label={`Net Profit ${netLabel}`}
-            value={woo ? formatCurrency(netProfit) : '—'}
-            icon={TrendingUp}
-            {...shared}
-          />
-          <KpiCard
-            label={`Net Margin ${netLabel}`}
-            value={woo ? formatPercent(netMargin) : '—'}
-            icon={Percent}
-            {...shared}
-          />
-        </CardRow>
+        <RowsCard
+          title="After ads and overheads"
+          icon={Receipt}
+          rows={net}
+          loading={loading || costsLoading}
+          unavailable={costsError ? 'Operating costs unavailable.' : null}
+        />
       )}
 
       {/* Directly under the profit lines the ad spend was struck from: the

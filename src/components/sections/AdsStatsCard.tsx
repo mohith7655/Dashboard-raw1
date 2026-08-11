@@ -290,7 +290,8 @@ export function AdsStatsCard({
               more than "what did we spend and what came back" should not have
               to read a table to find out. */}
           {!loading && figures.length > 0 && (
-            <div className="mt-2 flex flex-wrap items-start gap-x-2 gap-y-2">
+            /* Two to a line, as boxes: see the note on the CEO card's strip. */
+            <div className="mt-2 grid grid-cols-2 gap-2">
               {figures.map((figure) => (
                 <HeadlineFigure
                   key={figure.key}
@@ -393,38 +394,43 @@ function HeadlineFigure({
       onClick={onToggle}
       disabled={!openable}
       aria-expanded={open}
-      className={`flex items-baseline gap-1.5 rounded-lg border px-2 py-1 text-left transition-colors ${
-        open
-          ? 'border-[#3a3a40] bg-btn'
-          : 'border-transparent hover:border-btn-border hover:bg-btn'
-      } disabled:cursor-default disabled:hover:border-transparent disabled:hover:bg-transparent`}
+      className={`min-w-0 rounded-lg border px-2.5 py-2 text-left transition-colors ${
+        open ? 'border-[#3a3a40] bg-btn' : 'border-btn-border hover:border-[#3a3a40]'
+      } disabled:cursor-default disabled:hover:border-btn-border`}
     >
-      <span className="text-[11px] uppercase tracking-[0.06em] text-label">{label}</span>
-      <span className="text-[14px] font-semibold tabular-nums text-ink">{value}</span>
-      {change !== null && (
-        <span
-          className={`flex items-center gap-0.5 text-[11px] tabular-nums ${changeColor(
-            change,
-            polarity,
-          )}`}
-        >
-          {change < 0 ? (
-            <ArrowDown size={10} strokeWidth={3} />
-          ) : (
-            <ArrowUp size={10} strokeWidth={3} />
-          )}
-          {formatDeltaPercent(change)}
-        </span>
-      )}
-      {previous !== undefined && (
-        <span className="text-[11px] tabular-nums text-label">vs {previous}</span>
-      )}
-      {openable && (
-        <ChevronDown
-          size={11}
-          className={`shrink-0 text-label transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      )}
+      {/* Label above, figure below: two to a line the box is too narrow to set
+          them side by side, and a label that truncated would leave a figure
+          nobody could name. */}
+      <div className="flex items-center gap-1 text-[10.5px] uppercase tracking-wide text-label">
+        <span className="min-w-0 truncate">{label}</span>
+        {openable && (
+          <ChevronDown
+            size={10}
+            className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+          />
+        )}
+      </div>
+      <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5">
+        <span className="text-[14px] font-semibold tabular-nums text-ink">{value}</span>
+        {change !== null && (
+          <span
+            className={`flex items-center gap-0.5 text-[11px] tabular-nums ${changeColor(
+              change,
+              polarity,
+            )}`}
+          >
+            {change < 0 ? (
+              <ArrowDown size={10} strokeWidth={3} />
+            ) : (
+              <ArrowUp size={10} strokeWidth={3} />
+            )}
+            {formatDeltaPercent(change)}
+          </span>
+        )}
+        {previous !== undefined && (
+          <span className="text-[11px] tabular-nums text-label">vs {previous}</span>
+        )}
+      </div>
     </button>
   )
 }

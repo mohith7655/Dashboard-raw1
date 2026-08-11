@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Megaphone, Percent, ShoppingCart, TrendingUp } from 'lucide-react'
+import { Megaphone } from 'lucide-react'
 import type { AdsMetrics, SortDirection, WooMetrics } from '../../lib/types'
 import {
   blendedAds,
@@ -15,8 +15,8 @@ import {
   formatRoas,
 } from '../../lib/format'
 import { DataTable, paginateRows, type Column } from '../DataTable'
-import { KpiCard } from '../KpiCard'
-import { CardRow } from '../CardRow'
+import { RowsCard } from '../RowsCard'
+import type { StatRowData } from '../StatRows'
 import { SectionLabel } from '../SectionLabel'
 import { Skeleton } from '../Skeleton'
 
@@ -74,40 +74,64 @@ export function AdSpendSection({
     setPage(1)
   }
 
+  /**
+   * The blended four as rows.
+   *
+   * Spend heads them: the three below are all that same figure divided by
+   * something — by revenue, into a share of revenue, and per order. Set as rows
+   * that descent is visible; as four tiles they read as four separate facts
+   * that happen to be about advertising.
+   */
+  const summary: StatRowData[] = blended
+    ? [
+        {
+          label: 'Total ad spend',
+          value: formatCurrency(blended.spend),
+          kind: 'total',
+          share: null,
+          change: null,
+          polarity: 'down-good',
+        },
+        {
+          label: 'Blended ROAS',
+          value: formatRoas(blended.blendedRoas),
+          kind: 'part',
+          share: null,
+          change: null,
+        },
+        {
+          label: 'Spend % of revenue',
+          value: formatPercent(blended.shareOfRevenue),
+          kind: 'part',
+          share: null,
+          change: null,
+          polarity: 'down-good',
+        },
+        {
+          label: 'Ad cost per order',
+          value: formatCurrency(blended.costPerOrder),
+          kind: 'part',
+          share: null,
+          change: null,
+          polarity: 'down-good',
+        },
+      ]
+    : []
+
   return (
     <section className="flex flex-col gap-4">
       <div>
         <SectionLabel>Ad Spend</SectionLabel>
 
-        <CardRow>
-          <KpiCard
-            label="Total Ad Spend"
-            value={blended ? formatCurrency(blended.spend) : '—'}
-            polarity="down-good"
-            icon={Megaphone}
-            {...shared}
-          />
-          <KpiCard
-            label="Blended ROAS"
-            value={blended ? formatRoas(blended.blendedRoas) : '—'}
-            icon={TrendingUp}
-            {...shared}
-          />
-          <KpiCard
-            label="Spend % of Revenue"
-            value={blended ? formatPercent(blended.shareOfRevenue) : '—'}
-            polarity="down-good"
-            icon={Percent}
-            {...shared}
-          />
-          <KpiCard
-            label="Ad Cost per Order"
-            value={blended ? formatCurrency(blended.costPerOrder) : '—'}
-            polarity="down-good"
-            icon={ShoppingCart}
-            {...shared}
-          />
-        </CardRow>
+        <RowsCard
+          title="All ads, blended"
+          icon={Megaphone}
+          rows={summary}
+          loading={shared.loading}
+          unavailable={
+            shared.unavailable ? 'Blended figures need the store\u2019s own revenue, which did not load.' : null
+          }
+        />
       </div>
 
       <div className="card p-0">

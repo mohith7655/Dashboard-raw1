@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -84,6 +84,11 @@ export function InsightsSection({
   onSaveSchedule,
 }: InsightsSectionProps) {
   const [showSettings, setShowSettings] = useState(false)
+  // The whole section folds behind one control. It is the only thing on the
+  // Overview that costs money to run and that most readings skip entirely, so
+  // it sits closed and takes a line rather than a screen.
+  const [open, setOpen] = useState(false)
+  const bodyId = useId()
 
   // This session's report wins, and the last stored one stands in until there
   // is one. Without that, a report written overnight — or one paid for before
@@ -93,33 +98,80 @@ export function InsightsSection({
   const shownRange = report ? rangeLabel : stored ? formatRangeLabel(stored.range) : rangeLabel
   const scheduled = !report && stored?.trigger === 'scheduled'
 
-  return (
-    <section className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {/* One line, not two: what the button does is on the button, and the
-            standing explanation cost a paragraph of height on every view. The
-            provenance stays, because a report on screen has to say which period
-            and model it came from — that is a fact about what is being read,
-            not an instruction for how to use it. */}
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-          <SectionLabel>Insights</SectionLabel>
-          {shown && (
-            <span className="text-[12px] text-muted">
-              {`${scheduled ? 'Written on schedule for' : 'Analysed'} ${shownRange} with ${
-                shown.model
-              } · ${new Date(shown.generatedAt).toLocaleString()}`}
-            </span>
-          )}
-        </div>
+  /**
+   * The section in a few words, for when it is closed.
+   *
+   * A report on screen has to say which period and model it came from — that
+   * is a fact about what is being read. With none, the line says what the
+   * button would do rather than leaving a bare label.
+   */
+  const headline = shown
+    ? `${scheduled ? 'Written on schedule for' : 'Analysed'} ${shownRange} with ${
+        shown.model
+      }`
+    : running
+      ? 'Analysing this period…'
+      : 'Not analysed yet'
 
-        <InsightsMenu
-          running={running}
-          ready={ready}
-          hasReport={!!shown}
-          scheduleOpen={showSettings}
-          onAnalyse={onAnalyse}
-          onToggleSchedule={() => setShowSettings((open) => !open)}
+  return (
+    <section className="flex flex-col gap-3">
+      {/* One small control, not a section header with buttons beside it. Closed
+          it is a line; everything the section does unfolds from it. */}
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        aria-controls={bodyId}
+        className="group flex w-fit items-center gap-2 rounded-lg border border-btn-border bg-btn px-2 py-1 text-left transition-colors hover:border-[#3a3a40]"
+      >
+        {running ? (
+          <Loader2 size={12} className="animate-spin text-muted" />
+        ) : (
+          <Sparkles size={12} className="text-muted" />
+        )}
+        <SectionLabel>Insights</SectionLabel>
+        <span className="text-[11px] text-label">{headline}</span>
+        <ChevronDown
+          size={12}
+          className={`shrink-0 text-muted transition-transform ${
+            open ? 'rotate-180' : ''
+          }`}
         />
+      </button>
+
+      <div id={bodyId} hidden={!open} className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={onAnalyse}
+          disabled={running || !ready}
+          className="flex h-8 items-center gap-2 rounded-lg border border-btn-border bg-btn px-2.5 text-[12px] text-ink transition-colors hover:border-[#3a3a40] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {running ? (
+            <Loader2 size={13} className="animate-spin text-muted" />
+          ) : (
+            <Sparkles size={13} className="text-muted" />
+          )}
+          {running ? 'Analyzing…' : shown ? 'Re-analyze' : 'Analyze'}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowSettings((current) => !current)}
+          aria-expanded={showSettings}
+          className={`flex h-8 items-center gap-2 rounded-lg border border-btn-border bg-btn px-2.5 text-[12px] transition-colors hover:border-[#3a3a40] ${
+            showSettings ? 'text-ink' : 'text-muted'
+          }`}
+        >
+          <Settings2 size={13} />
+          Schedule
+        </button>
+
+        {shown && (
+          <span className="text-[11px] text-label">
+            {new Date(shown.generatedAt).toLocaleString()}
+          </span>
+        )}
       </div>
 
       {showSettings && (
@@ -229,118 +281,8 @@ export function InsightsSection({
           </p>
         </div>
       )}
+      </div>
     </section>
-  )
-}
-
-/**
- * Both controls behind one small button.
- *
- * Two full-height buttons for actions taken once a session was a lot of
- * furniture above the figures. The menu keeps them one click away and gives
- * the running state somewhere to show without the header changing width as the
- * label goes from `Analyze` to `Analyzing…`.
- *
- * Closed by a transparent sheet behind it rather than a document listener: the
- * sheet unmounts with the menu, so there is nothing left bound to the document
- * when this section is not on screen.
- */
-function InsightsMenu({
-  running,
-  ready,
-  hasReport,
-  scheduleOpen,
-  onAnalyse,
-  onToggleSchedule,
-}: {
-  running: boolean
-  ready: boolean
-  hasReport: boolean
-  scheduleOpen: boolean
-  onAnalyse: () => void
-  onToggleSchedule: () => void
-}) {
-  const [open, setOpen] = useState(false)
-
-  const close = () => setOpen(false)
-  const pick = (run: () => void) => () => {
-    close()
-    run()
-  }
-
-  return (
-    <div className="relative shrink-0">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className="flex h-6 items-center gap-1 rounded-md border border-btn-border bg-btn pl-1.5 pr-1 text-[11px] text-muted transition-colors hover:border-[#3a3a40] hover:text-ink"
-      >
-        {running ? (
-          <Loader2 size={11} className="animate-spin" />
-        ) : (
-          <Sparkles size={11} />
-        )}
-        {running ? 'Analyzing…' : 'Analyze'}
-        <ChevronDown size={11} className={open ? 'rotate-180' : ''} />
-      </button>
-
-      {open && (
-        <>
-          <button
-            type="button"
-            aria-hidden
-            tabIndex={-1}
-            onClick={close}
-            className="fixed inset-0 z-10 cursor-default"
-          />
-          <div
-            role="menu"
-            className="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-lg border border-btn-border bg-card py-1 shadow-lg"
-          >
-            <MenuItem
-              icon={Sparkles}
-              // Disabled rather than hidden: the reason it cannot run — a
-              // connector still loading — is temporary, and an item that
-              // vanished would read as a feature that was not there.
-              disabled={running || !ready}
-              onClick={pick(onAnalyse)}
-            >
-              {running ? 'Analyzing…' : hasReport ? 'Re-analyze' : 'Analyze now'}
-            </MenuItem>
-            <MenuItem icon={Settings2} onClick={pick(onToggleSchedule)}>
-              {scheduleOpen ? 'Hide schedule' : 'Schedule…'}
-            </MenuItem>
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
-function MenuItem({
-  icon: Icon,
-  disabled = false,
-  onClick,
-  children,
-}: {
-  icon: typeof Sparkles
-  disabled?: boolean
-  onClick: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      disabled={disabled}
-      onClick={onClick}
-      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] text-muted transition-colors hover:bg-btn hover:text-ink disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
-    >
-      <Icon size={12} className="shrink-0" />
-      {children}
-    </button>
   )
 }
 

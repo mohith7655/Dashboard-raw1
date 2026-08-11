@@ -4,16 +4,19 @@ import {
   CheckCircle2,
   Loader2,
   Plus,
+  Sparkles,
   Target as TargetIcon,
   Trash2,
   XCircle,
 } from 'lucide-react'
 import type { BlendedAds } from '../../lib/pnl'
+import type { TargetAdviser } from '../../lib/queries'
 import type {
   DateRange,
   MerchantFeed,
   Target,
   TargetGoal,
+  TargetAdvice,
   TargetNote,
   TargetPlan,
   WooMetrics,
@@ -33,6 +36,10 @@ interface TargetsSectionProps {
   blended: BlendedAds | null
   feed: MerchantFeed | undefined
   range: DateRange
+  /** Model-written advice, asked for one target at a time. */
+  adviser: TargetAdviser
+  /** The same aggregates the Insights tab sends, built on demand. */
+  getSnapshot: () => Record<string, unknown>
 }
 
 const TONE: Record<
@@ -90,6 +97,8 @@ export function TargetsSection({
   blended,
   feed,
   range,
+  adviser,
+  getSnapshot,
 }: TargetsSectionProps) {
   const [editing, setEditing] = useState<Target | null>(null)
 
@@ -169,6 +178,15 @@ export function TargetsSection({
               disabled={saving}
               onEdit={() => setEditing(plan.target)}
               onRemove={() => remove(plan.target.id)}
+              advice={adviser.advice[plan.target.id]}
+              advising={adviser.running === plan.target.id}
+              adviceError={adviser.running === plan.target.id ? null : adviser.error}
+              onAdvise={() => {
+                // The plan travels with the target so the model explains the
+                // figures already on the card rather than deriving its own.
+                const { target: _t, notes: _n, ...rest } = plan
+                adviser.ask(plan.target, rest, getSnapshot())
+              }}
             />
           ))}
         </div>
@@ -182,11 +200,19 @@ function PlanCard({
   disabled,
   onEdit,
   onRemove,
+  advice,
+  advising,
+  adviceError,
+  onAdvise,
 }: {
   plan: TargetPlan
   disabled: boolean
   onEdit: () => void
   onRemove: () => void
+  advice: TargetAdvice | undefined
+  advising: boolean
+  adviceError: string | null
+  onAdvise: () => void
 }) {
   const { target } = plan
   const goalLabel =
@@ -221,6 +247,19 @@ function PlanCard({
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onAdvise}
+            disabled={disabled || advising}
+            className="flex h-8 items-center gap-1.5 rounded-lg border border-btn-border bg-btn px-2.5 text-[12px] text-ink transition-colors hover:border-[#3a3a40] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {advising ? (
+              <Loader2 size={13} className="animate-spin text-muted" />
+            ) : (
+              <Sparkles size={13} className="text-muted" />
+            )}
+            {advising ? 'Thinking…' : advice ? 'Re-advise' : 'Advise'}
+          </button>
           <button
             type="button"
             onClick={onEdit}
@@ -277,6 +316,75 @@ function PlanCard({
           )}
         </div>
       </div>
+
+      {/* The goal itself at the rate it has to be met. A figure by a date is
+          not something anybody can trade against; a week's worth of it is. */}
+      {plan.goalPerDay !== null && (
+        <div className="mt-3 border-t border-row-line pt-3">
+          <div className="text-[10.5px] uppercase tracking-wide text-label">
+            Sales needed to reach it
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+            <Figure label="Per day" value={formatCurrency(plan.goalPerDay)} />
+            {plan.goalPerWeek !== null && (
+              <Figure label="Per week" value={formatCurrency(plan.goalPerWeek)} />
+            )}
+            {plan.goalPerMonth !== null && (
+              <Figure label="Per month" value={formatCurrency(plan.goalPerMonth)} />
+            )}
+            {plan.paceSales !== null && (
+              <Figure
+                label="On pace for"
+                value={formatCurrency(plan.paceSales)}
+                className={
+                  plan.paceAttainment !== null && plan.paceAttainment >= 1
+                    ? 'text-pos'
+                    : 'text-neg'
+                }
+              />
+            )}
+            {plan.paceAttainment !== null && (
+              <Figure
+                label="Pace vs goal"
+                value={formatPercent(plan.paceAttainment)}
+                className={plan.paceAttainment >= 1 ? 'text-pos' : 'text-neg'}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {adviceError && (
+        <p className="mt-3 text-[12px] leading-relaxed text-neg">{adviceError}</p>
+      )}
+
+      {advice && (
+        <div className="mt-3 border-t border-row-line pt-3">
+          <p className="text-[13px] font-medium text-ink">{advice.headline}</p>
+          <ul className="mt-2.5 flex flex-col gap-2.5">
+            {advice.notes.map((note, i) => {
+              const { icon: Icon, className } = TONE[note.tone]
+              return (
+                <li key={i} className="flex gap-2">
+                  <Icon size={14} className={`mt-0.5 shrink-0 ${className}`} />
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-medium text-ink">{note.title}</p>
+                    <p className="mt-0.5 max-w-prose text-[12px] leading-relaxed text-muted">
+                      {note.detail}
+                    </p>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+          {/* Named and dated, so advice written against a different period
+              cannot pass for advice about this one. */}
+          <p className="mt-2.5 text-[11px] text-label">
+            Written by {advice.model} · {new Date(advice.generatedAt).toLocaleString()}.
+            Check the figures it quotes before acting on them.
+          </p>
+        </div>
+      )}
 
       {plan.notes.length > 0 && (
         <ul className="mt-3 flex flex-col gap-2.5 border-t border-row-line pt-3">

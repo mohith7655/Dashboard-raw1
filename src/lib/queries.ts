@@ -27,6 +27,8 @@ import type {
   ShippingChargedPayload,
   SourceError,
   Target,
+  TargetAdvice,
+  TargetPlan,
   TrafficMetrics,
   WooMetrics,
 } from './types'
@@ -505,6 +507,54 @@ export function useSaveTargets(): SaveTargets {
   return {
     save: (next) => mutation.mutate(next),
     saving: mutation.isPending,
+    error: mutation.error ? mutation.error.message : null,
+  }
+}
+
+export interface TargetAdviser {
+  /** Advice by target id; a target with none has not been asked about yet. */
+  advice: Record<string, TargetAdvice>
+  ask: (target: Target, plan: Omit<TargetPlan, 'target' | 'notes'>, snapshot: Record<string, unknown>) => void
+  /** The target currently being written about, or null. */
+  running: string | null
+  error: string | null
+}
+
+/**
+ * Model-written advice on a target, one target at a time.
+ *
+ * A mutation rather than a query: every run is a paid OpenAI call, so it fires
+ * when the operator asks and never on render or refocus. Results are kept by
+ * target id so asking about a second one does not discard the first.
+ */
+export function useTargetAdvice(): TargetAdviser {
+  const [advice, setAdvice] = useState<Record<string, TargetAdvice>>({})
+  const [running, setRunning] = useState<string | null>(null)
+
+  const mutation = useMutation({
+    mutationFn: ({
+      target,
+      plan,
+      snapshot,
+    }: {
+      target: Target
+      plan: Omit<TargetPlan, 'target' | 'notes'>
+      snapshot: Record<string, unknown>
+    }) => unwrap(insights.adviseTarget(target, plan, snapshot)),
+    onSuccess: (result, { target }) => {
+      setAdvice((current) => ({ ...current, [target.id]: result }))
+      setRunning(null)
+    },
+    onError: () => setRunning(null),
+  })
+
+  return {
+    advice,
+    ask: (target, plan, snapshot) => {
+      setRunning(target.id)
+      mutation.mutate({ target, plan, snapshot })
+    },
+    running,
     error: mutation.error ? mutation.error.message : null,
   }
 }

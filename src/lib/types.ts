@@ -917,6 +917,22 @@ export interface TargetPlan {
   perDay: number
   perWeek: number
   perMonth: number
+  /**
+   * The goal itself at the rate it must be met, not the budget behind it.
+   *
+   * "$30,000 by 31 August" is a number nobody can act on daily; "$1,363 a day,
+   * $9,545 a week" is the same target in the units trading actually happens in.
+   * Null for a return target, which is already a rate and divides into nothing.
+   */
+  goalPerDay: number | null
+  goalPerWeek: number | null
+  goalPerMonth: number | null
+  /**
+   * Sales the store is currently on pace for over the days remaining, and what
+   * fraction of the goal that reaches. Null where the period reported nothing.
+   */
+  paceSales: number | null
+  paceAttainment: number | null
   /** What the store is actually spending a day, over the selected period. */
   pacingPerDay: number | null
   /**
@@ -939,4 +955,19 @@ export interface TargetNote {
   tone: TargetNoteTone
   title: string
   detail: string
+}
+
+/**
+ * Advice on one target, written by OpenAI from the plan already computed.
+ *
+ * The notes carry the same shape the rule-based ones do, so the card renders
+ * both identically — the reader should not have to learn a second grammar to
+ * read the same kind of claim.
+ */
+export interface TargetAdvice {
+  headline: string
+  notes: TargetNote[]
+  model: string
+  /** ISO timestamp; the card says when, so stale advice cannot pass as fresh. */
+  generatedAt: string
 }
