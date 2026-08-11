@@ -548,6 +548,34 @@ export function ProfitSummaryCard({
       },
     ]
 
+    const blended = woo && reportedAds.length > 0 ? blendedAds(woo, reportedAds) : null
+    if (blended) {
+      rows.push({
+        key: 'blended-roas',
+        label: 'Blended ROAS',
+        value: formatRoas(blended.blendedRoas),
+        change: blended.previous
+          ? deltaPct(blended.blendedRoas, blended.previous.blendedRoas)
+          : null,
+        previous: wasFlat(blended.previous?.blendedRoas ?? null, formatRoas),
+        difference: blended.previous
+          ? formatDifference(
+              blended.blendedRoas - blended.previous.blendedRoas,
+              formatRoas,
+            )
+          : undefined,
+        polarity: 'up-good',
+        detail: [
+          {
+            label: 'Store sales',
+            value: formatCurrency(blended.blendedRoas * blended.spend),
+          },
+          { label: 'Ad spend, every platform', value: formatCurrency(blended.spend) },
+          { label: 'Cost per order', value: formatCurrency(blended.costPerOrder) },
+        ],
+      })
+    }
+
     if (combined && attributed) {
       rows.push({
         key: 'reported-roas',
@@ -567,66 +595,28 @@ export function ProfitSummaryCard({
       })
     }
 
-    if (adSpend !== null) {
-      rows.push({
-        key: 'ad-spend-total',
-        // The period total the rate above was struck from, and the denominator
-        // both returns beside it are divided by.
-        label: 'Ad spend total',
-        value: formatCurrency(adSpend),
-        change: prevAdSpend === null ? null : deltaPct(adSpend, prevAdSpend),
-        previous: wasFlat(prevAdSpend, formatCurrency),
-        difference: gapFlat(adSpend, prevAdSpend, formatCurrency),
-        polarity: 'down-good',
-        detail: reportedAds.map((p) => ({
-          label: p.name,
-          value: `${formatCurrency(p.metrics.spend.value)}${
-            adSpend > 0 ? ` · ${formatPercent(p.metrics.spend.value / adSpend)}` : ''
-          }`,
-        })),
-      })
-    }
+    // Ad spend total is not here: it leads the card beside revenue.
 
     /**
      * The order the boxes read in, named rather than left to the order they
      * happened to be built in.
      *
-     * Revenue first, then what was kept of it, then what was spent to get it —
-     * daily rate, period total, and the return that spend produced. Sales sits
-     * last: it differs from revenue only by the refunds, so it is the footnote
-     * to the first box rather than a claim of its own.
+     * The four daily rates first, down the statement itself — what was billed,
+     * what was kept of it, what was left after everything, and what was spent
+     * to produce it. Then the two returns that spend earned, the platforms'
+     * own and the store's. Anything added later falls in behind them.
      */
     const ORDER = [
       'revenue',
+      'sales',
       'net-profit',
       'ad-spend',
-      'ad-spend-total',
       'reported-roas',
-      'sales',
+      'blended-roas',
     ]
     return rows.sort((a, b) => ORDER.indexOf(a.key) - ORDER.indexOf(b.key))
   }, [woo, top, lines, previousByLabel, adSpend, prevAdSpend, reportedAds, range, against])
 
-  /**
-   * The blended return, carried up onto the title beside the revenue it is
-   * struck against.
-   *
-   * It belongs there rather than among the boxes: every box below is a figure
-   * of this period, where this is the rate at which advertising turned into the
-   * headline above it — the one number that relates the two halves of the card.
-   */
-  const blendedReturn = useMemo(() => {
-    if (!woo || reportedAds.length === 0) return null
-    const blended = blendedAds(woo, reportedAds)
-    if (!blended) return null
-    return {
-      value: formatRoas(blended.blendedRoas),
-      change: blended.previous
-        ? deltaPct(blended.blendedRoas, blended.previous.blendedRoas)
-        : null,
-      previous: blended.previous ? formatRoas(blended.previous.blendedRoas) : null,
-    }
-  }, [woo, reportedAds])
   // Signed, so a deduction reads `−13.6%` beside its `−$448.18`. A share
   // printed bare made a line that comes off the total look like one that adds
   // to it, which is the one thing the figure beside it already says.
@@ -643,17 +633,41 @@ export function ProfitSummaryCard({
   // The comparison window's revenue, formatted — the same figure the statement's
   // Revenue row is measured against, so the headline and the row below it can
   // never disagree about what the period is being compared with.
-  const revenueBefore = (() => {
-    const before = previousByLabel?.get('Revenue')
-    return before === undefined ? undefined : formatCurrency(before)
-  })()
-  /** The same move in currency, beside the baseline it was struck from. */
-  const revenueMove = (() => {
-    const before = previousByLabel?.get('Revenue')
-    return before === undefined || !top
-      ? undefined
-      : formatDifference(top.amount - before, formatCurrency)
-  })()
+  /**
+   * The two figures the card leads on: what the period earned, and what was
+   * spent to earn it.
+   *
+   * Ad spend stands beside revenue rather than in the strip below because it is
+   * the only figure on the card of the same order as revenue and read against
+   * it — everything in the strip is a rate or a ratio derived from one of these
+   * two.
+   */
+  const headline = useMemo(() => {
+    const build = (
+      label: string,
+      amount: number | null,
+      before: number | null | undefined,
+      polarity: Polarity,
+    ) => {
+      if (amount === null) return null
+      const has = before !== null && before !== undefined
+      return {
+        label,
+        value: formatCurrency(amount),
+        change: has ? deltaPct(amount, before as number) : null,
+        previous: has ? formatCurrency(before as number) : undefined,
+        difference: has
+          ? formatDifference(amount - (before as number), formatCurrency)
+          : undefined,
+        polarity,
+      }
+    }
+
+    return [
+      build(top?.label ?? 'Revenue', top?.amount ?? null, previousByLabel?.get('Revenue'), 'up-good'),
+      build('Ad spend total', adSpend, prevAdSpend, 'down-good'),
+    ].filter((figure): figure is NonNullable<typeof figure> => figure !== null)
+  }, [top, previousByLabel, adSpend, prevAdSpend])
 
 
   return (
@@ -675,36 +689,6 @@ export function ProfitSummaryCard({
               <span className="kpi-label truncate transition-colors group-hover:text-ink">
                 {top?.label ?? 'Revenue'}
               </span>
-              {!loading && !failed && blendedReturn && (
-                <span className="flex items-baseline gap-1.5">
-                  <span className="text-[10px] uppercase tracking-[0.06em] text-label">
-                    Blended ROAS
-                  </span>
-                  <span className="text-[13px] font-semibold tabular-nums text-ink">
-                    {blendedReturn.value}
-                  </span>
-                  {blendedReturn.change !== null && (
-                    <span
-                      className={`flex items-center gap-0.5 text-[11px] tabular-nums ${changeColor(
-                        blendedReturn.change,
-                        'up-good',
-                      )}`}
-                    >
-                      {blendedReturn.change < 0 ? (
-                        <ArrowDown size={10} strokeWidth={3} />
-                      ) : (
-                        <ArrowUp size={10} strokeWidth={3} />
-                      )}
-                      {formatDeltaPercent(blendedReturn.change)}
-                    </span>
-                  )}
-                  {blendedReturn.previous !== null && (
-                    <span className="text-[11px] tabular-nums text-label">
-                      {blendedReturn.previous}
-                    </span>
-                  )}
-                </span>
-              )}
             </span>
             <ChevronDown
               size={15}
@@ -714,25 +698,68 @@ export function ProfitSummaryCard({
             />
           </button>
 
-          {/* Larger than the strip below it but well short of the 30px it
-              began at: it leads the card without making every figure under it
-              read as a caption. Its own baseline sits under it, in the same
-              grammar every box in the strip uses. */}
-          <div className="mt-1.5">
+          {/* Larger than the strip below but well short of the 30px it began
+              at: they lead the card without making every figure under them read
+              as a caption. Each carries the same four columns every box in the
+              strip does — figure, change, baseline, move. */}
+          <div className="mt-2">
             {loading ? (
-              <Skeleton className="h-[26px] w-36" />
+              <div className="grid grid-cols-2 gap-2">
+                <Skeleton className="h-[68px] w-full" />
+                <Skeleton className="h-[68px] w-full" />
+              </div>
+            ) : failed || headline.length === 0 ? (
+              <div className="rounded-lg border border-btn-border px-3 py-2.5 text-[24px] font-semibold leading-tight tabular-nums text-ink">
+                —
+              </div>
             ) : (
-              <>
-                <div className="truncate text-[24px] font-semibold leading-tight tabular-nums text-ink">
-                  {failed || !top ? '—' : formatCurrency(top.amount)}
-                </div>
-                {!failed && top && revenueBefore !== undefined && (
-                  <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[11px] tabular-nums text-label">
-                    <span>{revenueBefore}</span>
-                    {revenueMove !== undefined && <span>{revenueMove}</span>}
+              /* Boxed and gridded like the strip below, at twice the type size:
+                 the same grammar at the scale that says these two lead the
+                 card. Two to a line rather than three, because a figure in the
+                 thousands needs the width. */
+              <div className="grid grid-cols-2 gap-2">
+                {headline.map((figure) => (
+                  <div
+                    key={figure.label}
+                    className="min-w-0 rounded-lg border border-btn-border px-3 py-2.5"
+                  >
+                    {/* Named inside the box, both of them. The card's own title
+                        names the card; a box that relied on it would be the one
+                        figure here without a label of its own. */}
+                    <div className="truncate text-[10.5px] uppercase tracking-wide text-label">
+                      {figure.label}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
+                      <span className="truncate text-[24px] font-semibold leading-tight tabular-nums text-ink">
+                        {figure.value}
+                      </span>
+                      {figure.change !== null && (
+                        <span
+                          className={`flex items-center gap-0.5 text-[11px] tabular-nums ${changeColor(
+                            figure.change,
+                            figure.polarity,
+                          )}`}
+                        >
+                          {figure.change < 0 ? (
+                            <ArrowDown size={10} strokeWidth={3} />
+                          ) : (
+                            <ArrowUp size={10} strokeWidth={3} />
+                          )}
+                          {formatDeltaPercent(figure.change)}
+                        </span>
+                      )}
+                    </div>
+                    {figure.previous !== undefined && (
+                      <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[11px] tabular-nums">
+                        <span className="text-label">{figure.previous}</span>
+                        {figure.difference !== undefined && (
+                          <span className={MOVE_INK}>{figure.difference}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
-                )}
-              </>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -747,11 +774,11 @@ export function ProfitSummaryCard({
           period down rather than restating it. */}
       {!loading && !failed && perDay.length > 0 && (
         <div className="mt-3 border-t border-row-line pt-2.5">
-          {/* A grid of boxes, two to a line, rather than figures flowing
+          {/* A grid of boxes, three to a line, rather than figures flowing
               inline. Wrapped inline they packed differently at every width and
               read as a run-on table; boxed and gridded, each figure keeps its
               own bounds and the column edges line up down the card. */}
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             {perDay.map((figure) => (
               <StripFigure
                 key={figure.key}
@@ -886,14 +913,25 @@ function StripFigure({
           and how far it moved in currency sits under how far it moved in
           proportion. Each column reads straight down. */}
       {(figure.previous !== undefined || figure.difference !== undefined) && (
-        <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[11px] tabular-nums text-label">
-          <span>{figure.previous ?? ''}</span>
-          {figure.difference !== undefined && <span>{figure.difference}</span>}
+        <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[11px] tabular-nums">
+          <span className="text-label">{figure.previous ?? ''}</span>
+          {figure.difference !== undefined && (
+            <span className={MOVE_INK}>{figure.difference}</span>
+          )}
         </div>
       )}
     </button>
   )
 }
+
+/**
+ * The ink the move in currency is set in.
+ *
+ * Deeper than the baseline beside it, so the two are told apart at a glance
+ * without the move competing with the percentage above it for attention. It is
+ * the fourth number in the box and reads last by design.
+ */
+const MOVE_INK = 'text-[#5a5a62]'
 
 function changeColor(deltaPctValue: number, polarity: Polarity): string {
   if (polarity === 'neutral' || deltaPctValue === 0) return 'text-muted'
