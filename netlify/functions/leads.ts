@@ -44,6 +44,8 @@ const HINT =
  */
 interface TabSpec {
   tab: string
+  /** The numeric sheet id used by the public CSV export endpoint. */
+  gid: string
   /** Header of the column holding the date the row is counted on. */
   dateColumn: string[]
   /** Header of the column holding the person, for de-duplication. */
@@ -53,11 +55,13 @@ interface TabSpec {
 const SIGNUP_TABS: Record<'mailchimp' | 'flodesk', TabSpec> = {
   mailchimp: {
     tab: 'Mailchimp-Entries',
+    gid: '433881393',
     dateColumn: ['date'],
     keyColumn: ['email'],
   },
   flodesk: {
     tab: 'Flodesk-Entries',
+    gid: '1678064710',
     dateColumn: ['date'],
     keyColumn: ['email'],
   },
@@ -72,11 +76,13 @@ const SIGNUP_TABS: Record<'mailchimp' | 'flodesk', TabSpec> = {
 const ORDER_TABS: Record<'mailchimp' | 'flodesk', TabSpec> = {
   mailchimp: {
     tab: 'Woo-mailchimp',
+    gid: '915416997',
     dateColumn: ['order date', 'date'],
     keyColumn: ['order id'],
   },
   flodesk: {
     tab: 'Woo-flodesk',
+    gid: '20827426',
     dateColumn: ['order date', 'date'],
     keyColumn: ['order id'],
   },
@@ -84,6 +90,7 @@ const ORDER_TABS: Record<'mailchimp' | 'flodesk', TabSpec> = {
 
 const FACEBOOK_TAB: TabSpec = {
   tab: 'Facebook leads',
+  gid: '1215577569',
   dateColumn: ['date created', 'date'],
   // `Emai` in the sheet as written. Matched loosely below rather than corrected
   // upstream: the automation writing that header is not this code's to change,
@@ -200,7 +207,7 @@ async function sheetReader(
   return async (spec: TabSpec): Promise<Row[]> => {
     const grid = token
       ? await viaApi(sheetId, spec.tab, token)
-      : await viaCsv(sheetId, spec.tab)
+      : await viaCsv(sheetId, spec)
     return toRows(grid, spec)
   }
 }
@@ -252,13 +259,15 @@ async function viaApi(sheetId: string, tab: string, token: string): Promise<stri
 }
 
 /**
- * The visualisation endpoint rather than `/export`, because it takes a tab
- * name where `/export` takes only a numeric gid.
+ * The Sheets export endpoint has a normal row-oriented CSV shape. The
+ * visualisation endpoint looks convenient because it accepts a tab name, but
+ * for this workbook it serialises columns as multi-line cells, which turns a
+ * date column into one enormous header and makes every date-range count zero.
  */
-async function viaCsv(sheetId: string, tab: string): Promise<string[][]> {
+async function viaCsv(sheetId: string, spec: TabSpec): Promise<string[][]> {
   const url =
     `https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheetId)}` +
-    `/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tab)}`
+    `/export?format=csv&gid=${encodeURIComponent(spec.gid)}`
   const res = await fetch(url)
   const text = await res.text()
 
