@@ -158,6 +158,35 @@ const EMPTY: TargetProgress = {
   roas: null,
 }
 
+/**
+ * The store's recent trading, in the same shape, for targets whose own window
+ * has nothing in it yet.
+ *
+ * Built from the page-level metrics the Overview has already fetched, so it
+ * costs no request — and from the same statement helpers the CEO card prints,
+ * so a plan struck from it quotes the figures on screen.
+ */
+export function baselineProgress(
+  range: DateRange,
+  woo: WooMetrics | undefined,
+  adSpend: number | null,
+  costs: OperatingCost[] | undefined,
+): TargetProgress | null {
+  if (!woo) return null
+  const spend = adSpend ?? 0
+  const revenue = revenueOf(woo.pnl)
+  const operatingCost = totalOperatingCost(costLines(costs ?? [], range))
+
+  return {
+    days: daysInRange(range),
+    revenue,
+    sales: totalSalesOf(woo.pnl),
+    profit: netProfitOf(woo.pnl, adSpend, operatingCost),
+    spend,
+    roas: spend >= MIN_MEANINGFUL_SPEND ? revenue / spend : null,
+  }
+}
+
 function progressFrom(
   window: DateRange,
   woo: WooMetrics,

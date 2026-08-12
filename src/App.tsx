@@ -478,6 +478,7 @@ export default function App() {
             loading={leadData.isLoading}
             failed={!!leadData.error}
             range={range}
+            against={against}
             meta={meta.data}
             analysis={analysisFor('leads')}
           />

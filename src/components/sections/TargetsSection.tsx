@@ -26,7 +26,7 @@ import type {
 } from '../../lib/types'
 import { TARGET_GOALS, TARGET_GOAL_LABELS, isMoneyGoal } from '../../lib/types'
 import { planTarget } from '../../lib/targets'
-import { useTargetProgress } from '../../lib/targetProgress'
+import { baselineProgress, useTargetProgress } from '../../lib/targetProgress'
 import {
   formatCurrency,
   formatDay,
@@ -132,12 +132,20 @@ export function TargetsSection({
 
   const progress = useTargetProgress(targets, costs, today)
 
+  // The store as it is trading now, for windows that have yet to open. Built
+  // from figures the page already holds, so it costs nothing to have.
+  const baseline = useMemo(
+    () => baselineProgress(range, woo, blended?.spend ?? null, costs),
+    [range, woo, blended, costs],
+  )
+
   const plans = useMemo(
     (): TargetPlan[] =>
       (targets ?? []).map((target) =>
         planTarget({
           target,
           progress: progress.byTarget[target.id] ?? null,
+          baseline,
           woo,
           blended,
           range,
@@ -145,7 +153,7 @@ export function TargetsSection({
           today,
         }),
       ),
-    [targets, progress, woo, blended, range, feed, today],
+    [targets, progress, baseline, woo, blended, range, feed, today],
   )
 
   const commit = (next: Target[]) => {
@@ -287,6 +295,12 @@ function PlanCard({
             {target.budgetPct > 0
               ? ` · ad budget ${formatPercent(target.budgetPct / 100)} of sales`
               : ' · no budget set'}
+            {/* An estimate and a measurement must not look alike. Where the
+                window has traded nothing, every rate below comes from the
+                store's recent performance instead. */}
+            {plan.basis === 'recent' && (
+              <span className="text-amber-400/90"> · estimated from recent trading</span>
+            )}
           </p>
         </div>
 

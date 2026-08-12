@@ -1063,6 +1063,15 @@ export interface TargetPlan {
    */
   progress: TargetProgress | null
   /**
+   * Which figures the rates were struck from.
+   *
+   * `window` — the target's own trading, which is what it should be once it is
+   * under way. `recent` — the store's current performance standing in, because
+   * the window has not opened or has spent nothing yet; the plan is then an
+   * estimate and the card says so. `none` — nothing to plan from at all.
+   */
+  basis: 'window' | 'recent' | 'none'
+  /**
    * The budget the split is struck from: the one entered, or the one the goal
    * implies where none was.
    *

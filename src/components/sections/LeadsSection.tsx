@@ -1,11 +1,14 @@
 import { useId, useMemo, useState } from 'react'
-import { AlertTriangle, Mail, Megaphone, UserPlus } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, Mail, Megaphone, UserPlus } from 'lucide-react'
 import type { AdsMetrics, DateRange, LeadReport } from '../../lib/types'
 import { LEAD_SOURCES, LEAD_SOURCE_LABELS } from '../../lib/types'
 import { daysInRange } from '../../lib/dateRange'
+import { deltaPct } from '../../lib/derive'
 import {
   formatCurrency,
   formatDay,
+  formatDecimal,
+  formatDeltaPercent,
   formatInteger,
   formatPercent,
   formatPrevious as was,
@@ -26,6 +29,13 @@ interface LeadsSectionProps {
   loading: boolean
   failed: boolean
   range: DateRange
+  /**
+   * The window the counts are compared against, or null when comparison is
+   * off. Needed for the rate rather than the totals: a baseline of a different
+   * length has to be divided by its own days before the two can be set side by
+   * side.
+   */
+  against: DateRange | null
   /**
    * Meta's figures for the same period, for the one thing a lead count cannot
    * say on its own: what each one cost.
@@ -60,6 +70,7 @@ export function LeadsSection({
   loading,
   failed,
   range,
+  against,
   meta,
   analysis,
 }: LeadsSectionProps) {
@@ -165,6 +176,44 @@ export function LeadsSection({
     })
   }, [report, range])
 
+  /**
+   * Every source added up, and the same over the comparison window.
+   *
+   * The baseline is null unless every source carries one. Summing the two that
+   * do and comparing that against three sources' worth of this period would
+   * report growth that is really just a source appearing.
+   */
+  const totals = useMemo(() => {
+    if (!report) return null
+    const current = LEAD_SOURCES.reduce(
+      (sum, key) => sum + report.sources[key].count.value,
+      0,
+    )
+    const priors = LEAD_SOURCES.map((key) => report.sources[key].count.previous)
+    const previous = priors.every((p) => p !== null && p !== undefined)
+      ? (priors as number[]).reduce((sum, p) => sum + p, 0)
+      : null
+    return { current, previous }
+  }, [report])
+
+  /**
+   * Leads a day, and what it was a day over the window before.
+   *
+   * A total answers "how many"; only the rate answers "is this normal", which
+   * is the question a lead count is actually read for — and it is the one
+   * figure here that survives a change in the length of the period.
+   */
+  const perDay = useMemo(() => {
+    if (!totals) return null
+    const priorDays = against ? daysInRange(against) : null
+    const before =
+      totals.previous === null || priorDays === null
+        ? null
+        : totals.previous / priorDays
+    const now = totals.current / days
+    return { now, before, change: before === null ? null : deltaPct(now, before) }
+  }, [totals, days, against])
+
   const converted = report?.converted ?? null
   const conversion =
     converted && converted.signups > 0 ? converted.ordered / converted.signups : null
@@ -184,6 +233,11 @@ export function LeadsSection({
     days,
     currency: 'USD',
     leads: report ?? null,
+    // The rate as well as the total: a period of a different length makes the
+    // totals incomparable, and this is the figure that survives that.
+    leadsPerDay: perDay?.now ?? null,
+    leadsPerDayPrevious: perDay?.before ?? null,
+    leadsPerDayDeltaPct: perDay?.change ?? null,
     costPerFacebookLead: costPerLead,
     metaSpend: meta?.spend.value ?? null,
     metaSpendDeltaPct: meta?.spend.deltaPct ?? null,
@@ -265,26 +319,26 @@ export function LeadsSection({
         </div>
       ) : (
         <>
-          {/* The two figures the tab leads on, in the grammar the CEO card
-              set: what came in, and what it cost to bring in. */}
-          {report && (
-            <div className="grid grid-cols-2 gap-2">
+          {/* Three figures: how many came in, how fast they are coming, and
+              what they cost. The rate is the one that survives a change in the
+              length of the period, so it earns a box of its own rather than a
+              line of small print under the total. */}
+          {report && totals && (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               <Headline
                 label="New leads"
-                value={formatInteger(
-                  LEAD_SOURCES.reduce(
-                    (sum, key) => sum + report.sources[key].count.value,
-                    0,
-                  ),
-                )}
-                note={`${formatInteger(
-                  Math.round(
-                    LEAD_SOURCES.reduce(
-                      (sum, key) => sum + report.sources[key].count.value,
-                      0,
-                    ) / days,
-                  ),
-                )} a day over ${days} days`}
+                value={formatInteger(totals.current)}
+                note={`over ${days} ${days === 1 ? 'day' : 'days'}`}
+              />
+              <Headline
+                label="Leads / day"
+                value={perDay === null ? '—' : formatDecimal(perDay.now)}
+                change={perDay?.change ?? null}
+                note={
+                  perDay?.before == null
+                    ? 'No comparison window'
+                    : `${formatDecimal(perDay.before)} a day before`
+                }
               />
               <Headline
                 label="Cost per Facebook lead"
@@ -380,18 +434,37 @@ function Headline({
   label,
   value,
   note,
+  change = null,
 }: {
   label: string
   value: string
   note: string
+  /** Percentage against the comparison window, where the figure has one. */
+  change?: number | null
 }) {
   return (
     <div className="min-w-0 rounded-lg border border-btn-border px-3 py-2.5">
       <div className="truncate text-[10.5px] uppercase tracking-wide text-label">
         {label}
       </div>
-      <div className="mt-1 truncate text-[24px] font-semibold leading-tight tabular-nums text-ink">
-        {value}
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
+        <span className="truncate text-[24px] font-semibold leading-tight tabular-nums text-ink">
+          {value}
+        </span>
+        {change !== null && (
+          <span
+            className={`flex items-center gap-0.5 text-[11px] tabular-nums ${
+              change === 0 ? 'text-muted' : change > 0 ? 'text-pos' : 'text-neg'
+            }`}
+          >
+            {change < 0 ? (
+              <ArrowDown size={10} strokeWidth={3} />
+            ) : (
+              <ArrowUp size={10} strokeWidth={3} />
+            )}
+            {formatDeltaPercent(change)}
+          </span>
+        )}
       </div>
       <div className="mt-0.5 text-[11px] text-label">{note}</div>
     </div>

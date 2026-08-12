@@ -44,6 +44,16 @@ export interface PlanInput {
    * from a period the target says nothing about.
    */
   progress: TargetProgress | null
+  /**
+   * The store's recent trading, over the period on screen, in the same shape.
+   *
+   * Stands in for the window's own rates where the window has none — a target
+   * that starts next month has no history of its own, and refusing to plan for
+   * it at all is what left a future target with nothing but "not started yet".
+   * Never used for what is banked: a window that has not opened has banked
+   * nothing, whatever the store did last month.
+   */
+  baseline: TargetProgress | null
   woo: WooMetrics | undefined
   blended: BlendedAds | null
   /** The period on screen, which is what pacing is measured over. */
@@ -118,6 +128,7 @@ const before = (a: string, b: string): boolean => a < b
 export function planTarget({
   target,
   progress,
+  baseline,
   woo,
   blended,
   range,
@@ -135,19 +146,36 @@ export function planTarget({
   const daysLeft = notStarted ? windowDays : daysUntil(today, target.deadline)
   const daysElapsed = Math.max(0, windowDays - daysLeft)
 
-  // Everything below is struck from the window's own trading. The range in the
-  // picker decides what the cards above show; it has no business deciding what
-  // a target that names its own dates is measured over.
+  // What the window has actually banked and spent. Always the window's own —
+  // the range in the picker decides what the cards above show, and has no
+  // business deciding what a target that names its own dates has achieved.
   const spentSoFar = progress?.spend ?? 0
-  const pacingPerDay =
-    progress && progress.days > 0 ? progress.spend / progress.days : null
 
-  // The window's own return per ad pound, not a platform's claim about itself
-  // and not the picker's period. Unknown rather than zero below a token spend:
-  // dividing revenue by nothing produces a number that says more about the
-  // divisor than the campaigns.
-  const roas =
-    progress && progress.spend >= MIN_MEANINGFUL_SPEND ? progress.roas : null
+  /**
+   * The rates to plan at: the window's own where it has traded, the store's
+   * recent trading where it has not.
+   *
+   * A target beginning next month has no history of its own, and a plan that
+   * refused to divide anything until the window opened told its reader only
+   * that it had not opened. The store's current performance is the best
+   * available estimate of what the window will do, and the card says outright
+   * which of the two it used.
+   */
+  const hasOwnTrading = !!progress && progress.days > 0 && progress.spend > 0
+  const rates = hasOwnTrading ? progress : baseline
+  const basis: TargetPlan['basis'] = hasOwnTrading
+    ? 'window'
+    : rates
+      ? 'recent'
+      : 'none'
+
+  const pacingPerDay = rates && rates.days > 0 ? rates.spend / rates.days : null
+
+  // Blended return over those rates: store revenue per ad pound, not a
+  // platform's claim about itself. Unknown rather than zero below a token
+  // spend, since dividing revenue by nothing says more about the divisor than
+  // the campaigns.
+  const roas = returnOn('roas', rates)
 
   const aims = orderedAims(target)
   const anchor = anchorOf(aims)
@@ -163,8 +191,8 @@ export function planTarget({
    */
   const salesBasis = anchor
     ? anchor.amount
-    : progress && progress.days > 0
-      ? (progress.revenue / progress.days) * windowDays
+    : rates && rates.days > 0
+      ? (rates.revenue / rates.days) * windowDays
       : 0
 
   const budget = (salesBasis * target.budgetPct) / 100
@@ -176,11 +204,18 @@ export function planTarget({
   // to what has already gone out: the money already spent bought the sales
   // already banked, and charging the store for those a second time is exactly
   // the error this plan used to make.
-  const stillToEarn = anchor ? Math.max(0, anchor.amount - (achievedFor(anchor.goal, progress) ?? 0)) : 0
+  //
+  // Struck at the return on the anchor's *own* measure, not at blended ROAS:
+  // $50,000 of net profit and $50,000 of revenue do not cost the same to buy.
+  const anchorBanked = anchor ? (achievedFor(anchor.goal, progress) ?? 0) : 0
+  const anchorReturn = anchor ? returnOn(anchor.goal, rates) : null
+  const stillToEarn = anchor ? Math.max(0, anchor.amount - anchorBanked) : 0
   const impliedBudget =
-    anchor && roas && roas > 0 ? spentSoFar + stillToEarn / roas : null
+    anchor && anchorReturn ? spentSoFar + stillToEarn / anchorReturn : null
   const projected =
-    anchor && roas ? (achievedFor(anchor.goal, progress) ?? 0) + Math.max(0, budget - spentSoFar) * roas : null
+    anchor && anchorReturn
+      ? anchorBanked + Math.max(0, budget - spentSoFar) * anchorReturn
+      : null
 
   const attainment = attainmentOf(anchor, roasAim, roas, projected)
 
@@ -212,10 +247,9 @@ export function planTarget({
         perMonth: null,
         achieved,
         remaining: null,
-        runRate: achieved,
-        pace: achieved,
-        paceAttainment:
-          achieved === null || aim.amount <= 0 ? null : achieved / aim.amount,
+        runRate: roas,
+        pace: roas,
+        paceAttainment: roas === null || aim.amount <= 0 ? null : roas / aim.amount,
       }
     }
 
@@ -231,15 +265,17 @@ export function planTarget({
     const remaining = achieved === null ? null : Math.max(0, aim.amount - achieved)
     const goalPerDay =
       remaining === null ? null : daysLeft > 0 ? remaining / daysLeft : null
+    // The rate comes from whichever basis is in play; what is banked never
+    // does. A window that has not opened has earned nothing, however well the
+    // store has been trading lately.
+    const rateSource = achievedOnRates(aim.goal, rates)
     const runRate =
-      progress && progress.days > 0 && achieved !== null
-        ? achieved / progress.days
-        : null
+      rates && rates.days > 0 && rateSource !== null ? rateSource / rates.days : null
     // Where it finishes if trading holds: banked plus the run rate over what
     // is left. The old figure projected the run rate alone and so reported a
     // half-finished target as though nothing had been earned yet.
-    const pace =
-      runRate === null || achieved === null ? null : achieved + runRate * daysLeft
+    const banked = achieved ?? 0
+    const pace = runRate === null ? null : banked + runRate * daysLeft
 
     return {
       goal: aim.goal,
@@ -258,6 +294,7 @@ export function planTarget({
   return {
     target,
     progress,
+    basis,
     budgetBasis,
     budgetRemaining,
     basisIsImplied,
@@ -281,6 +318,8 @@ export function planTarget({
       roas,
       perDay,
       basisIsImplied,
+      basis,
+      anchorReturn,
       budget,
       spentSoFar,
       daysLeft,
@@ -298,11 +337,38 @@ export function planTarget({
   }
 }
 
+/** `achievedOn` over whichever basis is in play, which may be absent. */
+const achievedOnRates = (
+  goal: TargetGoal,
+  rates: TargetProgress | null,
+): number | null => (rates ? achievedOn(goal, rates) : null)
+
 /** `achievedOn` through a progress that may not have arrived yet. */
 const achievedFor = (
   goal: TargetGoal,
   progress: TargetProgress | null,
 ): number | null => (progress ? achievedOn(goal, progress) : null)
+
+/**
+ * What an ad pound returns *on this measure*.
+ *
+ * Not one return for every goal. A revenue goal is reached at revenue per ad
+ * pound; a profit goal is reached at profit per ad pound, which on a 40% margin
+ * store is a fraction of it. Dividing a profit goal by the revenue return —
+ * which this did — understates what the goal costs by the whole of the margin
+ * and the overheads, and on a large goal that is not a rounding error but a
+ * budget that cannot possibly reach it.
+ *
+ * A return aim keeps the conventional meaning: revenue over spend.
+ */
+function returnOn(goal: TargetGoal, rates: TargetProgress | null): number | null {
+  if (!rates || rates.spend < MIN_MEANINGFUL_SPEND) return null
+  const earned = goal === 'roas' ? rates.revenue : achievedOn(goal, rates)
+  if (earned === null) return null
+  // A loss-making measure has no positive return to divide a goal by. Reported
+  // as unknown rather than as a negative budget, which would read as money owed.
+  return earned <= 0 ? null : earned / rates.spend
+}
 
 /**
  * How much of the goal is in reach, 1 being on target.
@@ -333,6 +399,9 @@ interface AdviceInput {
   perDay: number
   /** The daily figure is a recommendation, not a plan the operator set. */
   basisIsImplied: boolean
+  basis: TargetPlan['basis']
+  /** The return on the anchor's own measure, which is what its budget buys. */
+  anchorReturn: number | null
   /** The percentage resolved into money, across the whole window. */
   budget: number
   /** What the window has already spent against that budget. */
@@ -360,6 +429,7 @@ function adviseOn(input: AdviceInput): TargetNote[] {
   const notes: TargetNote[] = []
 
   windowNote(input, notes)
+  reachabilityNote(input, notes)
   budgetNote(input, notes)
   paceNote(input, notes)
   pacingNote(input, notes)
@@ -380,24 +450,114 @@ function adviseOn(input: AdviceInput): TargetNote[] {
 }
 
 /**
- * That the window has not opened yet, where it has not.
+ * How the plan was struck, and — for a window that has not opened — what to
+ * have ready for the day it does.
  *
- * Said first because it changes how every figure under it should be read: the
- * rates divide by the whole window rather than by a countdown, and the store's
- * own run rate beside them is what it is trading at now, which is before the
- * target is meant to be worked on at all.
+ * A future target used to get one line saying it had not started, and nothing
+ * else: every note below it bailed out for want of a return to divide by. That
+ * is exactly backwards. A target set in advance is set in advance so that the
+ * spending can be arranged before it begins, and the questions worth answering
+ * — what it will cost, what to book, when to start — are all answerable from
+ * how the store is trading now.
  */
-function windowNote(
-  { target, notStarted, windowDays }: AdviceInput,
-  notes: TargetNote[],
-): void {
-  if (!notStarted) return
+function windowNote(input: AdviceInput, notes: TargetNote[]): void {
+  const {
+    target,
+    anchor,
+    anchorReturn,
+    basis,
+    notStarted,
+    windowDays,
+    impliedBudget,
+    budget,
+    daysLeft,
+  } = input
+  if (basis === 'none') {
+    notes.push({
+      tone: 'warn',
+      title: 'Nothing to plan from yet',
+      detail: `Neither ${target.name}'s own window nor the period on screen has any ad spend in it, so there is no return to divide the goal by. Once a platform reports, the budget this target needs can be worked out.`,
+    })
+    return
+  }
 
-  notes.push({
-    tone: 'warn',
-    title: 'The window has not opened yet',
-    detail: `${target.name} runs from ${target.start} to ${target.deadline}, ${windowDays} days. The rates below are struck across that whole window, and the trading they are set against is the period on screen — which is before it.`,
-  })
+  if (notStarted) {
+    // What to have ready, but only where there is a budget worth readying. At
+    // a return that cannot reach the goal, prescribing a daily figure would
+    // contradict the note directly below it.
+    if (unreachable(input)) {
+      notes.push({
+        tone: 'warn',
+        title: `Starts ${target.start} — the return has to change first`,
+        detail: `${target.name} runs ${windowDays} days from ${target.start} and nothing has been spent against it. There is time to act, but not by setting budgets: at the rate the store is currently returning the goal cannot be bought at any budget, for the reason in the next note. The window to use is the one before it opens — margin, cost of goods, or what the advertising returns.`,
+      })
+      return
+    }
+
+    // The daily figure has to come from the same budget the sentence names.
+    // Quoting what the goal needs and then dividing the entered budget by the
+    // days printed two numbers that did not reconcile.
+    const needed = impliedBudget ?? 0
+    const neededPerDay = daysLeft > 0 ? needed / daysLeft : 0
+
+    const money = anchor
+      ? `At the ${formatRoas(anchorReturn ?? 0)} of ${TARGET_GOAL_LABELS[anchor.goal].toLowerCase()} per ad dollar the store is currently returning, ${formatCurrency(anchor.amount)} needs about ${formatCurrency(needed)} of ad spend across the ${windowDays} days — ${formatCurrency(neededPerDay)} a day, ${formatCurrency(neededPerDay * 7)} a week.${
+          budget > 0 && Math.abs(budget - needed) > budget * 0.01
+            ? ` The ${formatPercent(target.budgetPct / 100)} budget set is ${formatCurrency(budget)}, ${formatCurrency(budget / windowDays)} a day.`
+            : ''
+        }`
+      : `The rates below are struck across the whole ${windowDays}-day window.`
+
+    notes.push({
+      tone: 'warn',
+      title: `Starts ${target.start} — book the budget now`,
+      detail: `${money} Nothing has been spent against it yet, and the figures are estimated from how the store is trading now rather than from the window itself, which has no history. Three things to have ready before it opens: daily budgets totalling ${formatCurrency(neededPerDay)} across the platforms, the creative and landing pages live the day before, and a note of today's return — ${formatRoas(anchorReturn ?? 0)} — to check the first week against.`,
+    })
+    return
+  }
+
+  if (basis === 'recent') {
+    notes.push({
+      tone: 'warn',
+      title: 'Estimated from recent trading',
+      detail: `The window has opened but nothing has been spent in it yet, so the figures below are struck from the period on screen rather than from the target's own days. They will move once spending starts${budget > 0 ? `, and the ${formatCurrency(budget)} budget has ${daysLeft} days to go out over` : ''}.`,
+    })
+  }
+}
+
+/**
+ * Whether the goal can be bought at all, before any question of how much.
+ *
+ * Ranked above the budget note because it decides whether that note has
+ * anything to say: telling a reader to raise a budget towards a goal no budget
+ * reaches is the worst advice this section could give, and the two used to
+ * print one under the other.
+ */
+function reachabilityNote(input: AdviceInput, notes: TargetNote[]): void {
+  const { anchor, anchorReturn, impliedBudget } = input
+  // The plainest version of the same problem, and it applies to every money
+  // goal: the advertising to reach it costs more than the goal is worth. On a
+  // profit goal it is the whole story — a return below 1.0 means each ad
+  // dollar brings back less than a dollar of profit, so no budget reaches the
+  // target and a bigger one only widens the hole.
+  if (!unreachable(input)) return
+  if (anchor && impliedBudget !== null) {
+    const goal = TARGET_GOAL_LABELS[anchor.goal].toLowerCase()
+    notes.push({
+      tone: 'bad',
+      title: 'The goal costs more than it is worth',
+      detail: `Reaching ${formatCurrency(anchor.amount)} of ${goal} needs about ${formatCurrency(impliedBudget)} of advertising at the ${formatRoas(anchorReturn ?? 0)} of ${goal} per ad dollar being achieved — more than the goal itself.${
+        anchor.goal === 'profit'
+          ? ' A return below 1.0x means every dollar spent brings back less than a dollar of profit, so no budget reaches this target; the lever is margin, cost of goods or the return on the ads, not the size of the spend.'
+          : ' Either the goal is set too high for the current return, or the return has to improve before the budget can be raised to chase it.'
+      }`,
+    })
+  }
+}
+
+/** True where the advertising to reach the goal costs more than the goal. */
+function unreachable({ anchor, impliedBudget }: AdviceInput): boolean {
+  return !!anchor && impliedBudget !== null && impliedBudget > anchor.amount
 }
 
 /** Whether the budget as set reaches the goal at the return being achieved. */
@@ -405,8 +565,10 @@ function budgetNote(
   {
     target,
     anchor,
+    anchorReturn,
     roasAim,
     roas,
+    basis,
     budget,
     spentSoFar,
     daysLeft,
@@ -446,9 +608,16 @@ function budgetNote(
     })
   }
 
+  // Said already, and better, by the note above: at a return this low the
+  // answer is not a bigger budget.
   if (!anchor || impliedBudget === null || projected === null) return
+  if (impliedBudget > anchor.amount) return
 
   const goalName = TARGET_GOAL_LABELS[anchor.goal].toLowerCase()
+  // The return on the anchor's own measure. Quoting blended ROAS here while
+  // dividing by this one would print a sentence whose arithmetic does not work.
+  const rate = formatRoas(anchorReturn ?? 0)
+  const source = basis === 'window' ? 'the window is returning' : 'the store is currently returning'
 
   // No budget entered at all. Nothing has been decided yet, so this states the
   // cost rather than reporting a shortfall against a figure nobody set.
@@ -456,7 +625,7 @@ function budgetNote(
     notes.push({
       tone: 'warn',
       title: 'No budget set yet',
-      detail: `At the ${formatRoas(roas)} the window is returning, ${formatCurrency(anchor.amount)} of ${goalName} needs roughly ${formatCurrency(impliedBudget)} of ad spend in total — ${formatPercent(impliedBudget / anchor.amount)} of the target, of which ${formatCurrency(spentSoFar)} has already gone out. The daily and weekly figures above spread what is left over the ${daysLeft} days remaining; set a budget percentage to plan against your own number instead.`,
+      detail: `At the ${rate} of ${goalName} per ad dollar ${source}, ${formatCurrency(anchor.amount)} needs roughly ${formatCurrency(impliedBudget)} of ad spend in total — ${formatPercent(impliedBudget / anchor.amount)} of the target, of which ${formatCurrency(spentSoFar)} has already gone out. The daily and weekly figures above spread what is left over the ${daysLeft} days remaining; set a budget percentage to plan against your own number instead.`,
     })
     return
   }
@@ -469,7 +638,7 @@ function budgetNote(
     notes.push({
       tone: 'good',
       title: `Budget matches the ${goalName} goal`,
-      detail: `At the ${formatRoas(roas)} the window is returning, ${formatPercent(target.budgetPct / 100)} of the target — ${formatCurrency(budget)}, of which ${formatCurrency(spentSoFar)} is spent — finishes at about ${formatCurrency(projected)}, near enough the ${formatCurrency(anchor.amount)} of ${goalName} asked for.`,
+      detail: `At the ${rate} of ${goalName} per ad dollar ${source}, ${formatPercent(target.budgetPct / 100)} of the target — ${formatCurrency(budget)}, of which ${formatCurrency(spentSoFar)} is spent — finishes at about ${formatCurrency(projected)}, near enough the ${formatCurrency(anchor.amount)} of ${goalName} asked for.`,
     })
     return
   }
@@ -479,8 +648,8 @@ function budgetNote(
     title: shortfall > 0 ? 'Increase the budget' : 'Budget is more than the goal needs',
     detail:
       shortfall > 0
-        ? `${formatPercent(target.budgetPct / 100)} of the target is ${formatCurrency(budget)}, of which ${formatCurrency(spentSoFar)} is already spent. At the ${formatRoas(roas)} the window is returning, that finishes at about ${formatCurrency(projected)} — short of the ${formatCurrency(anchor.amount)} of ${goalName} asked for. Reaching it needs roughly ${formatCurrency(impliedBudget)} in total, or ${formatPercent(impliedBudget / anchor.amount)} of the target: ${formatCurrency(shortfall)} more over the ${daysLeft} days left, or a better return on what is already being spent.`
-        : `${formatPercent(target.budgetPct / 100)} of the target is ${formatCurrency(budget)}, of which ${formatCurrency(spentSoFar)} is already spent. At the ${formatRoas(roas)} the window is returning, that finishes past the ${formatCurrency(anchor.amount)} of ${goalName} asked for — about ${formatPercent(impliedBudget / anchor.amount)} of the target reaches it, and the rest is available elsewhere.`,
+        ? `${formatPercent(target.budgetPct / 100)} of the target is ${formatCurrency(budget)}, of which ${formatCurrency(spentSoFar)} is already spent. At the ${rate} of ${goalName} per ad dollar ${source}, that finishes at about ${formatCurrency(projected)} — short of the ${formatCurrency(anchor.amount)} of ${goalName} asked for. Reaching it needs roughly ${formatCurrency(impliedBudget)} in total, or ${formatPercent(impliedBudget / anchor.amount)} of the target: ${formatCurrency(shortfall)} more over the ${daysLeft} days left, or a better return on what is already being spent.`
+        : `${formatPercent(target.budgetPct / 100)} of the target is ${formatCurrency(budget)}, of which ${formatCurrency(spentSoFar)} is already spent. At the ${rate} of ${goalName} per ad dollar ${source}, that finishes past the ${formatCurrency(anchor.amount)} of ${goalName} asked for — about ${formatPercent(impliedBudget / anchor.amount)} of the target reaches it, and the rest is available elsewhere.`,
   })
 }
 
@@ -492,7 +661,7 @@ function budgetNote(
  * that contrast is the reading — split across two notes it reads as two
  * unrelated findings.
  */
-function paceNote({ aimPlans, daysLeft }: AdviceInput, notes: TargetNote[]): void {
+function paceNote({ aimPlans, daysLeft, basis }: AdviceInput, notes: TargetNote[]): void {
   if (daysLeft === 0) return
 
   const measured = aimPlans.filter((aim) => aim.paceAttainment !== null)
@@ -516,7 +685,7 @@ function paceNote({ aimPlans, daysLeft }: AdviceInput, notes: TargetNote[]): voi
       tone: 'good',
       title:
         measured.length > 1 ? 'On pace for every aim' : 'On pace for the goal',
-      detail: `Counting what the window has already banked and carrying its own rate over the days left, it finishes at ${formatList(
+      detail: `${basis === 'window' ? "Counting what the window has already banked and carrying its own rate over the days left" : "Carrying the store's current rate across the window"}, it finishes at ${formatList(
         measured.map(say),
       )}. Nothing has to change for the target to be met.`,
     })
@@ -533,7 +702,7 @@ function paceNote({ aimPlans, daysLeft }: AdviceInput, notes: TargetNote[]): voi
         : `Behind on ${formatList(
             short.map((aim) => TARGET_GOAL_LABELS[aim.goal].toLowerCase()),
           )}`,
-    detail: `Counting what is already banked and carrying the window's own rate over the ${daysLeft} days left, it finishes at ${formatList(
+    detail: `${basis === 'window' ? "Counting what is already banked and carrying the window's own rate" : "Carrying the store's current rate"} over the ${daysLeft} days left, it finishes at ${formatList(
       short.map(say),
     )}.${
       short.length === measured.length
@@ -549,15 +718,20 @@ function paceNote({ aimPlans, daysLeft }: AdviceInput, notes: TargetNote[]): voi
 
 /** Whether current spend is on the pace the budget assumes. */
 function pacingNote(
-  { perDay, basisIsImplied, pacingPerDay, daysLeft }: AdviceInput,
+  { perDay, basisIsImplied, pacingPerDay, daysLeft, basis, notStarted }: AdviceInput,
   notes: TargetNote[],
 ): void {
+  // A window that has not opened has no pace of its own to be over or under.
+  // What to spend when it does is the previous note's business.
+  if (notStarted) return
   // Runs against the recommended daily figure too, not only an entered one:
   // "the goal needs £121 a day and you are spending £258" is the same useful
   // sentence whichever side of it the reader supplied.
   if (pacingPerDay === null || perDay <= 0) return
 
   const allows = basisIsImplied ? 'The goal needs' : 'The plan allows'
+  const running =
+    basis === 'window' ? 'the window has been running at' : 'the store is currently spending'
   const gap = perDay - pacingPerDay
 
   // Under a tenth of the daily budget is drift, not a decision to make.
@@ -575,8 +749,8 @@ function pacingNote(
     title: gap > 0 ? 'Spending under pace' : 'Spending over pace',
     detail:
       gap > 0
-        ? `${allows} ${formatCurrency(perDay)} a day from here; the window has been running at ${formatCurrency(pacingPerDay)}. At this rate the goal goes unmet — raise daily spend by about ${formatCurrency(gap)}.`
-        : `${allows} ${formatCurrency(perDay)} a day from here; the window has been running at ${formatCurrency(pacingPerDay)}, which is ${formatCurrency(-gap)} a day above it. ${
+        ? `${allows} ${formatCurrency(perDay)} a day from here; ${running} ${formatCurrency(pacingPerDay)}. At this rate the goal goes unmet — raise daily spend by about ${formatCurrency(gap)}.`
+        : `${allows} ${formatCurrency(perDay)} a day from here; ${running} ${formatCurrency(pacingPerDay)}, which is ${formatCurrency(-gap)} a day above it. ${
             basisIsImplied
               ? 'The goal is already funded at this rate — the spend is ahead of what it requires.'
               : `The budget runs out with ${daysLeft} days still to go.`

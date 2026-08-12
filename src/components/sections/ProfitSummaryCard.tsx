@@ -712,7 +712,7 @@ export function ProfitSummaryCard({
                       )}
                       {figure.previous !== undefined && (
                         <span className="text-[11px] tabular-nums text-label">
-                          vs {figure.previous}
+                          {figure.previous}
                         </span>
                       )}
                     </div>
@@ -790,7 +790,7 @@ export function ProfitSummaryCard({
         <div className="mt-1 overflow-x-auto">
           <dl
             className={`flex flex-col ${
-              anyChange ? 'min-w-[20rem] sm:min-w-[25rem]' : 'min-w-[14.5rem]'
+              anyChange ? 'min-w-[20rem]' : 'min-w-[14.5rem]'
             }`}
           >
             {lines.map((line, index) => (
@@ -872,7 +872,7 @@ function StripFigure({
           </span>
         )}
         {figure.previous !== undefined && (
-          <span className="text-[11px] tabular-nums text-label">vs {figure.previous}</span>
+          <span className="text-[11px] tabular-nums text-label">{figure.previous}</span>
         )}
       </div>
       {/* The baseline now follows the percentage above; this line preserves
@@ -948,48 +948,55 @@ function StatementRow({
       >
         {line.label}
       </dt>
-      <dd className="flex shrink-0 items-baseline gap-1.5">
-        {/* A floor rather than a fixed width: the figures line up at the
-            magnitudes a statement actually holds, and an unusually large one
-            widens its column instead of being clipped. */}
-        <span
-          className={`min-w-[4.75rem] text-right tabular-nums ${
-            strong ? `${strongSize} font-semibold text-ink` : 'text-[11px] text-muted'
-          }`}
-        >
-          {line.valueLabel}
-        </span>
-        {/* This period's share sits next to the figure it describes — the two
-            are the same fact in different units — and the movement against the
-            comparison window follows, being about a different period. */}
-        <span
-          className={`w-11 text-right text-[11px] tabular-nums ${
-            strong ? 'text-[#9a9aa2]' : 'text-muted'
-          }`}
-        >
-          {formatPercent(share)}
-        </span>
-        {/* Each column holds its width even when a line has no figure for it,
-            so one gap cannot shunt the column beside it out of alignment. */}
-        {showChange && (
+      {/* Two lines, as the shared rows are: figure and change above, the
+          figure it moved from directly beneath. Out at the right behind a
+          "vs" the pair sat at opposite ends of the line, which is a long way
+          to travel for the one comparison the row exists to make. */}
+      <dd className="flex shrink-0 flex-col">
+        <div className="flex items-baseline gap-1.5">
+          {/* A floor rather than a fixed width: the figures line up at the
+              magnitudes a statement actually holds, and an unusually large one
+              widens its column instead of being clipped. */}
           <span
-            className={`flex w-[4rem] items-center justify-end gap-0.5 text-[11px] tabular-nums ${
-              change === null ? 'text-muted' : changeColor(change, line.polarity)
+            className={`min-w-[4.75rem] text-right tabular-nums ${
+              strong ? `${strongSize} font-semibold text-ink` : 'text-[11px] text-muted'
             }`}
           >
-            {change !== null && (
-              <>
-                {change < 0 ? <ArrowDown size={10} strokeWidth={3} /> : <ArrowUp size={10} strokeWidth={3} />}
-                {formatDeltaPercent(change)}
-              </>
-            )}
+            {line.valueLabel}
           </span>
-        )}
-        {/* Set below the change in weight: it is what the change was measured
-            from, not a second claim about this period. */}
+          {/* This period's share sits next to the figure it describes — the two
+              are the same fact in different units — and the movement against the
+              comparison window follows, being about a different period. */}
+          <span
+            className={`w-11 text-right text-[11px] tabular-nums ${
+              strong ? 'text-[#9a9aa2]' : 'text-muted'
+            }`}
+          >
+            {formatPercent(share)}
+          </span>
+          {/* Each column holds its width even when a line has no figure for it,
+              so one gap cannot shunt the column beside it out of alignment. */}
+          {showChange && (
+            <span
+              className={`flex w-[4rem] items-center justify-end gap-0.5 text-[11px] tabular-nums ${
+                change === null ? 'text-muted' : changeColor(change, line.polarity)
+              }`}
+            >
+              {change !== null && (
+                <>
+                  {change < 0 ? <ArrowDown size={10} strokeWidth={3} /> : <ArrowUp size={10} strokeWidth={3} />}
+                  {formatDeltaPercent(change)}
+                </>
+              )}
+            </span>
+          )}
+        </div>
+        {/* Rendered whenever any line carries a baseline, empty where this one
+            does not: a line that appeared and vanished down the statement would
+            give the rows ragged heights and break the scan. */}
         {showPrevious && (
-          <span className="w-[5rem] shrink-0 text-right text-[11px] tabular-nums text-label">
-            {previous === undefined ? '' : `vs ${previous}`}
+          <span className="min-w-[4.75rem] text-right text-[10.5px] leading-tight tabular-nums text-label">
+            {previous ?? ''}
           </span>
         )}
       </dd>

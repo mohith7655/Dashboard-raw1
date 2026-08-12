@@ -370,7 +370,7 @@ function HeadlineFigure({ figure }: { figure: FigureSpec }) {
           </span>
         )}
         {previous !== undefined && (
-          <span className="text-[11px] tabular-nums text-label">vs {previous}</span>
+          <span className="text-[11px] tabular-nums text-label">{previous}</span>
         )}
       </div>
       {difference !== undefined && (
