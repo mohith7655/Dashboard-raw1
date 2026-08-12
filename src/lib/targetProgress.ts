@@ -19,12 +19,14 @@ import type {
   WooMetrics,
 } from './types'
 import { daysInRange, latestAvailableDate } from './dateRange'
+import { effectiveStart } from './targets'
 import { netProfitOf, revenueOf, totalSalesOf } from './pnl'
 import { costLines, totalOperatingCost } from './operatingCosts'
 import { SourceFailure } from './adapters/client'
 import * as metorik from './adapters/metorik'
 import * as meta from './adapters/meta'
 import * as googleAds from './adapters/googleAds'
+import * as openaiAds from './adapters/openaiAds'
 import { queryKeys } from './queries'
 
 /** Below this the return is treated as unknown rather than as poor. */
@@ -45,6 +47,7 @@ const MIN_MEANINGFUL_SPEND = 1
  * a fraction of one day is the safer of the two errors.
  */
 export function elapsedWindow(target: Target, today: string): DateRange | null {
+  const opens = effectiveStart(target)
   const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000)
     .toISOString()
     .slice(0, 10)
@@ -52,8 +55,8 @@ export function elapsedWindow(target: Target, today: string): DateRange | null {
   // rather than everything since — which would go on growing after it closed.
   const end = yesterday < target.deadline ? yesterday : target.deadline
   // Nothing finished yet: the window has not opened, or opened only today.
-  if (end < target.start) return null
-  return { start: target.start, end, preset: 'custom' }
+  if (end < opens) return null
+  return { start: opens, end, preset: 'custom' }
 }
 
 const keyOf = (window: DateRange): string => `${window.start}:${window.end}`
@@ -86,10 +89,12 @@ export function useTargetProgress(
     return [...found.values()]
   }, [targets, today])
 
-  // Three connectors per window: the store, and the two ad platforms that
-  // report spend. OpenAI Ads is left out for the same reason it is left out of
-  // blended return — it attributes nothing, and its spend is already carried
-  // in the All ads card where that can be said plainly.
+  // Four connectors per window: the store, and every platform that reports
+  // spend. OpenAI Ads is among them — it attributes no conversions, which is
+  // why it stays out of blended *return*, but the money still left the account
+  // and a target's budget is about money spent. Leaving it out had this
+  // section reporting a spend the All ads card contradicted by $851 on the
+  // very same period.
   const wooQueries = useQueries({
     queries: windows.map((window) => ({
       queryKey: queryKeys.woo(window, null),
@@ -116,23 +121,42 @@ export function useTargetProgress(
     })),
   })
 
+  const openaiQueries = useQueries({
+    queries: windows.map((window) => ({
+      queryKey: queryKeys.openaiAds(window, null),
+      queryFn: () => unwrap(openaiAds.fetchMetrics(window, null)),
+      staleTime: 5 * 60_000,
+    })),
+  })
+
   return useMemo(() => {
     const byWindow = new Map<string, TargetProgress>()
     let loading = false
 
     windows.forEach((window, i) => {
       const woo = wooQueries[i]
-      const metaAds = metaQueries[i]
-      const google = googleQueries[i]
+      const ads = [metaQueries[i], googleQueries[i], openaiQueries[i]]
 
-      if (woo.isPending || metaAds.isPending || google.isPending) loading = true
+      // Nothing is published while a connector is still answering. Spend
+      // summed over the platforms that happen to have replied is a real number
+      // arrived at from an incomplete set, and it lands on the card as "$0.00
+      // spent so far" — indistinguishable from a window that genuinely spent
+      // nothing, and gone a second later when the rest arrives.
+      if (woo.isPending || ads.some((query) => query.isPending)) {
+        loading = true
+        return
+      }
+
       // The store is the only one that cannot be missing: every money aim is
       // struck from it. A failed ad platform contributes no spend rather than
       // zero spend, which is the same distinction the rest of the dashboard
       // draws — but with nothing from Metorik there is no progress at all.
       if (!woo.data) return
 
-      byWindow.set(keyOf(window), progressFrom(window, woo.data, [metaAds.data, google.data], costs))
+      byWindow.set(
+        keyOf(window),
+        progressFrom(window, woo.data, ads.map((query) => query.data), costs),
+      )
     })
 
     const byTarget: Record<string, TargetProgress | null> = {}
@@ -146,7 +170,7 @@ export function useTargetProgress(
     }
 
     return { byTarget, loading }
-  }, [windows, wooQueries, metaQueries, googleQueries, targets, costs, today])
+  }, [windows, wooQueries, metaQueries, googleQueries, openaiQueries, targets, costs, today])
 }
 
 const EMPTY: TargetProgress = {

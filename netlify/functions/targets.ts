@@ -83,6 +83,11 @@ function readTargets(raw: unknown): Target[] {
       // so a mistyped year cannot produce a window of negative length for the
       // rates to divide by.
       start: earliest(readIsoDate(row.start) ?? today(), deadline),
+      // Defaults on where a row predates the option. Advertising is bought by
+      // the month, and a target set mid-month that ignored what the month had
+      // already spent showed a budget with more left in it than the account
+      // had — which is the behaviour these rows were written expecting.
+      countFromMonthStart: row.countFromMonthStart !== false,
       deadline,
     })
 

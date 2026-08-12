@@ -25,8 +25,9 @@ import type {
   WooMetrics,
 } from '../../lib/types'
 import { TARGET_GOALS, TARGET_GOAL_LABELS, isMoneyGoal } from '../../lib/types'
-import { planTarget } from '../../lib/targets'
+import { effectiveStart, planTarget } from '../../lib/targets'
 import { baselineProgress, useTargetProgress } from '../../lib/targetProgress'
+import { monthStart } from '../../lib/dateRange'
 import {
   formatCurrency,
   formatDay,
@@ -94,6 +95,7 @@ const newTarget = (): Target => ({
   // Today to a month out: the window a target set now is almost always for,
   // and both ends movable.
   start: toIsoDate(new Date()),
+  countFromMonthStart: true,
   deadline: defaultDeadline(),
 })
 
@@ -287,7 +289,7 @@ function PlanCard({
             <h3 className="truncate text-[14px] font-medium text-ink">{target.name}</h3>
           </div>
           <p className="mt-1 text-[12px] text-muted">
-            {goalLabel} from {formatDay(target.start)} to{' '}
+            {goalLabel} from {formatDay(effectiveStart(target))} to{' '}
             {formatDay(target.deadline)}{' '}
             <span className={plan.daysLeft === 0 ? 'text-neg' : 'text-label'}>
               ({due})
@@ -300,6 +302,11 @@ function PlanCard({
                 store's recent performance instead. */}
             {plan.basis === 'recent' && (
               <span className="text-amber-400/90"> · estimated from recent trading</span>
+            )}
+            {/* Said outright, because the window on the card is then not the
+                date in the editor and the difference is the whole point. */}
+            {target.countFromMonthStart && target.start !== effectiveStart(target) && (
+              <span className="text-label"> · counted from the start of the month</span>
             )}
           </p>
         </div>
@@ -738,6 +745,30 @@ function TargetEditor({
           </Field>
         ))}
       </div>
+
+      {/* Advertising is bought and reconciled by the month, so a target set on
+          the 16th is usually still working against a budget that started on
+          the 1st. Moving the whole window rather than the spend alone keeps
+          the return honest: spend counted from the first against sales counted
+          from the sixteenth is a ratio struck from two different periods. */}
+      <label className="flex cursor-pointer items-start gap-2.5">
+        <input
+          type="checkbox"
+          checked={draft.countFromMonthStart}
+          onChange={(e) => set('countFromMonthStart', e.target.checked)}
+          className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[#5a5a62]"
+        />
+        <span className="min-w-0">
+          <span className="block text-[12.5px] text-ink">
+            Count from the start of the month
+          </span>
+          <span className="mt-0.5 block text-[11px] leading-relaxed text-muted">
+            {draft.countFromMonthStart
+              ? `Everything is measured from ${formatDay(monthStart(draft.start))}, including the ad spend already made this month.`
+              : `Everything is measured from ${formatDay(draft.start)}. Ad spend made earlier in the month is not counted against this target.`}
+          </span>
+        </span>
+      </label>
 
       {budgetPreview && anchor && (
         <p className="text-[11px] text-label">

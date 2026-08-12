@@ -24,6 +24,7 @@ import type {
   WooMetrics,
 } from './types'
 import { TARGET_GOALS, TARGET_GOAL_LABELS, isMoneyGoal } from './types'
+import { monthStart } from './dateRange'
 import { formatCurrency, formatList, formatPercent, formatRoas } from './format'
 
 /** Below this the return is treated as unknown rather than as poor. */
@@ -125,6 +126,18 @@ export function daysUntil(today: string, deadline: string): number {
 /** True where `a` falls strictly before `b`, both `yyyy-MM-dd`. */
 const before = (a: string, b: string): boolean => a < b
 
+/**
+ * The day a target's window actually begins.
+ *
+ * The date typed, or the first of its month where the target counts from
+ * there. One definition, exported, because the plan and the fetch that feeds
+ * it must agree on this to the day — two answers here would have the card
+ * banking figures from a window it was not measuring.
+ */
+export function effectiveStart(target: Target): string {
+  return target.countFromMonthStart ? monthStart(target.start) : target.start
+}
+
 export function planTarget({
   target,
   progress,
@@ -141,8 +154,9 @@ export function planTarget({
   // count back from the deadline: a target beginning next month is not one
   // whose daily rate should already be climbing, and dividing by days it is
   // not meant to be traded in would understate every figure below.
-  const windowDays = Math.max(1, daysUntil(target.start, target.deadline))
-  const notStarted = before(today, target.start)
+  const opens = effectiveStart(target)
+  const windowDays = Math.max(1, daysUntil(opens, target.deadline))
+  const notStarted = before(today, opens)
   const daysLeft = notStarted ? windowDays : daysUntil(today, target.deadline)
   const daysElapsed = Math.max(0, windowDays - daysLeft)
 
@@ -488,8 +502,8 @@ function windowNote(input: AdviceInput, notes: TargetNote[]): void {
     if (unreachable(input)) {
       notes.push({
         tone: 'warn',
-        title: `Starts ${target.start} — the return has to change first`,
-        detail: `${target.name} runs ${windowDays} days from ${target.start} and nothing has been spent against it. There is time to act, but not by setting budgets: at the rate the store is currently returning the goal cannot be bought at any budget, for the reason in the next note. The window to use is the one before it opens — margin, cost of goods, or what the advertising returns.`,
+        title: `Starts ${effectiveStart(target)} — the return has to change first`,
+        detail: `${target.name} runs ${windowDays} days from ${effectiveStart(target)} and nothing has been spent against it. There is time to act, but not by setting budgets: at the rate the store is currently returning the goal cannot be bought at any budget, for the reason in the next note. The window to use is the one before it opens — margin, cost of goods, or what the advertising returns.`,
       })
       return
     }
@@ -510,7 +524,7 @@ function windowNote(input: AdviceInput, notes: TargetNote[]): void {
 
     notes.push({
       tone: 'warn',
-      title: `Starts ${target.start} — book the budget now`,
+      title: `Starts ${effectiveStart(target)} — book the budget now`,
       detail: `${money} Nothing has been spent against it yet, and the figures are estimated from how the store is trading now rather than from the window itself, which has no history. Three things to have ready before it opens: daily budgets totalling ${formatCurrency(neededPerDay)} across the platforms, the creative and landing pages live the day before, and a note of today's return — ${formatRoas(anchorReturn ?? 0)} — to check the first week against.`,
     })
     return

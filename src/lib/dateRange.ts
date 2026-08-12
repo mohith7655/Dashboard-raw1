@@ -110,6 +110,11 @@ export function clampRangeToAvailable(range: DateRange): DateRange {
   return { ...range, start: range.start > latest ? latest : range.start, end: latest }
 }
 
+/** The first of the month `day` falls in, `yyyy-MM-dd`. */
+export function monthStart(day: string): string {
+  return `${day.slice(0, 7)}-01`
+}
+
 /** True where the range runs up to and including today, on the store's clock. */
 export function includesToday(range: DateRange): boolean {
   return range.end >= latestAvailableDate() && range.start <= latestAvailableDate()

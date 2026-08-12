@@ -1017,6 +1017,21 @@ export interface Target {
    */
   start: string
   /**
+   * Count the window from the first of `start`'s month rather than from
+   * `start` itself.
+   *
+   * Advertising is bought and reconciled by the month, so money already spent
+   * in the month a target opens in has, in practice, been spent against it —
+   * and a target set mid-month that ignored it would show a budget with more
+   * left in it than the account really has.
+   *
+   * Moving the whole window rather than the spend alone is deliberate. Spend
+   * counted from the first against sales counted from the sixteenth is a
+   * return struck from two different periods, which is a worse error than the
+   * one it would fix.
+   */
+  countFromMonthStart: boolean
+  /**
    * `yyyy-MM-dd` the target is to be met by. Never before `start`.
    *
    * The plan is struck from the days between today and this, not from a fixed
