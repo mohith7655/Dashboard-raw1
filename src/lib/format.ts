@@ -62,6 +62,17 @@ export const formatDeltaPercent = (pct: number): string =>
 
 export const formatRoas = (n: number): string => `${dec2.format(n)}x`
 
+const list = new Intl.ListFormat('en-US', { style: 'long', type: 'conjunction' })
+
+/**
+ * `[a, b, c]` → `a, b, and c` — one item stands alone, two join with "and".
+ *
+ * Written prose, not a table, so a plain `join(' and ')` shows: three aims on
+ * one target read "revenue and profit and return", which is how a sentence
+ * announces that nobody read it back.
+ */
+export const formatList = (parts: string[]): string => list.format(parts)
+
 const dateFmt = new Intl.DateTimeFormat('en-US', {
   month: 'short',
   day: 'numeric',

@@ -12,17 +12,26 @@ import {
 import type { BlendedAds } from '../../lib/pnl'
 import type { TargetAdviser } from '../../lib/queries'
 import type {
+  AimPlan,
   DateRange,
   MerchantFeed,
   Target,
   TargetGoal,
   TargetAdvice,
+  TargetAim,
   TargetNote,
   TargetPlan,
   WooMetrics,
 } from '../../lib/types'
+import { TARGET_GOALS, TARGET_GOAL_LABELS, isMoneyGoal } from '../../lib/types'
 import { planTarget } from '../../lib/targets'
-import { formatCurrency, formatDay, formatPercent, formatRoas } from '../../lib/format'
+import {
+  formatCurrency,
+  formatDay,
+  formatList,
+  formatPercent,
+  formatRoas,
+} from '../../lib/format'
 import { SectionLabel } from '../SectionLabel'
 import { Skeleton } from '../Skeleton'
 
@@ -34,6 +43,11 @@ interface TargetsSectionProps {
   onSave: (targets: Target[]) => void
   woo: WooMetrics | undefined
   blended: BlendedAds | null
+  /**
+   * Overheads already prorated onto the range, as the CEO card prorates them —
+   * a net profit aim is measured against the same figure the statement prints.
+   */
+  operatingCost: number
   feed: MerchantFeed | undefined
   range: DateRange
   /** Model-written advice, asked for one target at a time. */
@@ -69,9 +83,14 @@ const newTarget = (): Target => ({
   // that sorts by creation is easier to read in the stored blob.
   id: `t${Date.now().toString(36)}`,
   name: 'New target',
-  goal: 'sales',
-  amount: 0,
+  // Revenue alone to begin with. More aims are a click away, and a target that
+  // opened with four of them would ask for four figures before it said
+  // anything.
+  aims: [{ goal: 'revenue', amount: 0 }],
   budgetPct: 0,
+  // Today to a month out: the window a target set now is almost always for,
+  // and both ends movable.
+  start: toIsoDate(new Date()),
   deadline: defaultDeadline(),
 })
 
@@ -95,6 +114,7 @@ export function TargetsSection({
   onSave,
   woo,
   blended,
+  operatingCost,
   feed,
   range,
   adviser,
@@ -110,9 +130,9 @@ export function TargetsSection({
   const plans = useMemo(
     (): TargetPlan[] =>
       (targets ?? []).map((target) =>
-        planTarget({ target, woo, blended, range, feed, today }),
+        planTarget({ target, woo, blended, operatingCost, range, feed, today }),
       ),
-    [targets, woo, blended, range, feed, today],
+    [targets, woo, blended, operatingCost, range, feed, today],
   )
 
   const commit = (next: Target[]) => {
@@ -215,15 +235,25 @@ function PlanCard({
   onAdvise: () => void
 }) {
   const { target } = plan
-  const goalLabel =
-    target.goal === 'sales'
-      ? `${formatCurrency(target.amount)} of sales`
-      : `${formatRoas(target.amount)} return`
+  // Every aim on one line, in the plan's own order. "$50,000 of revenue and
+  // $8,000 of net profit" is what was committed to; naming only the first
+  // would make the blocks below look like arithmetic nobody asked for.
+  const goalLabel = formatList(
+    plan.aims.map((aim) =>
+      aim.goal === 'roas'
+        ? `${formatRoas(aim.amount)} return`
+        : `${formatCurrency(aim.amount)} of ${TARGET_GOAL_LABELS[aim.goal].toLowerCase()}`,
+    ),
+  )
 
-  const due =
-    plan.daysLeft === 0
+  // How far through the window it is, which is what the start date buys: on
+  // its own a deadline says how long is left but never how long there was.
+  const days = (n: number) => `${n} ${n === 1 ? 'day' : 'days'}`
+  const due = plan.notStarted
+    ? `not started · ${days(plan.windowDays)}`
+    : plan.daysLeft === 0
       ? 'overdue'
-      : `${plan.daysLeft} ${plan.daysLeft === 1 ? 'day' : 'days'} left`
+      : `day ${plan.daysElapsed + 1} of ${plan.windowDays} · ${days(plan.daysLeft)} left`
 
   return (
     <div className="card">
@@ -236,7 +266,8 @@ function PlanCard({
             <h3 className="truncate text-[14px] font-medium text-ink">{target.name}</h3>
           </div>
           <p className="mt-1 text-[12px] text-muted">
-            {goalLabel} by {formatDay(target.deadline)}{' '}
+            {goalLabel} from {formatDay(target.start)} to{' '}
+            {formatDay(target.deadline)}{' '}
             <span className={plan.daysLeft === 0 ? 'text-neg' : 'text-label'}>
               ({due})
             </span>
@@ -317,42 +348,14 @@ function PlanCard({
         </div>
       </div>
 
-      {/* The goal itself at the rate it has to be met. A figure by a date is
-          not something anybody can trade against; a week's worth of it is. */}
-      {plan.goalPerDay !== null && (
-        <div className="mt-3 border-t border-row-line pt-3">
-          <div className="text-[10.5px] uppercase tracking-wide text-label">
-            Sales needed to reach it
-          </div>
-          <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
-            <Figure label="Per day" value={formatCurrency(plan.goalPerDay)} />
-            {plan.goalPerWeek !== null && (
-              <Figure label="Per week" value={formatCurrency(plan.goalPerWeek)} />
-            )}
-            {plan.goalPerMonth !== null && (
-              <Figure label="Per month" value={formatCurrency(plan.goalPerMonth)} />
-            )}
-            {plan.paceSales !== null && (
-              <Figure
-                label="On pace for"
-                value={formatCurrency(plan.paceSales)}
-                className={
-                  plan.paceAttainment !== null && plan.paceAttainment >= 1
-                    ? 'text-pos'
-                    : 'text-neg'
-                }
-              />
-            )}
-            {plan.paceAttainment !== null && (
-              <Figure
-                label="Pace vs goal"
-                value={formatPercent(plan.paceAttainment)}
-                className={plan.paceAttainment >= 1 ? 'text-pos' : 'text-neg'}
-              />
-            )}
-          </div>
-        </div>
-      )}
+      {/* One block per aim: the goal itself at the rate it has to be met, and
+          the rate the store is actually running at against it. A figure by a
+          date is not something anybody can trade against; a week's worth of it
+          is. Kept apart rather than merged because revenue and profit are
+          reached at different rates and are rarely both on pace. */}
+      {plan.aims.map((aim) => (
+        <AimBlock key={aim.goal} aim={aim} />
+      ))}
 
       {adviceError && (
         <p className="mt-3 text-[12px] leading-relaxed text-neg">{adviceError}</p>
@@ -408,6 +411,68 @@ function PlanCard({
   )
 }
 
+/**
+ * One aim's own arithmetic.
+ *
+ * A money aim divides into a daily, weekly and monthly rate and is set against
+ * what the store is on pace for. A return aim divides into nothing — a rate
+ * does not accumulate — so it shows the return itself against the one asked
+ * for, and no per-day figures that would be the same number three times.
+ */
+function AimBlock({ aim }: { aim: AimPlan }) {
+  const name = TARGET_GOAL_LABELS[aim.goal]
+  const reached = aim.paceAttainment !== null && aim.paceAttainment >= 1
+  const pacing = reached ? 'text-pos' : 'text-neg'
+
+  return (
+    <div className="mt-3 border-t border-row-line pt-3">
+      <div className="text-[10.5px] uppercase tracking-wide text-label">
+        {aim.goal === 'roas'
+          ? `Return of ${formatRoas(aim.amount)} to hold`
+          : `${name} needed to reach ${formatCurrency(aim.amount)}`}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+        {aim.perDay !== null && (
+          <Figure label="Per day" value={formatCurrency(aim.perDay)} />
+        )}
+        {aim.perWeek !== null && (
+          <Figure label="Per week" value={formatCurrency(aim.perWeek)} />
+        )}
+        {aim.perMonth !== null && (
+          <Figure label="Per month" value={formatCurrency(aim.perMonth)} />
+        )}
+        {/* What the store is doing now, in the same units as the rates beside
+            it — so the gap is read across the row rather than worked out. */}
+        {aim.runRate !== null && (
+          <Figure
+            label="Running at"
+            value={
+              aim.goal === 'roas'
+                ? formatRoas(aim.runRate)
+                : `${formatCurrency(aim.runRate)} / day`
+            }
+            className={aim.goal === 'roas' ? pacing : 'text-ink'}
+          />
+        )}
+        {aim.goal !== 'roas' && aim.pace !== null && (
+          <Figure
+            label="On pace for"
+            value={formatCurrency(aim.pace)}
+            className={pacing}
+          />
+        )}
+        {aim.paceAttainment !== null && (
+          <Figure
+            label="Pace vs goal"
+            value={formatPercent(aim.paceAttainment)}
+            className={pacing}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
 function Figure({
   label,
   value,
@@ -446,14 +511,43 @@ function TargetEditor({
   const set = <K extends keyof Target>(key: K, value: Target[K]) =>
     setDraft((d) => ({ ...d, [key]: value }))
 
-  const amountLabel = draft.goal === 'sales' ? 'Sales target' : 'Return target (x)'
+  const chosen = (goal: TargetGoal) => draft.aims.some((aim) => aim.goal === goal)
 
-  // What the percentage resolves to, for a sales goal where the base is known.
-  // A share is easier to hold to and harder to picture; the money is shown so
-  // the operator is never typing a number they cannot see the size of.
+  /**
+   * Adds or removes a goal, keeping the aims in the canonical order.
+   *
+   * The last one cannot be removed: a target with nothing to reach has no
+   * arithmetic in it, and the store drops such a row on save — better to
+   * refuse the click than to accept an edit that quietly disappears.
+   */
+  const toggle = (goal: TargetGoal) =>
+    setDraft((d) => {
+      const has = d.aims.some((aim) => aim.goal === goal)
+      if (has && d.aims.length === 1) return d
+      const aims: TargetAim[] = has
+        ? d.aims.filter((aim) => aim.goal !== goal)
+        : [...d.aims, { goal, amount: 0 }]
+      return {
+        ...d,
+        aims: aims.sort(
+          (a, b) => TARGET_GOALS.indexOf(a.goal) - TARGET_GOALS.indexOf(b.goal),
+        ),
+      }
+    })
+
+  const setAmount = (goal: TargetGoal, amount: number) =>
+    setDraft((d) => ({
+      ...d,
+      aims: d.aims.map((aim) => (aim.goal === goal ? { ...aim, amount } : aim)),
+    }))
+
+  // What the percentage resolves to, against the aim the budget is struck
+  // from. A share is easier to hold to and harder to picture; the money is
+  // shown so the operator is never typing a number they cannot see the size of.
+  const anchor = draft.aims.find((aim) => isMoneyGoal(aim.goal) && aim.amount > 0)
   const budgetPreview =
-    draft.goal === 'sales' && draft.amount > 0 && draft.budgetPct > 0
-      ? formatCurrency((draft.amount * draft.budgetPct) / 100)
+    anchor && draft.budgetPct > 0
+      ? formatCurrency((anchor.amount * draft.budgetPct) / 100)
       : null
 
   return (
@@ -474,32 +568,6 @@ function TargetEditor({
           />
         </Field>
 
-        <Field label="Goal">
-          <select
-            value={draft.goal}
-            onChange={(e) => set('goal', e.target.value as TargetGoal)}
-            className="input-base"
-          >
-            <option value="sales">Sales</option>
-            <option value="roas">Return on ad spend</option>
-          </select>
-        </Field>
-
-        {/* `step="any"` throughout, never a round increment: a step the browser
-            can enforce is a validation rule, and `step=100` refuses 10,050 with
-            "the two nearest valid values are 10,000 and 10,100". The spinner
-            arrows are a convenience; they must not decide what a target may be. */}
-        <Field label={amountLabel}>
-          <input
-            type="number"
-            min={0}
-            step="any"
-            value={draft.amount || ''}
-            onChange={(e) => set('amount', Math.max(0, Number(e.target.value) || 0))}
-            className="input-base tabular-nums"
-          />
-        </Field>
-
         <Field label="Ad budget (% of sales)">
           <input
             type="number"
@@ -514,21 +582,121 @@ function TargetEditor({
           />
         </Field>
 
-        <Field label="Target date">
+        {/* Both ends of the window. Each keeps the other in order rather than
+            validating on save: the start can never be set past the end, and
+            moving the start past the end drags the end with it — an inverted
+            window would divide every rate below by a negative number of days.
+
+            Neither is held to today. A window that opened last week is an
+            ordinary thing to write down, and the card reports an overdue one
+            as overdue rather than refusing to hold it. */}
+        <Field label="Start date">
+          <input
+            type="date"
+            value={draft.start}
+            max={draft.deadline}
+            onChange={(e) => {
+              const start = e.target.value || draft.start
+              setDraft((d) => ({
+                ...d,
+                start,
+                deadline: start > d.deadline ? start : d.deadline,
+              }))
+            }}
+            className="input-base tabular-nums"
+          />
+        </Field>
+
+        <Field label="End date">
           <input
             type="date"
             value={draft.deadline}
-            min={toIsoDate(new Date())}
-            onChange={(e) => set('deadline', e.target.value || draft.deadline)}
+            min={draft.start}
+            onChange={(e) => {
+              const deadline = e.target.value || draft.deadline
+              setDraft((d) => ({
+                ...d,
+                deadline,
+                start: deadline < d.start ? deadline : d.start,
+              }))
+            }}
             className="input-base tabular-nums"
           />
         </Field>
       </div>
 
-      {budgetPreview && (
+      {/* Goals are chosen rather than picked from a list of one: a quarter is
+          usually committed to on more than one measure, and revenue met by
+          discounting into a loss is not the quarter anybody meant. Checkboxes
+          rather than a multiple `<select>`, which on a phone opens a picker
+          most people cannot multi-select in at all. */}
+      <fieldset className="flex flex-col gap-2">
+        <legend className="text-[10.5px] uppercase tracking-wide text-label">
+          Goals — pick one or more
+        </legend>
+        <div className="flex flex-wrap gap-2">
+          {TARGET_GOALS.map((goal) => {
+            const on = chosen(goal)
+            // The last one standing cannot be switched off; the target would
+            // have nothing left to aim at.
+            const locked = on && draft.aims.length === 1
+            return (
+              <label
+                key={goal}
+                className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors ${
+                  on
+                    ? 'border-[#3a3a40] bg-btn text-ink'
+                    : 'border-btn-border text-muted hover:border-[#3a3a40] hover:text-ink'
+                } ${locked ? 'cursor-default' : ''}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={on}
+                  disabled={locked}
+                  onChange={() => toggle(goal)}
+                  className="h-3.5 w-3.5 accent-[#5a5a62]"
+                />
+                {TARGET_GOAL_LABELS[goal]}
+              </label>
+            )
+          })}
+        </div>
+      </fieldset>
+
+      {/* One figure per chosen goal, in the same order as the pills above.
+          `step="any"` throughout, never a round increment: a step the browser
+          can enforce is a validation rule, and `step=100` refuses 10,050 with
+          "the two nearest valid values are 10,000 and 10,100". The spinner
+          arrows are a convenience; they must not decide what a target may be. */}
+      <div className="flex flex-wrap gap-3">
+        {draft.aims.map((aim) => (
+          <Field
+            key={aim.goal}
+            label={
+              aim.goal === 'roas'
+                ? 'Return target (x)'
+                : `${TARGET_GOAL_LABELS[aim.goal]} target`
+            }
+          >
+            <input
+              type="number"
+              min={0}
+              step="any"
+              value={aim.amount || ''}
+              onChange={(e) =>
+                setAmount(aim.goal, Math.max(0, Number(e.target.value) || 0))
+              }
+              className="input-base tabular-nums"
+            />
+          </Field>
+        ))}
+      </div>
+
+      {budgetPreview && anchor && (
         <p className="text-[11px] text-label">
-          {formatPercent(draft.budgetPct / 100)} of {formatCurrency(draft.amount)} is{' '}
-          <span className="text-muted">{budgetPreview}</span> of ad spend.
+          {formatPercent(draft.budgetPct / 100)} of the{' '}
+          {formatCurrency(anchor.amount)} {TARGET_GOAL_LABELS[anchor.goal].toLowerCase()}{' '}
+          goal is <span className="text-muted">{budgetPreview}</span> of ad spend.
         </p>
       )}
 

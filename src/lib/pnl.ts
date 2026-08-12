@@ -2,9 +2,82 @@
  * Views that are built entirely from figures the dashboard already loads —
  * no extra upstream calls, so every tab answers its question at a glance.
  */
-import type { AdsCounters, AdsMetrics, Campaign, WooMetrics } from './types'
+import type {
+  AdsCounters,
+  AdsMetrics,
+  Campaign,
+  ProfitAndLoss,
+  WooMetrics,
+} from './types'
 import { buildAdsMetrics, deriveAds, emptyAdsTotals, round2 } from './derive'
 import { formatCurrency } from './format'
+
+/* -------------------------- Statement figures --------------------------- */
+
+/*
+ * The statement's landmarks, derived in one place.
+ *
+ * The CEO card prints these and the targets measure against them. Deriving
+ * them twice is how two views that agree today stop agreeing later — and a
+ * target that reported a different net profit from the card an inch above it
+ * would discredit both.
+ */
+
+/**
+ * Gross sales: the goods as they were billed, before any coupon came off and
+ * before anything was handed back.
+ *
+ * Nothing is adjusted here. The payload figure already covers the goods alone —
+ * shipping and tax are never inside it.
+ */
+export const grossSalesOf = (pnl: ProfitAndLoss): number => round2(pnl.grossSales)
+
+/**
+ * What the goods themselves earned: gross sales less the coupons, and nothing
+ * else.
+ *
+ * Shipping and tax are no part of it — they are money the customer handed over
+ * on top, and are added after, on the way to total sales. Refunds are no part
+ * of it either; they come off once, at total revenue, where the money left.
+ */
+export const netSalesOf = (pnl: ProfitAndLoss): number =>
+  round2(grossSalesOf(pnl) - pnl.discounts)
+
+/** Net sales plus the shipping and tax charged on top of it: what was billed. */
+export const totalSalesOf = (pnl: ProfitAndLoss): number =>
+  round2(netSalesOf(pnl) + pnl.shippingCharged + pnl.taxCollected)
+
+/** What was billed, less what was handed back: the money the store kept. */
+export const revenueOf = (pnl: ProfitAndLoss): number =>
+  round2(totalSalesOf(pnl) - round2(pnl.refunds))
+
+/**
+ * The three charges that ride on the goods. Taken from the lines themselves
+ * rather than from the payload's `totalCost`, which also carries Metorik's
+ * extra costs.
+ */
+export const cogsOf = (pnl: ProfitAndLoss): number =>
+  round2(pnl.productCost + pnl.shippingCost + pnl.transactionCost)
+
+/**
+ * What the sale left after the cost of the goods sold. Struck from revenue
+ * rather than total sales: money handed back was never the store's to take a
+ * margin on.
+ */
+export const grossProfitOf = (pnl: ProfitAndLoss): number =>
+  round2(revenueOf(pnl) - cogsOf(pnl))
+
+/**
+ * Gross profit less the advertising and the overheads.
+ *
+ * Refunds are not subtracted again here: they came off at total sales, and
+ * gross profit is struck from that.
+ */
+export const netProfitOf = (
+  pnl: ProfitAndLoss,
+  adSpend: number | null,
+  operatingCost: number,
+): number => round2(grossProfitOf(pnl) - (adSpend ?? 0) - operatingCost)
 
 /* ----------------------------- Profit & loss ---------------------------- */
 

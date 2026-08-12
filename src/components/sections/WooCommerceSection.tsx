@@ -10,6 +10,15 @@ interface WooCommerceSectionProps {
   range: DateRange
   /** The window those are compared against, or null when comparison is off. */
   against: DateRange | null
+  /**
+   * Controls on the section's own title row, right-aligned.
+   *
+   * They belong to the section rather than to any one card inside it: the
+   * statement they fold has no header of its own any more, and a control
+   * floating above a card that does not claim it reads as belonging to
+   * whatever happens to sit nearest.
+   */
+  actions?: React.ReactNode
   /** Leads the section, above the store figures — the statement in full. */
   summary?: React.ReactNode
   /**
@@ -45,13 +54,17 @@ export function WooCommerceSection({
   failed,
   range,
   against,
+  actions,
   summary,
   beforeStats,
   footer,
 }: WooCommerceSectionProps) {
   return (
     <section>
-      <SectionLabel>CEO Dashboard</SectionLabel>
+      <div className="flex items-center justify-between gap-3">
+        <SectionLabel size="lg">CEO Dashboard</SectionLabel>
+        {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
+      </div>
 
       {/* Statement, then what was spent to fill it, then who bought, then what
           was given away to make them buy. The order counts read after the

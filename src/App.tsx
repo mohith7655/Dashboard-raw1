@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
+import { ChevronDown, Loader2, Sparkles } from 'lucide-react'
 import { Header } from './components/Header'
 import { ErrorBanner } from './components/ErrorBanner'
 import { FacebookGlyph, GoogleGlyph, OpenAiGlyph } from './components/SectionLabel'
@@ -32,7 +33,7 @@ import {
 import { buildSnapshot } from './lib/insightsSnapshot'
 import { blendedAds, combinedAds } from './lib/pnl'
 import { failedOrderCount } from './lib/derive'
-import { costLines } from './lib/operatingCosts'
+import { costLines, totalOperatingCost } from './lib/operatingCosts'
 import type { DashboardView } from './lib/navigation'
 import {
   useGoogleAdsMetrics,
@@ -85,6 +86,10 @@ export default function App() {
   // Which buyer's history is open in the orders table. One at a time, so the
   // page never has ten histories in flight.
   const [openCustomer, setOpenCustomer] = useState<string | null>(null)
+  // The CEO statement's fold. Held here because the control for it sits on the
+  // section's title row rather than inside the card it opens.
+  const [statementOpen, setStatementOpen] = useState(false)
+  const statementId = useId()
 
   // Resolved once here rather than inside each hook: the modes are relative to
   // the range, so every source has to be asking about the same window.
@@ -138,6 +143,14 @@ export default function App() {
   const saveTargets = useSaveTargets()
   const targetAdviser = useTargetAdvice()
   const failedOrders = failedOrderCount(woo.data)
+
+  // The hand-entered overheads prorated onto the selected period, as the CEO
+  // statement prorates them. Held here rather than inside Targets so a net
+  // profit goal is measured against the very figure the statement prints.
+  const operatingCost = useMemo(
+    () => totalOperatingCost(costLines(costs.data ?? [], range)),
+    [costs.data, range],
+  )
 
   // Every connector has answered one way or the other. Analysing before this
   // would describe a half-loaded period and read the gaps as zeroes.
@@ -426,6 +439,45 @@ export default function App() {
               failed={!!woo.error}
               range={range}
               against={against}
+              actions={
+                <>
+                  {/* The analysis of the period, then the fold that opens the
+                      statement it was written about. Two things you do to the
+                      section, on the one line that names it. */}
+                  <button
+                    type="button"
+                    onClick={runAnalysis}
+                    disabled={insights.running || !connectorsSettled}
+                    aria-label="Analyse this period"
+                    title="Analyse this period — the report opens on the Insights tab"
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-btn hover:text-ink disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
+                  >
+                    {insights.running ? (
+                      <Loader2 size={15} className="animate-spin" />
+                    ) : (
+                      <Sparkles size={15} />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStatementOpen((current) => !current)}
+                    aria-expanded={statementOpen}
+                    aria-controls={statementId}
+                    aria-label={
+                      statementOpen ? 'Hide the statement' : 'Show the statement'
+                    }
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-btn hover:text-ink"
+                  >
+                    <ChevronDown
+                      size={15}
+                      className={`transition-transform ${
+                        statementOpen ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </button>
+                </>
+              }
               summary={
                 <ProfitSummaryCard
                   woo={woo.data}
@@ -435,6 +487,8 @@ export default function App() {
                   against={against}
                   loading={woo.isLoading || adsLoading || costs.isLoading}
                   failed={!!woo.error}
+                  statementOpen={statementOpen}
+                  statementId={statementId}
                 />
               }
               beforeStats={
@@ -443,8 +497,6 @@ export default function App() {
                   platforms={reportedAds}
                   blended={woo.error ? null : blended}
                   subtitle={combinedScope}
-                  range={range}
-                  against={against}
                   loading={adsLoading}
                 />
               }
@@ -560,6 +612,7 @@ export default function App() {
               onSave={saveTargets.save}
               woo={woo.data}
               blended={woo.error ? null : blended}
+              operatingCost={operatingCost}
               feed={merchantFeed.data}
               range={range}
               adviser={targetAdviser}

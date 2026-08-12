@@ -4,13 +4,31 @@ interface SectionLabelProps {
   children: ReactNode
   /** Optional glyph rendered before the label, e.g. a platform mark. */
   glyph?: ReactNode
+  /**
+   * `lg` for the section that leads the page.
+   *
+   * A size rather than a second utility class, so the connector labels below
+   * keep the one look and only the heading that outranks them is set apart.
+   */
+  size?: 'md' | 'lg'
 }
 
-export function SectionLabel({ children, glyph }: SectionLabelProps) {
+export function SectionLabel({ children, glyph, size = 'md' }: SectionLabelProps) {
   return (
     <div className="mb-3 flex items-center gap-2">
       {glyph}
-      <h2 className="section-label">{children}</h2>
+      {/* Written out rather than layered over `section-label`: both are
+          utilities, so which font-size wins would come down to the order
+          Tailwind happens to emit them in. */}
+      <h2
+        className={
+          size === 'lg'
+            ? 'text-[17px] font-semibold uppercase tracking-[0.06em] text-ink'
+            : 'section-label'
+        }
+      >
+        {children}
+      </h2>
     </div>
   )
 }

@@ -205,6 +205,10 @@ export function DashboardPage() {
                 against={against}
                 loading={woo.isLoading || adsLoading || costs.isLoading}
                 failed={!!woo.error}
+                // This page is not mounted; App.tsx carries the live wiring,
+                // including the control that folds the statement.
+                statementOpen
+                statementId="dashboard-page-statement"
               />
             }
             beforeStats={
@@ -213,8 +217,6 @@ export function DashboardPage() {
                 platforms={reportedAds}
                 blended={woo.error ? null : blended}
                 subtitle={combinedScope}
-                range={range}
-                against={against}
                 loading={adsLoading}
               />
             }

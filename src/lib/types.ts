@@ -854,21 +854,59 @@ export interface AdapterResult<T> {
 /**
  * What a target is aiming at.
  *
- * `sales` is a figure to reach; `roas` is a return to hold or beat. They are
- * different arithmetic, not two labels on the same one: a sales target divides
- * into a budget, while a return target divides a budget into what it may spend.
+ * The first three are figures to reach and read straight off the CEO
+ * statement — `revenue` is what the store kept, `sales` what it billed, and
+ * `profit` what was left after the goods, the advertising and the overheads.
+ * `roas` is not a figure to reach but a return to hold or beat: different
+ * arithmetic, not a fourth label on the same one. A money goal divides into
+ * the budget it needs, while a return goal divides a budget into what it may
+ * spend.
  */
-export type TargetGoal = 'sales' | 'roas'
+export type TargetGoal = 'revenue' | 'sales' | 'profit' | 'roas'
 
-export const TARGET_GOALS: TargetGoal[] = ['sales', 'roas']
+/**
+ * Listed widest first, which is also the order the statement reads in. The
+ * editor renders them in this order and the plan anchors its budget on the
+ * first money goal it finds here, so the sequence is load-bearing.
+ */
+export const TARGET_GOALS: TargetGoal[] = ['revenue', 'sales', 'profit', 'roas']
+
+export const TARGET_GOAL_LABELS: Record<TargetGoal, string> = {
+  revenue: 'Revenue',
+  sales: 'Sales',
+  profit: 'Net profit',
+  roas: 'Return on ad spend',
+}
+
+/**
+ * The three that are amounts to reach, against the one that is a rate to hold.
+ * They divide differently, so nearly every branch in the plan turns on this.
+ */
+export const isMoneyGoal = (goal: TargetGoal): boolean => goal !== 'roas'
+
+/**
+ * One thing a target is aiming at, and the figure it is aiming for.
+ *
+ * A target carries a list of these rather than a single goal: "$50,000 of
+ * revenue and $8,000 of profit by 30 September" is one commitment made two
+ * ways, and splitting it into two targets would give each its own budget and
+ * its own deadline to drift on.
+ */
+export interface TargetAim {
+  goal: TargetGoal
+  /** Money to reach, or the return to hold — read against `goal`. */
+  amount: number
+}
 
 export interface Target {
   id: string
   /** What to call it on the card, e.g. "Q3 sales push". */
   name: string
-  goal: TargetGoal
-  /** Sales to reach, or the return to hold — read against `goal`. */
-  amount: number
+  /**
+   * One or more aims, in the order they were chosen. Never empty: a target
+   * with nothing to reach has no arithmetic in it, and the store rejects one.
+   */
+  aims: TargetAim[]
   /**
    * Ad budget as a percentage of sales rather than a sum.
    *
@@ -880,7 +918,18 @@ export interface Target {
    */
   budgetPct: number
   /**
-   * `yyyy-MM-dd` the target is to be met by.
+   * `yyyy-MM-dd` the target runs from.
+   *
+   * The window it opens is what makes "22 days left" mean something: on its
+   * own a deadline says how long is left but never how long there was, so a
+   * target three days from its date reads identically whether it was set last
+   * week or last quarter. Where the date is still ahead, the rates below
+   * divide by the whole window rather than by a count that has not started
+   * running down yet.
+   */
+  start: string
+  /**
+   * `yyyy-MM-dd` the target is to be met by. Never before `start`.
    *
    * The plan is struck from the days between today and this, not from a fixed
    * month: a rate that ignored the deadline would go on recommending the same
@@ -911,28 +960,35 @@ export interface TargetPlan {
   /**
    * Days from today to the deadline, inclusive. Zero once it has passed, which
    * the card reports as overdue rather than dividing by.
+   *
+   * The whole window while the start date is still ahead: a target that has
+   * not begun has all of its days left, and counting down to a deadline from
+   * before the beginning would recommend a daily rate for days it is not meant
+   * to be traded in.
    */
   daysLeft: number
+  /** Days from the start to the deadline, inclusive — the window in full. */
+  windowDays: number
+  /**
+   * Days of the window already gone. Zero before it opens, `windowDays` once
+   * the deadline has passed.
+   */
+  daysElapsed: number
+  /** True while the start date is still ahead of today. */
+  notStarted: boolean
   /** `budgetBasis` split across `daysLeft`. */
   perDay: number
   perWeek: number
   perMonth: number
   /**
-   * The goal itself at the rate it must be met, not the budget behind it.
+   * Each aim worked out on its own, in the order it was set.
    *
-   * "$30,000 by 31 August" is a number nobody can act on daily; "$1,363 a day,
-   * $9,545 a week" is the same target in the units trading actually happens in.
-   * Null for a return target, which is already a rate and divides into nothing.
+   * One block per aim rather than one set of figures for the target: revenue
+   * and profit are reached at different rates and the store is on pace for one
+   * and not the other more often than not, so a single "on pace" figure would
+   * have to pick which of them it meant.
    */
-  goalPerDay: number | null
-  goalPerWeek: number | null
-  goalPerMonth: number | null
-  /**
-   * Sales the store is currently on pace for over the days remaining, and what
-   * fraction of the goal that reaches. Null where the period reported nothing.
-   */
-  paceSales: number | null
-  paceAttainment: number | null
+  aims: AimPlan[]
   /** What the store is actually spending a day, over the selected period. */
   pacingPerDay: number | null
   /**
@@ -946,6 +1002,38 @@ export interface TargetPlan {
   /** Fraction of the goal the current pace reaches, 1 being on target. */
   attainment: number | null
   notes: TargetNote[]
+}
+
+/**
+ * One aim with its own arithmetic done: the rate it has to be met at, and the
+ * rate the store is actually trading at against it.
+ */
+export interface AimPlan {
+  goal: TargetGoal
+  amount: number
+  /**
+   * The goal itself at the rate it must be met, not the budget behind it.
+   *
+   * "$30,000 by 31 August" is a number nobody can act on daily; "$1,363 a day,
+   * $9,545 a week" is the same target in the units trading actually happens in.
+   * Null for a return aim, which is already a rate and divides into nothing.
+   */
+  perDay: number | null
+  perWeek: number | null
+  perMonth: number | null
+  /**
+   * What the store is currently achieving in this aim's own units — money per
+   * day for a money aim, the blended return itself for a return aim. Null
+   * where the period reported nothing to strike it from.
+   */
+  runRate: number | null
+  /**
+   * What that run rate reaches over the days remaining, and what fraction of
+   * the aim that is. For a return aim the pace is the return itself, since a
+   * rate does not accumulate.
+   */
+  pace: number | null
+  paceAttainment: number | null
 }
 
 export type TargetNoteTone = 'good' | 'warn' | 'bad'

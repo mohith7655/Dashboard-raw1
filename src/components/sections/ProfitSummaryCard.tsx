@@ -8,7 +8,16 @@ import type {
   ProfitAndLoss,
   WooMetrics,
 } from '../../lib/types'
-import { blendedAds, combinedAds } from '../../lib/pnl'
+import {
+  blendedAds,
+  cogsOf,
+  combinedAds,
+  grossProfitOf,
+  grossSalesOf,
+  netSalesOf,
+  revenueOf,
+  totalSalesOf,
+} from '../../lib/pnl'
 import { costLines, totalOperatingCost } from '../../lib/operatingCosts'
 import { daysInRange } from '../../lib/dateRange'
 import { deltaPct, round2 } from '../../lib/derive'
@@ -31,6 +40,16 @@ interface ProfitSummaryCardProps {
   against: DateRange | null
   loading: boolean
   failed: boolean
+  /**
+   * Whether the statement is unfolded.
+   *
+   * Held by the section rather than here: the control that toggles it sits on
+   * the section's title row, and two copies of the same boolean is how a
+   * control and the thing it controls come to disagree.
+   */
+  statementOpen: boolean
+  /** The id the section's toggle points `aria-controls` at. */
+  statementId: string
 }
 
 /**
@@ -187,14 +206,8 @@ function buildStatement({
   const netSales = netSalesOf(pnl)
   const totalSales = totalSalesOf(pnl)
   const revenue = revenueOf(pnl)
-  // The three charges that ride on the goods. Taken from the lines themselves
-  // rather than from the payload's `totalCost`, which also carries Metorik's
-  // extra costs and would leave the heading naming more than it lists.
-  const cogs = round2(pnl.productCost + pnl.shippingCost + pnl.transactionCost)
-  // What the sale left after the cost of the goods sold. Struck from revenue
-  // rather than total sales: money handed back was never the store's to take a
-  // margin on.
-  const grossProfit = round2(revenue - cogs)
+  const cogs = cogsOf(pnl)
+  const grossProfit = grossProfitOf(pnl)
 
   // The statement's base, so every share below answers "what part of what we
   // kept is this".
@@ -257,36 +270,9 @@ function buildStatement({
   return lines
 }
 
-/**
- * Gross sales: the goods as they were billed, before any coupon came off and
- * before anything was handed back.
- *
- * Nothing is adjusted here. The payload figure already covers the goods alone —
- * shipping and tax are never inside it — so the coupons used to be added a
- * second time and the shipping and tax subtracted out of a figure that had
- * never held them, which between them put this line $233.65 above the truth on
- * a single week.
- */
-const grossSalesOf = (pnl: ProfitAndLoss): number => round2(pnl.grossSales)
-
-/**
- * What the goods themselves earned: gross sales less the coupons, and nothing
- * else.
- *
- * Shipping and tax are no part of it — they are money the customer handed over
- * on top, and are added after, on the way to total sales. Refunds are no part
- * of it either; they come off once, at total revenue, where the money left.
- */
-const netSalesOf = (pnl: ProfitAndLoss): number =>
-  round2(grossSalesOf(pnl) - pnl.discounts)
-
-/** Net sales plus the shipping and tax charged on top of it: what was billed. */
-const totalSalesOf = (pnl: ProfitAndLoss): number =>
-  round2(netSalesOf(pnl) + pnl.shippingCharged + pnl.taxCollected)
-
-/** What was billed, less what was handed back: the money the store kept. */
-const revenueOf = (pnl: ProfitAndLoss): number =>
-  round2(totalSalesOf(pnl) - round2(pnl.refunds))
+/* The statement's landmarks now live in `pnl.ts`, so the Targets section can
+   measure a goal against the same net profit this card prints rather than
+   deriving its own a second time. */
 
 /**
  * The figure everything else is a share of: revenue, what the store kept over
@@ -312,6 +298,8 @@ export function ProfitSummaryCard({
   against,
   loading,
   failed,
+  statementOpen,
+  statementId,
 }: ProfitSummaryCardProps) {
   const adSpend = reportedAds.length
     ? reportedAds.reduce((sum, p) => sum + p.metrics.spend.value, 0)
@@ -780,11 +768,11 @@ export function ProfitSummaryCard({
         </div>
       )}
 
-      {/* Always shown. The title that used to fold it is gone, and a fold with
-          no control is a section nobody can reach. */}
-      <div>
+      {/* No control here. It sits on the section's title row, where there is a
+          line to put it on — this card has no header of its own. */}
+      <div id={statementId} hidden={!statementOpen} className="mt-4 border-t border-row-line pt-1">
       {loading ? (
-        <div className="mt-4 flex flex-col gap-2 border-t border-row-line pt-3">
+        <div className="mt-2 flex flex-col gap-2">
           <Skeleton className="h-3.5 w-full" />
           <Skeleton className="h-3.5 w-full" />
           <Skeleton className="h-3.5 w-full" />
@@ -797,7 +785,7 @@ export function ProfitSummaryCard({
         // On a narrow screen the label, figure, change and share cannot all
         // fit; the rows scroll sideways rather than wrapping a statement into
         // unreadable shapes or truncating the figures themselves.
-        <div className="mt-4 overflow-x-auto border-t border-row-line pt-1">
+        <div className="mt-1 overflow-x-auto">
           <dl
             className={`flex flex-col ${
               anyChange ? 'min-w-[20rem] sm:min-w-[25rem]' : 'min-w-[14.5rem]'
