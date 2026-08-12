@@ -101,8 +101,14 @@ export interface DashboardTab {
   id: DashboardView
   label: string
   icon: LucideIcon
-  /** One line under the strip saying what the view answers. */
-  blurb: string
+  /**
+   * One line under the strip saying what the view answers.
+   *
+   * Optional: the Overview goes without. It is the view the dashboard opens on
+   * and the one whose cards name themselves, so a line describing it was read
+   * once and thereafter only took the height.
+   */
+  blurb?: string
 }
 
 /**
@@ -115,7 +121,6 @@ export const DASHBOARD_TABS: DashboardTab[] = [
     id: 'overview',
     label: 'Overview',
     icon: Compass,
-    blurb: 'Every connector at a glance for the selected period.',
   },
   {
     id: 'profit',

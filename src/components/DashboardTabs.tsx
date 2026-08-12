@@ -44,7 +44,9 @@ export function DashboardTabs({ active, onChange }: DashboardTabsProps) {
         </div>
       </div>
 
-      {current && <p className="mt-3 text-[12px] text-muted">{current.blurb}</p>}
+      {current?.blurb && (
+        <p className="mt-3 text-[12px] text-muted">{current.blurb}</p>
+      )}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, ChevronDown } from 'lucide-react'
 import type {
   AdsMetrics,
@@ -620,12 +620,7 @@ export function ProfitSummaryCard({
   // Signed, so a deduction reads `−13.6%` beside its `−$448.18`. A share
   // printed bare made a line that comes off the total look like one that adds
   // to it, which is the one thing the figure beside it already says.
-  // The statement and the per-figure detail open independently: the breakdown
-  // of one figure is a different question from the whole statement, and folding
-  // them together would mean opening everything to read anything.
-  const [open, setOpen] = useState(true)
   const [openFigure, setOpenFigure] = useState<string | null>(null)
-  const bodyId = useId()
 
   const share = (line: Line): number => (base === 0 ? 0 : line.signed / base)
   const anyChange = lines.some((line) => changeOf(line) !== null)
@@ -677,24 +672,6 @@ export function ProfitSummaryCard({
     <div>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          {/* The whole title row opens the statement, as the coupon card's
-              does. The headline figure and the strip stay visible closed: they
-              are the answer most readings want, and the lines that produced
-              them are what unfolds. */}
-          <button
-            type="button"
-            onClick={() => setOpen((current) => !current)}
-            aria-expanded={open}
-            aria-controls={bodyId}
-            className="group flex w-full items-center justify-between gap-3 text-left"
-          >
-            <span className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span className="kpi-label truncate transition-colors group-hover:text-ink">
-                {top?.label ?? 'Revenue'}
-              </span>
-            </span>
-          </button>
-
           {/* Larger than the strip below but well short of the 30px it began
               at: they lead the card without making every figure under them read
               as a caption. Each carries the same four columns every box in the
@@ -803,7 +780,9 @@ export function ProfitSummaryCard({
         </div>
       )}
 
-      <div id={bodyId} hidden={!open}>
+      {/* Always shown. The title that used to fold it is gone, and a fold with
+          no control is a section nobody can reach. */}
+      <div>
       {loading ? (
         <div className="mt-4 flex flex-col gap-2 border-t border-row-line pt-3">
           <Skeleton className="h-3.5 w-full" />
