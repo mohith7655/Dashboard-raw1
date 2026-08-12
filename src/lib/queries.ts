@@ -15,6 +15,7 @@ import type {
   Ga4Report,
   GscDimension,
   GscReport,
+  LeadReport,
   MarkifactAccount,
   MerchantFeed,
   InsightsAnswer,
@@ -42,6 +43,7 @@ import * as targets from './adapters/targets'
 import * as shippingCosts from './adapters/shippingCosts'
 import * as ga4 from './adapters/ga4'
 import * as searchConsole from './adapters/searchConsole'
+import * as leads from './adapters/leads'
 import * as merchantCenter from './adapters/merchantCenter'
 import * as markifact from './adapters/markifact'
 import * as insights from './adapters/insights'
@@ -93,6 +95,10 @@ export const queryKeys = {
   shippingCosts: () => ['shippingCosts'] as const,
   insightsAutomation: () => ['insightsAutomation'] as const,
   merchantFeed: () => ['merchantFeed'] as const,
+  // Leads are counted window to window like Search Console, so the key has
+  // to hold the comparison as well as the range.
+  leads: (range: DateRange, against: DateRange | null) =>
+    ['leads', range.start, range.end, vs(against)] as const,
   markifact: () => ['markifact'] as const,
 }
 
@@ -284,6 +290,27 @@ export function useMerchantFeed(enabled: boolean): SourceQuery<MerchantFeed> {
       queryKey: queryKeys.merchantFeed(),
       queryFn: () => unwrap(merchantCenter.fetchFeed()),
       enabled,
+    }),
+  )
+}
+
+/**
+ * Leads from the Google Sheet the Make.com automations write into.
+ *
+ * Its own upstream call, so it loads only once the tab is opened — the
+ * spreadsheet is five tabs of raw rows and none of the other views need it.
+ */
+export function useLeads(
+  range: DateRange,
+  against: DateRange | null,
+  enabled: boolean,
+): SourceQuery<LeadReport> {
+  return toSourceQuery(
+    useQuery({
+      queryKey: queryKeys.leads(range, against),
+      queryFn: () => unwrap(leads.fetchLeads(range, against)),
+      enabled,
+      placeholderData: (prev) => prev,
     }),
   )
 }

@@ -13,6 +13,7 @@ import { AdSpendSection } from './components/sections/AdSpendSection'
 import { MarketsTrafficSection } from './components/sections/MarketsTrafficSection'
 import { ProfitLossSection } from './components/sections/ProfitLossSection'
 import { ShippingSection } from './components/sections/ShippingSection'
+import { LeadsSection } from './components/sections/LeadsSection'
 import { InsightsSection } from './components/sections/InsightsSection'
 import { SearchFeedSection } from './components/sections/SearchFeedSection'
 import { MarkifactSection } from './components/sections/MarkifactSection'
@@ -54,6 +55,7 @@ import {
   useSaveShippingCosts,
   useGa4Report,
   useMarkifact,
+  useLeads,
   useMerchantFeed,
   useSearchConsole,
   useTrafficMetrics,
@@ -135,6 +137,7 @@ export default function App() {
   const searchConsole = useSearchConsole(range, gscDimension, against, view === 'search')
   const merchantFeed = useMerchantFeed(view === 'search')
   const markifact = useMarkifact(view === 'markifact')
+  const leadData = useLeads(range, against, view === 'leads')
   const customerOrders = useCustomerOrders(range, openCustomer)
   const insights = useInsights()
   const automation = useInsightsAutomation()
@@ -344,6 +347,16 @@ export default function App() {
             extraError={saveShippingCosts.error ?? shippingCosts.error?.message ?? null}
             savingExtra={saveShippingCosts.saving}
             onSaveExtra={saveShippingCosts.save}
+          />
+        )}
+
+        {view === 'leads' && (
+          <LeadsSection
+            report={leadData.data}
+            loading={leadData.isLoading}
+            failed={!!leadData.error}
+            range={range}
+            meta={meta.data}
           />
         )}
 

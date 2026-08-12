@@ -849,6 +849,66 @@ export interface AdapterResult<T> {
   error: SourceError | null
 }
 
+/* -------------------------------- Leads -------------------------------- */
+
+/**
+ * Where a lead came from.
+ *
+ * The two email lists and the Facebook lead-ads capture. The WhatsApp tab in
+ * the same spreadsheet is not among them: its rows are post-purchase order
+ * confirmations — "I just placed an order" — which is the opposite end of the
+ * funnel and would inflate the count with people who had already bought.
+ */
+export type LeadSourceKey = 'mailchimp' | 'flodesk' | 'facebook'
+
+export const LEAD_SOURCES: LeadSourceKey[] = ['mailchimp', 'flodesk', 'facebook']
+
+export const LEAD_SOURCE_LABELS: Record<LeadSourceKey, string> = {
+  mailchimp: 'Mailchimp',
+  flodesk: 'Flodesk',
+  facebook: 'Facebook lead ads',
+}
+
+export interface LeadSourceStats {
+  /** Distinct people in the window, compared against the previous one. */
+  count: Metric
+}
+
+/** One day of the period, each source counted separately. */
+export interface LeadDayPoint {
+  date: string
+  mailchimp: number
+  flodesk: number
+  facebook: number
+}
+
+export interface LeadCampaign {
+  name: string
+  leads: number
+}
+
+export interface LeadReport {
+  sources: Record<LeadSourceKey, LeadSourceStats>
+  /** Orders placed by list members, counted on the order's own date. */
+  orders: Record<'mailchimp' | 'flodesk', LeadSourceStats>
+  /**
+   * The cohort that joined inside the period, and how many of them have
+   * ordered since — at any date, so a lead who joined on the last day and
+   * bought the next morning still counts.
+   */
+  converted: { signups: number; ordered: number }
+  series: LeadDayPoint[]
+  campaigns: LeadCampaign[]
+  /**
+   * The most recent day each source wrote a row, across all time.
+   *
+   * A stale automation and a quiet week look identical in a count of zero.
+   * This is what tells them apart, and the card says so outright rather than
+   * reporting the zero as a result.
+   */
+  lastSeen: Record<LeadSourceKey, string | null>
+}
+
 /* ------------------------------- Targets ------------------------------- */
 
 /**

@@ -93,6 +93,7 @@ export type DashboardView =
   | 'shipping'
   | 'markets'
   | 'ads'
+  | 'leads'
   | 'search'
   | 'markifact'
   | 'insights'
@@ -139,6 +140,12 @@ export const DASHBOARD_TABS: DashboardTab[] = [
     label: 'Shipping Costs',
     icon: Truck,
     blurb: 'What shipping costs to fulfil, per order and against revenue.',
+  },
+  {
+    id: 'leads',
+    label: 'Lead Data',
+    icon: Users,
+    blurb: 'New leads from email lists and Facebook lead ads, with list conversion.',
   },
   {
     id: 'markets',
