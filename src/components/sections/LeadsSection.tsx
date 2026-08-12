@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { AlertTriangle, Mail, Megaphone, UserPlus } from 'lucide-react'
 import type { AdsMetrics, DateRange, LeadReport } from '../../lib/types'
 import { LEAD_SOURCES, LEAD_SOURCE_LABELS } from '../../lib/types'
@@ -12,6 +12,11 @@ import {
 } from '../../lib/format'
 import { RowsCard } from '../RowsCard'
 import { SectionLabel } from '../SectionLabel'
+import {
+  AnalyseButton,
+  SectionAnalysis,
+  type SectionAnalysisWiring,
+} from '../SectionAnalysis'
 import type { StatRowData } from '../StatRows'
 import { Skeleton } from '../Skeleton'
 import { LeadsOverTime } from '../charts/LeadsOverTime'
@@ -26,7 +31,14 @@ interface LeadsSectionProps {
    * say on its own: what each one cost.
    */
   meta: AdsMetrics | undefined
+  /**
+   * The AI review of this section: the saved prompt, and what the last run
+   * returned. Passed in rather than held here so the whole page has one
+   * analyser and one prompt store between it and the sections that use them.
+   */
+  analysis: SectionAnalysisWiring
 }
+
 
 /**
  * How many days behind the sheet has to fall before it is called out.
@@ -49,8 +61,11 @@ export function LeadsSection({
   failed,
   range,
   meta,
+  analysis,
 }: LeadsSectionProps) {
   const days = daysInRange(range)
+  const [analysisOpen, setAnalysisOpen] = useState(false)
+  const analysisId = useId()
 
   /** Signups and captures, each source against its own previous window. */
   const sourceRows = useMemo((): StatRowData[] => {
@@ -154,11 +169,62 @@ export function LeadsSection({
   const conversion =
     converted && converted.signups > 0 ? converted.ordered / converted.signups : null
 
+  /**
+   * Exactly the figures this section is rendering, posted as they stand.
+   *
+   * The report is sent whole rather than re-summarised: it is already totals
+   * and daily counts with no name, address or order id in it, and a second
+   * summary written for the model is a second thing that can drift from the
+   * card. Meta's spend rides along because cost per lead cannot be checked
+   * without it, and `lastSeen` because a stopped automation is the finding
+   * most worth making.
+   */
+  const snapshotOf = (): Record<string, unknown> => ({
+    range,
+    days,
+    currency: 'USD',
+    leads: report ?? null,
+    costPerFacebookLead: costPerLead,
+    metaSpend: meta?.spend.value ?? null,
+    metaSpendDeltaPct: meta?.spend.deltaPct ?? null,
+    // Named rather than left for the model to infer from a run of zeroes.
+    sourcesNotWriting: stale,
+  })
+
   return (
     <section className="flex flex-col gap-4">
-      <SectionLabel size="lg" glyph={<UserPlus size={16} className="text-muted" />}>
-        Leads
-      </SectionLabel>
+      <div className="flex items-center justify-between gap-3">
+        <SectionLabel size="lg" glyph={<UserPlus size={16} className="text-muted" />}>
+          Leads
+        </SectionLabel>
+        {/* On the title row, as the CEO Dashboard's is: the review is about
+            the whole section, not about whichever card it sits nearest. */}
+        <div className="mb-3 flex shrink-0 items-center gap-1">
+          <AnalyseButton
+            open={analysisOpen}
+            panelId={analysisId}
+            label="leads"
+            onToggle={() => setAnalysisOpen((current) => !current)}
+            running={analysis.running}
+            disabled={loading}
+          />
+        </div>
+      </div>
+
+      <SectionAnalysis
+        section="leads"
+        label="Leads"
+        open={analysisOpen}
+        panelId={analysisId}
+        prompt={analysis.prompt}
+        onSavePrompt={analysis.onSavePrompt}
+        savingPrompt={analysis.savingPrompt}
+        promptError={analysis.promptError}
+        onAnalyse={(prompt) => analysis.onAnalyse(prompt, snapshotOf())}
+        running={analysis.running}
+        result={analysis.result}
+        analysisError={analysis.analysisError}
+      />
 
       {/* A tab whose whole subject is an automation should say when that
           automation stopped. A count of zero and a scenario that died look

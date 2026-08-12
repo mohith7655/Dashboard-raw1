@@ -18,6 +18,8 @@ import type {
   LeadReport,
   MarkifactAccount,
   MerchantFeed,
+  SectionPromptKey,
+  SectionPrompts,
   InsightsAnswer,
   InsightsAutomation,
   InsightsReport,
@@ -44,6 +46,7 @@ import * as shippingCosts from './adapters/shippingCosts'
 import * as ga4 from './adapters/ga4'
 import * as searchConsole from './adapters/searchConsole'
 import * as leads from './adapters/leads'
+import * as sectionPrompts from './adapters/sectionPrompts'
 import * as merchantCenter from './adapters/merchantCenter'
 import * as markifact from './adapters/markifact'
 import * as insights from './adapters/insights'
@@ -100,6 +103,7 @@ export const queryKeys = {
   leads: (range: DateRange, against: DateRange | null) =>
     ['leads', range.start, range.end, vs(against)] as const,
   markifact: () => ['markifact'] as const,
+  sectionPrompts: () => ['sectionPrompts'] as const,
 }
 
 /** Adapters never throw; rethrow their error so the query layer can retry it. */
@@ -313,6 +317,96 @@ export function useLeads(
       placeholderData: (prev) => prev,
     }),
   )
+}
+
+/* ------------------------- Per-section analysis ------------------------- */
+
+/** The saved prompts, one per section that can be analysed. */
+export function useSectionPrompts(): SourceQuery<SectionPrompts> {
+  return toSourceQuery(
+    useQuery({
+      queryKey: queryKeys.sectionPrompts(),
+      queryFn: () => unwrap(sectionPrompts.fetchSectionPrompts()),
+    }),
+  )
+}
+
+export interface SaveSectionPrompts {
+  save: (prompts: SectionPrompts) => void
+  saving: boolean
+  error: string | null
+}
+
+export function useSaveSectionPrompts(): SaveSectionPrompts {
+  const client = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: sectionPrompts.saveSectionPrompts,
+    onSuccess: (saved) => client.setQueryData(queryKeys.sectionPrompts(), saved),
+  })
+
+  return {
+    save: (next) => mutation.mutate(next),
+    saving: mutation.isPending,
+    error: mutation.error ? mutation.error.message : null,
+  }
+}
+
+export interface SectionAnalyser {
+  /** Reviews by section; a section with none has not been asked about yet. */
+  results: Partial<Record<SectionPromptKey, TargetAdvice>>
+  run: (
+    section: SectionPromptKey,
+    label: string,
+    snapshot: Record<string, unknown>,
+    prompt: string,
+  ) => void
+  /** The section currently being written about, or null. */
+  running: SectionPromptKey | null
+  error: string | null
+}
+
+/**
+ * A review of one section, run on request.
+ *
+ * A mutation rather than a query, for the reason every OpenAI call here is
+ * one: each run is billed, so it fires when the operator asks and never on
+ * render or refocus. Results are kept by section so reviewing the ads does not
+ * discard what was said about the leads.
+ */
+export function useSectionAnalysis(): SectionAnalyser {
+  const [results, setResults] = useState<
+    Partial<Record<SectionPromptKey, TargetAdvice>>
+  >({})
+  const [running, setRunning] = useState<SectionPromptKey | null>(null)
+
+  const mutation = useMutation({
+    mutationFn: ({
+      section,
+      label,
+      snapshot,
+      prompt,
+    }: {
+      section: SectionPromptKey
+      label: string
+      snapshot: Record<string, unknown>
+      prompt: string
+    }) => unwrap(insights.analyseSection(section, label, snapshot, prompt)),
+    onSuccess: (result, { section }) => {
+      setResults((current) => ({ ...current, [section]: result }))
+      setRunning(null)
+    },
+    onError: () => setRunning(null),
+  })
+
+  return {
+    results,
+    run: (section, label, snapshot, prompt) => {
+      setRunning(section)
+      mutation.mutate({ section, label, snapshot, prompt })
+    },
+    running,
+    error: mutation.error ? mutation.error.message : null,
+  }
 }
 
 /** The Markifact workspace: credits, connections and recent operations. */

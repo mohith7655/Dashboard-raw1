@@ -1,12 +1,15 @@
 import { Database, Settings, ShoppingCart } from 'lucide-react'
 import type { Comparison, DateRange } from '../lib/types'
 import { DateRangePicker } from './DateRangePicker'
+import { TodayToggle } from './TodayToggle'
 
 interface HeaderProps {
   range: DateRange
   onRangeChange: (range: DateRange) => void
   comparison: Comparison
   onComparisonChange: (comparison: Comparison) => void
+  excludeToday: boolean
+  onExcludeTodayChange: (exclude: boolean) => void
 }
 
 export function Header({
@@ -14,6 +17,8 @@ export function Header({
   onRangeChange,
   comparison,
   onComparisonChange,
+  excludeToday,
+  onExcludeTodayChange,
 }: HeaderProps) {
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-bg/85 backdrop-blur">
@@ -39,11 +44,22 @@ export function Header({
           <OutlineButton icon={<Settings size={14} className="text-muted" />}>
             Customize
           </OutlineButton>
+          {/* Out on the bar beside the picker rather than only inside it. It
+              changes what every figure on the page covers, and a control with
+              that reach should be readable without opening a panel — on at a
+              glance, and one click to turn off. */}
+          <TodayToggle
+            range={range}
+            excludeToday={excludeToday}
+            onChange={onExcludeTodayChange}
+          />
           <DateRangePicker
             value={range}
             onChange={onRangeChange}
             comparison={comparison}
             onComparisonChange={onComparisonChange}
+            excludeToday={excludeToday}
+            onExcludeTodayChange={onExcludeTodayChange}
           />
         </div>
       </div>

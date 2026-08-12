@@ -110,6 +110,47 @@ export function clampRangeToAvailable(range: DateRange): DateRange {
   return { ...range, start: range.start > latest ? latest : range.start, end: latest }
 }
 
+/** True where the range runs up to and including today, on the store's clock. */
+export function includesToday(range: DateRange): boolean {
+  return range.end >= latestAvailableDate() && range.start <= latestAvailableDate()
+}
+
+/**
+ * True where today could be dropped and a range would still be left.
+ *
+ * False for a single day that is today: there is nothing behind it to fall
+ * back to, and trimming it would leave an inverted range for every reader
+ * downstream to divide by.
+ */
+export function canDropToday(range: DateRange): boolean {
+  return includesToday(range) && range.start < latestAvailableDate()
+}
+
+/**
+ * The range with today taken off the end.
+ *
+ * Today is a part-day. It is counted in full by everything that divides — the
+ * per-day figures on the CEO card, the pacing on a target, the daily budget —
+ * and it is compared against whole days in the window before it, so a period
+ * that includes it reports a store that is trading worse than it is, by more
+ * the earlier in the day it is read.
+ *
+ * The comparison window is derived from whatever this returns, so trimming
+ * here shortens both sides and the two stay the same length.
+ *
+ * Unchanged where there is nothing to trim, or where today is all there is:
+ * a range that collapsed to nothing would be worse than a partial day.
+ */
+export function withoutToday(range: DateRange): DateRange {
+  if (!canDropToday(range)) return range
+  const yesterday = addDays(new Date(`${latestAvailableDate()}T00:00:00Z`), -1)
+  // The preset is kept. "This Month" is still what was chosen, and the toggle
+  // beside it says why the end sits a day short — dropping the preset would
+  // untick it in the picker and leave the trim looking like a range the reader
+  // had typed by hand.
+  return { ...range, end: toIso(yesterday) }
+}
+
 /** Inclusive day count. */
 export function daysInRange(range: DateRange): number {
   const start = new Date(`${range.start}T00:00:00Z`).getTime()

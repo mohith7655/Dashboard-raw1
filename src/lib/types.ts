@@ -849,6 +849,34 @@ export interface AdapterResult<T> {
   error: SourceError | null
 }
 
+/* --------------------------- Section analysis --------------------------- */
+
+/**
+ * The sections that can be analysed on their own, rather than as part of the
+ * whole-period report on the Insights tab.
+ *
+ * A card gets one where the question it answers is not the question the report
+ * answers. "Which campaign is wasting money" is a different enquiry from "how
+ * did the period go", and a report long enough to cover both is one nobody
+ * reads to the end of.
+ */
+export const SECTION_PROMPT_KEYS = ['ceo', 'ads', 'leads'] as const
+
+export type SectionPromptKey = (typeof SECTION_PROMPT_KEYS)[number]
+
+/** How each section names itself to the model, as it names itself on screen. */
+export const SECTION_LABELS: Record<SectionPromptKey, string> = {
+  ceo: 'CEO Dashboard',
+  ads: 'All ads',
+  leads: 'Leads',
+}
+
+/**
+ * What each section's analysis should pay attention to, in the reader's own
+ * words. A section with no entry is analysed on the built-in rules alone.
+ */
+export type SectionPrompts = Partial<Record<SectionPromptKey, string>>
+
 /* -------------------------------- Leads -------------------------------- */
 
 /**
@@ -999,12 +1027,41 @@ export interface Target {
 }
 
 /**
- * A target with the arithmetic done and the advice struck from the period's own
- * figures. Derived on the client from metrics already loaded — nothing here is
- * stored, so it can never disagree with the cards above it.
+ * What has actually happened inside a target's own window, so far.
+ *
+ * Fetched for the window the target names — not the range in the picker. A
+ * target running to the end of the month has already had money spent against
+ * it and sales made towards it, and a plan struck from whatever period happens
+ * to be on screen would ask the store to earn the whole goal over again from
+ * today, and to fund it out of a budget it had already spent half of.
+ */
+export interface TargetProgress {
+  /** Days of the window already traded, inclusive of today. Zero before it opens. */
+  days: number
+  /** Taken inside the window so far, on the statement's own definitions. */
+  revenue: number
+  sales: number
+  profit: number
+  /** Ad spend inside the window so far. */
+  spend: number
+  /** Revenue over spend inside the window, or null below a token spend. */
+  roas: number | null
+}
+
+/**
+ * A target with the arithmetic done and the advice struck from its own window.
+ * Derived on the client from metrics already loaded — nothing here is stored,
+ * so it can never disagree with the cards above it.
  */
 export interface TargetPlan {
   target: Target
+  /**
+   * What the window has done so far, or null while it is being fetched or if
+   * that fetch failed. Null leaves every figure below unknown rather than
+   * silently falling back to the period on screen, which would answer a
+   * different question in the same shape.
+   */
+  progress: TargetProgress | null
   /**
    * The budget the split is struck from: the one entered, or the one the goal
    * implies where none was.
@@ -1036,7 +1093,12 @@ export interface TargetPlan {
   daysElapsed: number
   /** True while the start date is still ahead of today. */
   notStarted: boolean
-  /** `budgetBasis` split across `daysLeft`. */
+  /**
+   * Of `budgetBasis`, what is left to spend: the budget less what the window
+   * has already spent against it, never below zero.
+   */
+  budgetRemaining: number
+  /** `budgetRemaining` split across `daysLeft` — what is spendable from here. */
   perDay: number
   perWeek: number
   perMonth: number
@@ -1082,15 +1144,27 @@ export interface AimPlan {
   perWeek: number | null
   perMonth: number | null
   /**
+   * Already banked inside the target's own window — money for a money aim, the
+   * window's blended return for a return aim. Null where the window has not
+   * reported.
+   */
+  achieved: number | null
+  /**
+   * Still to find: the goal less what is already banked, never below zero.
+   * Null for a return aim, which does not accumulate and so has nothing left
+   * over to earn.
+   */
+  remaining: number | null
+  /**
    * What the store is currently achieving in this aim's own units — money per
    * day for a money aim, the blended return itself for a return aim. Null
-   * where the period reported nothing to strike it from.
+   * where the window reported nothing to strike it from.
    */
   runRate: number | null
   /**
-   * What that run rate reaches over the days remaining, and what fraction of
-   * the aim that is. For a return aim the pace is the return itself, since a
-   * rate does not accumulate.
+   * Where the aim finishes if the window goes on trading as it has: what is
+   * already banked plus the run rate over the days that remain. For a return
+   * aim it is the return itself, since a rate does not accumulate.
    */
   pace: number | null
   paceAttainment: number | null

@@ -1,5 +1,5 @@
 import { useId, useState } from 'react'
-import { ArrowDown, ArrowUp, ChevronDown, Megaphone } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown } from 'lucide-react'
 import type { AdsMetrics, Polarity } from '../../lib/types'
 import type { BlendedAds } from '../../lib/pnl'
 import { nonAttributing } from '../../lib/pnl'
@@ -9,11 +9,16 @@ import {
   formatCurrency,
   formatDeltaPercent,
   formatInteger,
-  formatPercent,
   formatDifference,
+  formatPercent,
   formatPrevious as was,
   formatRoas,
 } from '../../lib/format'
+import {
+  AnalyseButton,
+  SectionAnalysis,
+  type SectionAnalysisWiring,
+} from '../SectionAnalysis'
 import { StatRows, type StatRowData } from '../StatRows'
 import { Skeleton } from '../Skeleton'
 
@@ -22,11 +27,23 @@ interface AdsStatsCardProps {
   metrics: AdsMetrics | undefined
   /** The platforms behind that total, each splitting the row above it. */
   platforms: { name: string; metrics: AdsMetrics }[]
-  /** The two figures that only mean anything once spend meets store revenue. */
+  /**
+   * Spend set against the store's own revenue. Null where Metorik failed —
+   * the share would then be struck against a revenue nobody has.
+   */
   blended: BlendedAds | null
   /** Named rather than implied when only one platform reported. */
   subtitle: string
   loading: boolean
+  /** The AI review of this card, wired the same way the Leads section is. */
+  analysis: SectionAnalysisWiring
+  /**
+   * The card's own date picker, when it carries one.
+   *
+   * Passed in rather than held here: the range it sets has to reach the
+   * queries, and those live where the rest of the page's data does.
+   */
+  rangeControl?: React.ReactNode
 }
 
 type AdsMetricKey =
@@ -74,6 +91,8 @@ export function AdsStatsCard({
   blended,
   subtitle,
   loading,
+  analysis,
+  rangeControl,
 }: AdsStatsCardProps) {
   const rows = metrics ? buildRows(metrics, platforms) : []
   const unattributed = nonAttributing(platforms)
@@ -89,15 +108,67 @@ export function AdsStatsCard({
   const [open, setOpen] = useState(false)
   const bodyId = useId()
 
+  const [analysisOpen, setAnalysisOpen] = useState(false)
+  const analysisId = useId()
+
+  /**
+   * Exactly what this card is rendering: the combined account, each platform
+   * behind it, and both comparison windows.
+   *
+   * Sent from the totals rather than from the campaign lists — a campaign
+   * table would multiply the payload without changing any answer the card can
+   * be asked, and the platform split is where the decisions actually are.
+   */
+  const snapshotOf = (): Record<string, unknown> => ({
+    currency: 'USD',
+    combined: metrics
+      ? {
+          spend: metrics.spend,
+          impressions: metrics.impressions,
+          clicks: metrics.clicks,
+          ctr: metrics.ctr,
+          roas: metrics.roas,
+          cpc: metrics.cpc,
+          cpm: metrics.cpm,
+          conversions: metrics.conversions,
+          reportsConversions: metrics.reportsConversions,
+        }
+      : null,
+    platforms: platforms.map(({ name, metrics: m }) => ({
+      name,
+      spend: m.spend,
+      clicks: m.clicks,
+      ctr: m.ctr,
+      roas: m.roas,
+      cpc: m.cpc,
+      conversions: m.conversions,
+      // Named so a platform that attributes nothing is not read as one that
+      // sold nothing — the same distinction the table below draws.
+      reportsConversions: m.reportsConversions,
+    })),
+    platformsNotAttributing: unattributed,
+    blended: blended
+      ? {
+          spend: blended.spend,
+          blendedRoas: blended.blendedRoas,
+          shareOfRevenue: blended.shareOfRevenue,
+          costPerOrder: blended.costPerOrder,
+          previous: blended.previous,
+        }
+      : null,
+    scope: subtitle,
+  })
+
   /**
    * The two figures the card leads on: what was spent, and what share of sales
    * that was.
    *
-   * Set as the pair the CEO Dashboard leads on, at the same size. The rates and
-   * returns that used to stand beside them are gone: spend per day, the
-   * platforms' own return and the store's blended one all read on the CEO card
-   * already, and a figure stated on two cards is a figure that can come to
-   * disagree with itself.
+   * The return the platforms claim is not among them. It reads on the CEO
+   * statement already, next to the blended figure that qualifies it, and a
+   * return quoted here on its own — struck from the narrower base of the
+   * platforms that attribute at all — is the one figure on this card most
+   * likely to be read as the store's. It is still in the table below, beside
+   * the note saying which platforms it leaves out.
    */
   const figures: FigureSpec[] = []
   if (metrics) {
@@ -116,59 +187,94 @@ export function AdsStatsCard({
   }
 
   if (blended) {
+    const priorShare = blended.previous?.shareOfRevenue ?? null
     figures.push({
       key: 'spend-share',
       label: 'Spend % of sales',
       value: formatPercent(blended.shareOfRevenue),
-      change: blended.previous
-        ? deltaPct(blended.shareOfRevenue, blended.previous.shareOfRevenue)
-        : null,
-      previous: blended.previous
-        ? formatPercent(blended.previous.shareOfRevenue)
-        : undefined,
-      difference: blended.previous
-        ? formatDifference(
-            blended.shareOfRevenue - blended.previous.shareOfRevenue,
-            formatPercent,
-          )
-        : undefined,
+      change:
+        priorShare === null ? null : deltaPct(blended.shareOfRevenue, priorShare),
+      previous: priorShare === null ? undefined : formatPercent(priorShare),
+      difference:
+        priorShare === null
+          ? undefined
+          : formatDifference(blended.shareOfRevenue - priorShare, formatPercent),
       polarity: 'down-good',
     })
   }
 
   return (
-    <div className="card">
+    // The CEO dashboard is deliberately unframed: its individual metric boxes
+    // carry the hierarchy. All ads uses that same surface so it reads as part
+    // of the dashboard, not as a separate panel with its own background.
+    <div>
       {/* The whole title row opens the table, as the coupon card's does — the
-          chevron sits out on the right beside the icon rather than tucked
-          against the label, so the target is the row and not four words of it.
-
-          The figures below are their own controls. Nesting one button inside
-          another is invalid, and the two answer different questions anyway:
-          what makes up this figure, against the whole table of them. */}
-      <div className="flex items-start justify-between gap-3">
+          chevron sits out on the right rather than tucked against the label,
+          so the target is the row and not four words of it. */}
+      <div className="flex items-center justify-between gap-3">
         <button
           type="button"
           onClick={() => setOpen((current) => !current)}
           aria-expanded={open}
           aria-controls={bodyId}
-          className="group flex min-w-0 flex-1 items-start justify-between gap-3 text-left"
+          className="group min-w-0 flex-1 text-left"
         >
-          <span className="min-w-0 flex-1">
-            <span className="kpi-label block truncate transition-colors group-hover:text-ink">
-              All ads
-            </span>
+          <span className="kpi-label block truncate transition-colors group-hover:text-ink">
+            All ads
           </span>
-          <span className="flex shrink-0 items-center gap-1.5 text-muted transition-colors group-hover:text-ink">
+        </button>
+
+        {/* Sparkles then chevron, as on the CEO Dashboard — and nothing after
+            them. The megaphone that closed this row was decoration: it named
+            a card whose own label already says "All ads" two inches to the
+            left, and it was the one glyph on the row that did nothing when
+            clicked.
+
+            The label and the chevron are two buttons rather than one wrapping
+            both, because the analyse control has to sit between them and
+            nesting a button inside a button is invalid. They share a handler,
+            so which half of the row is clicked makes no difference. */}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+          {rangeControl}
+          <AnalyseButton
+            open={analysisOpen}
+            panelId={analysisId}
+            label="all ads"
+            onToggle={() => setAnalysisOpen((current) => !current)}
+            running={analysis.running}
+            disabled={loading}
+          />
+          <button
+            type="button"
+            onClick={() => setOpen((current) => !current)}
+            aria-expanded={open}
+            aria-controls={bodyId}
+            aria-label={open ? 'Hide the ad platforms' : 'Show the ad platforms'}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-btn hover:text-ink"
+          >
             <ChevronDown
               size={15}
               className={`transition-transform ${open ? 'rotate-180' : ''}`}
             />
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-icon-btn">
-              <Megaphone size={15} strokeWidth={2} />
-            </span>
-          </span>
-        </button>
+          </button>
+        </div>
       </div>
+
+      <SectionAnalysis
+        section="ads"
+        label="All ads"
+        open={analysisOpen}
+        panelId={analysisId}
+        prompt={analysis.prompt}
+        onSavePrompt={analysis.onSavePrompt}
+        savingPrompt={analysis.savingPrompt}
+        promptError={analysis.promptError}
+        onAnalyse={(prompt) => analysis.onAnalyse(prompt, snapshotOf())}
+        running={analysis.running}
+        result={analysis.result}
+        analysisError={analysis.analysisError}
+        className="mt-3"
+      />
 
       {/* Outside the fold: these two are what the card is for, and a reader
           after nothing more than what was spent should not have to open
@@ -204,7 +310,7 @@ export function AdsStatsCard({
             <p className="mt-3 text-[12px] leading-relaxed text-muted">
               {unattributed.join(' and ')} report no attributed conversions, so
               they are counted in spend, impressions and clicks but left out of
-              ROAS. Blended ROAS above includes their spend, since it measures
+              ROAS. Blended ROAS in the CEO dashboard includes their spend, since it measures
               against the store&apos;s own revenue rather than a platform&apos;s
               claim.
             </p>
@@ -263,11 +369,13 @@ function HeadlineFigure({ figure }: { figure: FigureSpec }) {
             {formatDeltaPercent(change)}
           </span>
         )}
+        {previous !== undefined && (
+          <span className="text-[11px] tabular-nums text-label">vs {previous}</span>
+        )}
       </div>
-      {previous !== undefined && (
+      {difference !== undefined && (
         <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[11px] tabular-nums">
-          <span className="text-label">{previous}</span>
-          {difference !== undefined && <span className="text-[#5a5a62]">{difference}</span>}
+          <span className="text-[#5a5a62]">{difference}</span>
         </div>
       )}
     </div>
@@ -333,16 +441,16 @@ function buildRows(
     }
   }
 
+  group('ROAS', 'roas', formatRoas)
   group('Spend', 'spend', formatCurrency)
   group('Impressions', 'impressions', formatInteger)
   group('Clicks', 'clicks', formatInteger)
   group('CTR', 'ctr', formatCtr)
-  group('ROAS', 'roas', formatRoas)
   group('CPC', 'cpc', formatCurrency)
   group('CPM', 'cpm', formatCurrency)
   group('Conversions', 'conversions', formatInteger)
 
-  // Blended ROAS and spend as a share of sales are no longer listed here: both
-  // are on the title row, where the figures they qualify are.
+  // Blended ROAS and spend as a share of sales belong to the CEO dashboard,
+  // where they can be read against the store revenue they qualify.
   return rows
 }

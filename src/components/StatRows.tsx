@@ -141,8 +141,8 @@ function StatRow({
             change: it is context for the two columns before it, not a third
             number competing with them. */}
         {showPrevious && (
-          <span className="hidden w-[5rem] text-right text-[11px] tabular-nums text-label sm:block">
-            {row.previous ?? ''}
+          <span className="w-[5rem] shrink-0 text-right text-[11px] tabular-nums text-label">
+            {row.previous === undefined ? '' : `vs ${row.previous}`}
           </span>
         )}
       </dd>

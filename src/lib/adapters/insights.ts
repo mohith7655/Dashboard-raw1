@@ -2,6 +2,7 @@ import type {
   AdapterResult,
   InsightsAnswer,
   InsightsReport,
+  SectionPromptKey,
   Target,
   TargetAdvice,
   TargetPlan,
@@ -49,5 +50,24 @@ export async function adviseTarget(
 ): Promise<AdapterResult<TargetAdvice>> {
   return toResult(SOURCE, HINT, () =>
     postFunction<TargetAdvice>('insights', { target, plan, snapshot }),
+  )
+}
+
+/**
+ * One section of the dashboard, reviewed on its own.
+ *
+ * The snapshot is the figures that card is already rendering, so the review
+ * cannot describe a period other than the one on screen. `prompt` is whatever
+ * the reader has saved against this section; the function appends it to its
+ * own rules rather than letting it replace them.
+ */
+export async function analyseSection(
+  section: SectionPromptKey,
+  label: string,
+  snapshot: Record<string, unknown>,
+  prompt: string,
+): Promise<AdapterResult<TargetAdvice>> {
+  return toResult(SOURCE, HINT, () =>
+    postFunction<TargetAdvice>('insights', { section, label, snapshot, prompt }),
   )
 }

@@ -7,6 +7,7 @@ import { ProfitSummaryCard } from '../components/sections/ProfitSummaryCard'
 import { CouponUsageCard } from '../components/sections/CouponUsageCard'
 import { AdsSection } from '../components/sections/AdsSection'
 import { AdsStatsCard } from '../components/sections/AdsStatsCard'
+import type { SectionAnalysisWiring } from '../components/SectionAnalysis'
 import { AdSpendSection } from '../components/sections/AdSpendSection'
 import { ProfitLossSection } from '../components/sections/ProfitLossSection'
 import { ShippingSection } from '../components/sections/ShippingSection'
@@ -15,7 +16,7 @@ import { OrdersByStatus } from '../components/charts/OrdersByStatus'
 import { RevenueByTrafficSource } from '../components/charts/RevenueByTrafficSource'
 import { RecentOrders } from '../components/RecentOrders'
 import { useRange } from '../lib/rangeContext'
-import { blendedAds, combinedAds } from '../lib/pnl'
+import { combinedAds } from '../lib/pnl'
 import { failedOrderCount } from '../lib/derive'
 import type { DashboardView } from '../lib/navigation'
 import {
@@ -37,6 +38,18 @@ import type {
 } from '../lib/types'
 
 const PER_PAGE = 10
+
+/** See the note at the call site: this page is dead code kept compiling. */
+const INERT_ANALYSIS: SectionAnalysisWiring = {
+  prompt: '',
+  onSavePrompt: () => {},
+  savingPrompt: false,
+  promptError: null,
+  onAnalyse: () => {},
+  running: false,
+  result: undefined,
+  analysisError: null,
+}
 
 export function DashboardPage() {
   const { range, against } = useRange()
@@ -107,13 +120,8 @@ export function DashboardPage() {
 
   const adsLoading = meta.isLoading || google.isLoading
 
-  // Meta and Google as one account, plus the two figures that only mean
-  // anything once spend is set against store revenue.
+  // Meta and Google as one account.
   const combined = useMemo(() => combinedAds(reportedAds), [reportedAds])
-  const blended = useMemo(
-    () => blendedAds(woo.data, reportedAds),
-    [woo.data, reportedAds],
-  )
 
   // Named rather than implied: with one connector down the totals are still
   // real, but they are not everything that was spent.
@@ -215,9 +223,16 @@ export function DashboardPage() {
               <AdsStatsCard
                 metrics={combined ?? undefined}
                 platforms={reportedAds}
-                blended={woo.error ? null : blended}
                 subtitle={combinedScope}
                 loading={adsLoading}
+                // This page is not mounted; App.tsx carries the live wiring.
+                // Without the blended figures the card shows spend alone.
+                blended={null}
+                // This page is not mounted; App.tsx carries the live wiring,
+                // including the analyser and the stored prompts. Inert here
+                // rather than given its own hooks, which would be a second
+                // prompt store the first one could disagree with.
+                analysis={INERT_ANALYSIS}
               />
             }
             footer={

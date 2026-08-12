@@ -1,5 +1,5 @@
 import { useId, useMemo, useState } from 'react'
-import { ChevronDown, Loader2, Sparkles } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { Header } from './components/Header'
 import { ErrorBanner } from './components/ErrorBanner'
 import { FacebookGlyph, GoogleGlyph, OpenAiGlyph } from './components/SectionLabel'
@@ -25,8 +25,19 @@ import { OrdersByStatus } from './components/charts/OrdersByStatus'
 import { RevenueByTrafficSource } from './components/charts/RevenueByTrafficSource'
 import { RecentOrders } from './components/RecentOrders'
 import {
+  SectionRangeControl,
+  useSectionRange,
+  type SectionRange,
+} from './components/SectionRange'
+import {
+  AnalyseButton,
+  SectionAnalysis,
+  type SectionAnalysisWiring,
+} from './components/SectionAnalysis'
+import {
   DEFAULT_COMPARISON,
   clampRangeToAvailable,
+  withoutToday,
   formatRangeLabel,
   rangeFromPreset,
   resolveComparison,
@@ -34,7 +45,7 @@ import {
 import { buildSnapshot } from './lib/insightsSnapshot'
 import { blendedAds, combinedAds } from './lib/pnl'
 import { failedOrderCount } from './lib/derive'
-import { costLines, totalOperatingCost } from './lib/operatingCosts'
+import { costLines } from './lib/operatingCosts'
 import type { DashboardView } from './lib/navigation'
 import {
   useGoogleAdsMetrics,
@@ -55,6 +66,9 @@ import {
   useSaveShippingCosts,
   useGa4Report,
   useMarkifact,
+  useSectionAnalysis,
+  useSectionPrompts,
+  useSaveSectionPrompts,
   useLeads,
   useMerchantFeed,
   useSearchConsole,
@@ -62,6 +76,7 @@ import {
   useWooMetrics,
 } from './lib/queries'
 import { COUPON_OVERVIEW_QUERY, useCoupons } from './lib/resourceQueries'
+import { SECTION_LABELS } from './lib/types'
 import type {
   AdsMetrics,
   Comparison,
@@ -69,14 +84,87 @@ import type {
   Ga4Dimension,
   GscDimension,
   OrderSortField,
+  SectionPromptKey,
   SortDirection,
   SourceError,
 } from './lib/types'
 
 const PER_PAGE = 10
 
+/**
+ * Which platforms a combined total actually covers.
+ *
+ * Struck from the list it describes rather than from the page's, because the
+ * All ads card can be on a period of its own — and a platform that reported
+ * for the page's month may have reported nothing in the card's week. A
+ * subtitle naming platforms the figures above it do not include is worse than
+ * no subtitle.
+ */
+function scopeOf(reported: { name: string }[]): string {
+  if (reported.length > 1) {
+    return `${reported.map((p) => p.name).join(', ')} added together.`
+  }
+  if (reported.length === 1) {
+    return `${reported[0].name} only — the other platforms did not report.`
+  }
+  return ''
+}
+
+/**
+ * Everything a section needs for a period of its own.
+ *
+ * The same four connectors the page uses, asked about the section's window.
+ * Assembled here rather than inside each section so the combining — which
+ * platforms count as reported, how they blend against revenue — is done once
+ * and identically for both.
+ */
+function useScopedMetrics(scope: SectionRange) {
+  const { range, against } = scope
+  const woo = useWooMetrics(range, against)
+  const meta = useMetaMetrics(range, against)
+  const google = useGoogleAdsMetrics(range, against)
+  const openai = useOpenAiAdsMetrics(range, against)
+
+  // Only platforms that answered. A connector that failed is left out entirely
+  // so the derived views never read its silence as zero spend.
+  const reportedAds = useMemo(() => {
+    const found: { name: string; metrics: AdsMetrics }[] = []
+    if (meta.data) found.push({ name: 'Facebook Meta Ads', metrics: meta.data })
+    if (google.data) found.push({ name: 'Google Ads', metrics: google.data })
+    if (openai.data) found.push({ name: 'OpenAI Ads', metrics: openai.data })
+    return found
+  }, [meta.data, google.data, openai.data])
+
+  return {
+    woo,
+    reportedAds,
+    adsLoading: meta.isLoading || google.isLoading || openai.isLoading,
+    combined: useMemo(() => combinedAds(reportedAds), [reportedAds]),
+    blended: useMemo(
+      () => (woo.error ? null : blendedAds(woo.data, reportedAds)),
+      [woo.data, woo.error, reportedAds],
+    ),
+  }
+}
+
 export default function App() {
-  const [range, setRange] = useState<DateRange>(() => rangeFromPreset('thisMonth'))
+  const [pickedRange, setPickedRange] = useState<DateRange>(() =>
+    rangeFromPreset('thisMonth'),
+  )
+  const [excludeToday, setExcludeToday] = useState(false)
+
+  /**
+   * The range everything is actually measured over.
+   *
+   * Shadowing the picked one rather than trimming at each reader: every query,
+   * the comparison window, the prorated costs and every per-day figure derive
+   * from this single value, so there is no path by which one card counts today
+   * and the card beside it does not.
+   */
+  const range = useMemo(
+    () => (excludeToday ? withoutToday(pickedRange) : pickedRange),
+    [pickedRange, excludeToday],
+  )
   const [comparison, setComparison] = useState<Comparison>(DEFAULT_COMPARISON)
   const [view, setView] = useState<DashboardView>('overview')
   const [page, setPage] = useState(1)
@@ -92,6 +180,11 @@ export default function App() {
   // section's title row rather than inside the card it opens.
   const [statementOpen, setStatementOpen] = useState(false)
   const statementId = useId()
+  // The CEO section's analysis panel, held here for the same reason the
+  // statement's fold is: the control that opens it sits on the section's title
+  // row rather than inside the card it opens.
+  const [ceoAnalysisOpen, setCeoAnalysisOpen] = useState(false)
+  const ceoAnalysisId = useId()
 
   // Resolved once here rather than inside each hook: the modes are relative to
   // the range, so every source has to be asking about the same window.
@@ -137,7 +230,27 @@ export default function App() {
   const searchConsole = useSearchConsole(range, gscDimension, against, view === 'search')
   const merchantFeed = useMerchantFeed(view === 'search')
   const markifact = useMarkifact(view === 'markifact')
+  // One analyser and one prompt store for the whole page. Held here rather
+  // than inside each section so two cards cannot each keep their own copy of
+  // the same saved prompt and disagree about what it says.
+  const sectionPrompts = useSectionPrompts()
+  const saveSectionPrompts = useSaveSectionPrompts()
+  const sectionAnalysis = useSectionAnalysis()
   const leadData = useLeads(range, against, view === 'leads')
+
+  /*
+   * The two sections that carry a period of their own.
+   *
+   * Their queries are keyed on the range like every other, so while a section
+   * is following the page it reads the very same cache entry the page-level
+   * hooks above filled — the extra hooks cost a request only once a section is
+   * actually moved off the page's window.
+   */
+  const ceoScope = useSectionRange(range, comparison)
+  const adsScope = useSectionRange(range, comparison)
+
+  const ceoData = useScopedMetrics(ceoScope)
+  const adsData = useScopedMetrics(adsScope)
   const customerOrders = useCustomerOrders(range, openCustomer)
   const insights = useInsights()
   const automation = useInsightsAutomation()
@@ -146,14 +259,6 @@ export default function App() {
   const saveTargets = useSaveTargets()
   const targetAdviser = useTargetAdvice()
   const failedOrders = failedOrderCount(woo.data)
-
-  // The hand-entered overheads prorated onto the selected period, as the CEO
-  // statement prorates them. Held here rather than inside Targets so a net
-  // profit goal is measured against the very figure the statement prints.
-  const operatingCost = useMemo(
-    () => totalOperatingCost(costLines(costs.data ?? [], range)),
-    [costs.data, range],
-  )
 
   // Every connector has answered one way or the other. Analysing before this
   // would describe a half-loaded period and read the gaps as zeroes.
@@ -179,6 +284,28 @@ export default function App() {
       costLines: costLines(costs.data ?? [], range),
     })
 
+  /**
+   * The analysis wiring for one section.
+   *
+   * The prompt is saved back as a patch onto the stored set rather than as a
+   * replacement: the store holds every section's prompt in one blob, and
+   * writing only the section being edited would clear the others.
+   */
+  const analysisFor = (section: SectionPromptKey): SectionAnalysisWiring => ({
+    prompt: sectionPrompts.data ? (sectionPrompts.data[section] ?? '') : undefined,
+    onSavePrompt: (prompt) =>
+      saveSectionPrompts.save({ ...(sectionPrompts.data ?? {}), [section]: prompt }),
+    savingPrompt: saveSectionPrompts.saving,
+    promptError: saveSectionPrompts.error ?? sectionPrompts.error?.message ?? null,
+    onAnalyse: (prompt, snapshot) =>
+      sectionAnalysis.run(section, SECTION_LABELS[section], snapshot, prompt),
+    running: sectionAnalysis.running === section,
+    result: sectionAnalysis.results[section],
+    analysisError: sectionAnalysis.running === section ? null : sectionAnalysis.error,
+  })
+
+  const ceoAnalysis = analysisFor('ceo')
+
   const runAnalysis = () => {
     // The range travels with the snapshot so the report can be filed knowing
     // which period it describes — it outlives the picker that produced it.
@@ -189,7 +316,7 @@ export default function App() {
     // Clamped on the way in rather than at each reader, so nothing derived
     // from the range — prorated costs above all — is measured against days
     // that have not happened yet.
-    setRange(clampRangeToAvailable(next))
+    setPickedRange(clampRangeToAvailable(next))
     setPage(1)
     setDismissed([])
     setOpenCustomer(null)
@@ -250,9 +377,9 @@ export default function App() {
 
   const adsLoading = meta.isLoading || google.isLoading || openai.isLoading
 
-  // Meta and Google as one account, plus the two figures that only mean
-  // anything once spend is set against store revenue.
-  const combined = useMemo(() => combinedAds(reportedAds), [reportedAds])
+  // Spend set against store revenue, for the page-level readers — the P&L
+  // tab, the ad-spend tab and the targets. The All ads card no longer reads
+  // these: it carries a period of its own and combines its own platforms.
   const blended = useMemo(
     () => blendedAds(woo.data, reportedAds),
     [woo.data, reportedAds],
@@ -263,13 +390,6 @@ export default function App() {
   // Named rather than implied: with a connector down the totals are still
   // real, but they are not everything that was spent. Listed rather than
   // hard-coded now that there are three of them.
-  const combinedScope =
-    reportedAds.length > 1
-      ? `${reportedAds.map((p) => p.name).join(', ')} added together.`
-      : reportedAds.length === 1
-        ? `${reportedAds[0].name} only — the other platforms did not report.`
-        : ''
-
   // Built once and mounted in two places — its own tab, and at the head of the
   // overview. One element rather than two copies of the props: the two would
   // drift, and a reader comparing the same section in two tabs would have no
@@ -298,6 +418,8 @@ export default function App() {
         onRangeChange={onRangeChange}
         comparison={comparison}
         onComparisonChange={setComparison}
+        excludeToday={excludeToday}
+        onExcludeTodayChange={setExcludeToday}
       />
 
       <main className="mx-auto max-w-[1280px] px-4 py-6">
@@ -357,6 +479,7 @@ export default function App() {
             failed={!!leadData.error}
             range={range}
             meta={meta.data}
+            analysis={analysisFor('leads')}
           />
         )}
 
@@ -447,30 +570,35 @@ export default function App() {
                 element rendered in both places put a paid analysis above the
                 figures on every visit to the Overview. */}
             <WooCommerceSection
-              metrics={woo.data}
-              loading={woo.isLoading}
-              failed={!!woo.error}
-              range={range}
-              against={against}
+              metrics={ceoData.woo.data}
+              loading={ceoData.woo.isLoading}
+              failed={!!ceoData.woo.error}
+              range={ceoScope.range}
+              against={ceoScope.against}
               actions={
                 <>
+                  {/* The section's own period, ahead of the two controls that
+                      act on it: what it covers before what you do to it. */}
+                  <SectionRangeControl {...ceoScope.control} />
+
                   {/* The analysis of the period, then the fold that opens the
                       statement it was written about. Two things you do to the
-                      section, on the one line that names it. */}
-                  <button
-                    type="button"
-                    onClick={runAnalysis}
-                    disabled={insights.running || !connectorsSettled}
-                    aria-label="Analyse this period"
-                    title="Analyse this period — the report opens on the Insights tab"
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-btn hover:text-ink disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
-                  >
-                    {insights.running ? (
-                      <Loader2 size={15} className="animate-spin" />
-                    ) : (
-                      <Sparkles size={15} />
-                    )}
-                  </button>
+                      section, on the one line that names it.
+
+                      The same control the Leads and All ads sections carry:
+                      it opens a panel here rather than firing a run and
+                      sending the reader to another tab. The full report still
+                      lives on the Insights tab with its own button; this
+                      answers the narrower question, about the card underneath
+                      it, and under the standing prompt written for it. */}
+                  <AnalyseButton
+                    open={ceoAnalysisOpen}
+                    panelId={ceoAnalysisId}
+                    label="this period"
+                    onToggle={() => setCeoAnalysisOpen((current) => !current)}
+                    running={sectionAnalysis.running === 'ceo'}
+                    disabled={!connectorsSettled}
+                  />
 
                   <button
                     type="button"
@@ -491,26 +619,49 @@ export default function App() {
                   </button>
                 </>
               }
+              analysis={
+                <SectionAnalysis
+                  section="ceo"
+                  label="CEO Dashboard"
+                  open={ceoAnalysisOpen}
+                  panelId={ceoAnalysisId}
+                  prompt={ceoAnalysis.prompt}
+                  onSavePrompt={ceoAnalysis.onSavePrompt}
+                  savingPrompt={ceoAnalysis.savingPrompt}
+                  promptError={ceoAnalysis.promptError}
+                  // The same aggregates the Insights tab sends, so the panel
+                  // and the full report can never describe different periods.
+                  onAnalyse={(prompt) => ceoAnalysis.onAnalyse(prompt, snapshotOf())}
+                  running={ceoAnalysis.running}
+                  result={ceoAnalysis.result}
+                  analysisError={ceoAnalysis.analysisError}
+                  className="mt-3"
+                />
+              }
               summary={
                 <ProfitSummaryCard
-                  woo={woo.data}
-                  reportedAds={reportedAds}
+                  woo={ceoData.woo.data}
+                  reportedAds={ceoData.reportedAds}
                   costs={costs.data}
-                  range={range}
-                  against={against}
-                  loading={woo.isLoading || adsLoading || costs.isLoading}
-                  failed={!!woo.error}
+                  range={ceoScope.range}
+                  against={ceoScope.against}
+                  loading={
+                    ceoData.woo.isLoading || ceoData.adsLoading || costs.isLoading
+                  }
+                  failed={!!ceoData.woo.error}
                   statementOpen={statementOpen}
                   statementId={statementId}
                 />
               }
               beforeStats={
                 <AdsStatsCard
-                  metrics={combined ?? undefined}
-                  platforms={reportedAds}
-                  blended={woo.error ? null : blended}
-                  subtitle={combinedScope}
-                  loading={adsLoading}
+                  metrics={adsData.combined ?? undefined}
+                  platforms={adsData.reportedAds}
+                  blended={adsData.blended}
+                  subtitle={scopeOf(adsData.reportedAds)}
+                  loading={adsData.adsLoading}
+                  analysis={analysisFor('ads')}
+                  rangeControl={<SectionRangeControl {...adsScope.control} />}
                 />
               }
               footer={
@@ -625,7 +776,7 @@ export default function App() {
               onSave={saveTargets.save}
               woo={woo.data}
               blended={woo.error ? null : blended}
-              operatingCost={operatingCost}
+              costs={costs.data}
               feed={merchantFeed.data}
               range={range}
               adviser={targetAdviser}

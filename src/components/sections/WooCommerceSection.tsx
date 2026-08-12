@@ -19,6 +19,14 @@ interface WooCommerceSectionProps {
    * whatever happens to sit nearest.
    */
   actions?: React.ReactNode
+  /**
+   * The panel one of those controls opens, directly under the title row.
+   *
+   * Its own slot rather than part of `summary`: it belongs to the control
+   * above it, and folded inside the statement it would be a panel you had to
+   * open the statement to reach.
+   */
+  analysis?: React.ReactNode
   /** Leads the section, above the store figures — the statement in full. */
   summary?: React.ReactNode
   /**
@@ -55,6 +63,7 @@ export function WooCommerceSection({
   range,
   against,
   actions,
+  analysis,
   summary,
   beforeStats,
   footer,
@@ -65,6 +74,9 @@ export function WooCommerceSection({
         <SectionLabel size="lg">CEO Dashboard</SectionLabel>
         {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
       </div>
+
+      {/* Under the control that opens it, above everything it is about. */}
+      {analysis}
 
       {/* Statement, then what was spent to fill it, then who bought, then what
           was given away to make them buy. The order counts read after the

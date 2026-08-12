@@ -15,6 +15,7 @@ import type {
   AimPlan,
   DateRange,
   MerchantFeed,
+  OperatingCost,
   Target,
   TargetGoal,
   TargetAdvice,
@@ -25,6 +26,7 @@ import type {
 } from '../../lib/types'
 import { TARGET_GOALS, TARGET_GOAL_LABELS, isMoneyGoal } from '../../lib/types'
 import { planTarget } from '../../lib/targets'
+import { useTargetProgress } from '../../lib/targetProgress'
 import {
   formatCurrency,
   formatDay,
@@ -44,10 +46,11 @@ interface TargetsSectionProps {
   woo: WooMetrics | undefined
   blended: BlendedAds | null
   /**
-   * Overheads already prorated onto the range, as the CEO card prorates them —
-   * a net profit aim is measured against the same figure the statement prints.
+   * The saved operating costs, prorated onto each target's own window rather
+   * than onto the range — a net profit aim is measured over the window the
+   * target names.
    */
-  operatingCost: number
+  costs: OperatingCost[] | undefined
   feed: MerchantFeed | undefined
   range: DateRange
   /** Model-written advice, asked for one target at a time. */
@@ -114,7 +117,7 @@ export function TargetsSection({
   onSave,
   woo,
   blended,
-  operatingCost,
+  costs,
   feed,
   range,
   adviser,
@@ -127,12 +130,22 @@ export function TargetsSection({
   // would otherwise date two targets differently.
   const today = useMemo(() => toIsoDate(new Date()), [])
 
+  const progress = useTargetProgress(targets, costs, today)
+
   const plans = useMemo(
     (): TargetPlan[] =>
       (targets ?? []).map((target) =>
-        planTarget({ target, woo, blended, operatingCost, range, feed, today }),
+        planTarget({
+          target,
+          progress: progress.byTarget[target.id] ?? null,
+          woo,
+          blended,
+          range,
+          feed,
+          today,
+        }),
       ),
-    [targets, woo, blended, operatingCost, range, feed, today],
+    [targets, progress, woo, blended, range, feed, today],
   )
 
   const commit = (next: Target[]) => {
@@ -318,12 +331,19 @@ function PlanCard({
           rather than one that was entered — the same figures mean different
           things depending on who chose them. */}
       <div className="mt-3 border-t border-row-line pt-3">
+        {/* Named as budget-in-full and budget-left, not one figure standing
+            for both. The window has usually spent some of it already, and a
+            daily rate struck from the whole would hand the same money out
+            twice. */}
         <div className="text-[10.5px] uppercase tracking-wide text-label">
           {plan.basisIsImplied
-            ? `To reach it — ${formatCurrency(plan.budgetBasis)} over the ${plan.daysLeft} days left`
-            : `Your budget, ${formatCurrency(plan.budgetBasis)} over the ${plan.daysLeft} days left`}
+            ? `To reach it — ${formatCurrency(plan.budgetBasis)} across the window, ${formatCurrency(plan.budgetRemaining)} left over ${plan.daysLeft} days`
+            : `Your budget — ${formatCurrency(plan.budgetBasis)} across the window, ${formatCurrency(plan.budgetRemaining)} left over ${plan.daysLeft} days`}
         </div>
         <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+          {plan.progress && (
+            <Figure label="Spent so far" value={formatCurrency(plan.progress.spend)} />
+          )}
           <Figure label="Per day" value={formatCurrency(plan.perDay)} />
           <Figure label="Per week" value={formatCurrency(plan.perWeek)} />
           <Figure label="Per month" value={formatCurrency(plan.perMonth)} />
@@ -429,9 +449,22 @@ function AimBlock({ aim }: { aim: AimPlan }) {
       <div className="text-[10.5px] uppercase tracking-wide text-label">
         {aim.goal === 'roas'
           ? `Return of ${formatRoas(aim.amount)} to hold`
-          : `${name} needed to reach ${formatCurrency(aim.amount)}`}
+          : `${name} — ${formatCurrency(aim.amount)} by the deadline`}
       </div>
       <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+        {/* Banked first, then what is left, then the rate that finds it. The
+            order the question is actually asked in: how far along am I, how
+            much more, how fast. */}
+        {aim.goal !== 'roas' && aim.achieved !== null && (
+          <Figure label="Banked so far" value={formatCurrency(aim.achieved)} />
+        )}
+        {aim.remaining !== null && (
+          <Figure
+            label="Still to find"
+            value={formatCurrency(aim.remaining)}
+            className={aim.remaining === 0 ? 'text-pos' : 'text-ink'}
+          />
+        )}
         {aim.perDay !== null && (
           <Figure label="Per day" value={formatCurrency(aim.perDay)} />
         )}

@@ -130,11 +130,11 @@ export function AdsSection({
       }
     }
 
+    group('roas', 'ROAS', formatRoas)
     group('spend', 'Spend', formatCurrency, 'down-good')
     group('impressions', 'Impressions', formatInteger)
     group('clicks', 'Clicks', formatInteger)
     group('ctr', 'CTR', formatCtr)
-    group('roas', 'ROAS', formatRoas)
     group('cpc', 'CPC', formatCurrency, 'down-good')
     group('cpm', 'CPM', formatCurrency, 'down-good')
     group('conversions', 'Conversions', formatInteger)

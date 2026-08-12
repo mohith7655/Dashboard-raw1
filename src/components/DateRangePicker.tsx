@@ -4,6 +4,8 @@ import type { CompareMode, Comparison, DateRange, PresetId } from '../lib/types'
 import {
   COMPARE_MODES,
   PRESETS,
+  canDropToday,
+  includesToday,
   formatRangeLabel,
   latestAvailableDate,
   previousRange,
@@ -19,6 +21,9 @@ interface DateRangePickerProps {
   onChange: (range: DateRange) => void
   comparison: Comparison
   onComparisonChange: (comparison: Comparison) => void
+  /** Whether today is being left out of the range everything is measured over. */
+  excludeToday: boolean
+  onExcludeTodayChange: (exclude: boolean) => void
 }
 
 type Selecting = 'start' | 'end'
@@ -72,6 +77,8 @@ export function DateRangePicker({
   onChange,
   comparison,
   onComparisonChange,
+  excludeToday,
+  onExcludeTodayChange,
 }: DateRangePickerProps) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState({ start: value.start, end: value.end })
@@ -261,6 +268,12 @@ export function DateRangePicker({
                 selectable.
               </p>
 
+              <TodayToggle
+                range={value}
+                excludeToday={excludeToday}
+                onChange={onExcludeTodayChange}
+              />
+
               <ComparePanel
                 range={value}
                 comparison={comparison}
@@ -295,6 +308,74 @@ export function DateRangePicker({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Drops the part-day off the end of the range.
+ *
+ * Today is counted in full by everything that divides — the per-day figures on
+ * the CEO card, a target's pacing, the daily budget — and it is compared
+ * against whole days in the window before it. A period read at nine in the
+ * morning therefore reports a store trading far worse than it is, and the
+ * earlier it is read the worse the figure looks.
+ *
+ * Sits with the comparison controls rather than the presets because it does
+ * the same kind of work: it decides what the numbers are measured over, not
+ * which dates were clicked.
+ */
+function TodayToggle({
+  range,
+  excludeToday,
+  onChange,
+}: {
+  range: DateRange
+  excludeToday: boolean
+  onChange: (exclude: boolean) => void
+}) {
+  // `range` is the trimmed range — what the figures actually cover — so once
+  // this is on it no longer reaches today and looks indistinguishable from a
+  // range that never did. Hence the first clause: a control that is on must
+  // always be switchable off, whatever the range it produced looks like.
+  //
+  // Otherwise it is offered only where it would do something. A range that
+  // ended last week has no part-day on it, and a checkbox that changed nothing
+  // would suggest the figures beside it were in question when they are not.
+  const available = excludeToday || canDropToday(range)
+  // Only reachable while the trim is a no-op, which is the one case where
+  // today is both in the range and all of it.
+  const onlyToday = includesToday(range) && !canDropToday(range)
+
+  return (
+    <div className="mt-4 border-t border-[#3b3b40] pt-3">
+      <label
+        className={`flex items-start gap-2.5 ${
+          available ? 'cursor-pointer' : 'cursor-default opacity-45'
+        }`}
+      >
+        <input
+          type="checkbox"
+          checked={excludeToday}
+          disabled={!available}
+          onChange={(event) => onChange(event.target.checked)}
+          className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[#5b9bd8]"
+        />
+        <span className="min-w-0">
+          <span className="block text-[12px] font-medium text-[#e8e8ea]">
+            Leave today out
+          </span>
+          <span className="mt-0.5 block text-[11px] leading-relaxed text-muted">
+            {onlyToday
+              ? 'Today is the whole of this range, so there would be nothing left to measure. The dates above are unchanged.'
+              : excludeToday
+                ? `Left out — the range ends ${formatInputDate(range.end)}, and the comparison window is the same length.`
+                : available
+                  ? 'Today is only part of a day. Counted against whole days it drags every per-day figure down, and the comparison window shortens to match so both sides stay the same length.'
+                  : 'This range does not reach today, so there is no part-day on it.'}
+          </span>
+        </span>
+      </label>
     </div>
   )
 }

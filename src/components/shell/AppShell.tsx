@@ -8,6 +8,7 @@ import {
   DEFAULT_COMPARISON,
   clampRangeToAvailable,
   rangeFromPreset,
+  withoutToday,
   resolveComparison,
 } from '../../lib/dateRange'
 import { NAV_GROUPS } from '../../lib/navigation'
@@ -16,8 +17,18 @@ import type { Comparison, DateRange } from '../../lib/types'
 const STORE_NAME = 'Rawwgear.com'
 
 export function AppShell() {
-  const [range, setRange] = useState<DateRange>(() => rangeFromPreset('thisMonth'))
+  const [pickedRange, setPickedRange] = useState<DateRange>(() =>
+    rangeFromPreset('thisMonth'),
+  )
   const [comparison, setComparison] = useState<Comparison>(DEFAULT_COMPARISON)
+  const [excludeToday, setExcludeToday] = useState(false)
+
+  // Shadowed as in App: every page reads the trimmed range through the
+  // context, so no page can count today while another does not.
+  const range = useMemo(
+    () => (excludeToday ? withoutToday(pickedRange) : pickedRange),
+    [pickedRange, excludeToday],
+  )
   const [navOpen, setNavOpen] = useState(false)
   const { pathname } = useLocation()
 
@@ -27,7 +38,7 @@ export function AppShell() {
       // Clamped on the way in, as in App: nothing derived from the range —
       // prorated operating costs above all — may be measured against days
       // that have not happened yet.
-      setRange: (next: DateRange) => setRange(clampRangeToAvailable(next)),
+      setRange: (next: DateRange) => setPickedRange(clampRangeToAvailable(next)),
       comparison,
       setComparison,
       against: resolveComparison(range, comparison),
@@ -78,9 +89,11 @@ export function AppShell() {
                 </OutlineButton>
                 <DateRangePicker
                   value={range}
-                  onChange={setRange}
+                  onChange={(next) => setPickedRange(clampRangeToAvailable(next))}
                   comparison={comparison}
                   onComparisonChange={setComparison}
+                  excludeToday={excludeToday}
+                  onExcludeTodayChange={setExcludeToday}
                 />
               </div>
             </div>

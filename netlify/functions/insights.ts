@@ -66,6 +66,12 @@ export default async function handler(request: Request): Promise<Response> {
       return jsonNoStore(await adviseTarget(body, apiKey, model))
     }
 
+    // A posted `section` asks about one card rather than the whole period:
+    // what moved on it, and what to do about that.
+    if (typeof body.section === 'string' && isRecord(body.snapshot)) {
+      return jsonNoStore(await analyseSection(body, apiKey, model))
+    }
+
     const report = await analyse(body, apiKey, model)
     return jsonNoStore(report)
   } catch (err) {
@@ -180,6 +186,18 @@ async function adviseTarget(
     ADVICE_MAX_TOKENS,
   )
 
+  return readAdvice(content, model)
+}
+
+/**
+ * A headline and its notes, as both the target advice and the section review
+ * return them.
+ *
+ * Notes missing a title or a detail are dropped rather than rendered half
+ * empty: a bullet with a heading and no claim under it reads as a bug in the
+ * card, which is worse than one fewer note.
+ */
+function readAdvice(content: string, model: string): TargetAdvice {
   let parsed: unknown
   try {
     parsed = JSON.parse(content)
@@ -205,6 +223,77 @@ async function adviseTarget(
     model,
     generatedAt: new Date().toISOString(),
   }
+}
+
+/** One section costs about what one target does. */
+const SECTION_MAX_TOKENS = 2000
+
+/** How much operator-written instruction is carried into the prompt. */
+const MAX_PROMPT_CHARS = 2000
+
+const SECTION_SYSTEM = `You are an e-commerce analyst reviewing one section of a store's dashboard for a single date range.
+
+You are given JSON with:
+- \`section\`: which card is being reviewed, and \`label\`, what it is called on screen.
+- \`snapshot\`: exactly the figures that card is displaying, including the comparison window where it has one.
+
+Your job is two things, in this order: what changed against the comparison window, and what to do about it. Not a description of the figures — the reader can see them.
+
+Rules:
+- Reason only from the snapshot. Never invent a number, and never estimate one that is absent.
+- Where the snapshot has no comparison window, say that the change cannot be measured rather than treating the current figure as the change.
+- Quote the figures behind each point, with units. Money is in the store's own currency, named as \`currency\` where the snapshot gives it; where none is given, write the amount bare rather than guessing at a country.
+- deltaPct values are percentages against the comparison window (12 means +12%). Rates such as margin, conversion and share are fractions.
+- Absence is not zero. A source that reported nothing, or an automation that has stopped writing, is a finding in itself — say so rather than reading its silence as a result.
+- Every improvement must be something the reader could actually do this week, tied to a figure in the snapshot. No generic advice.
+- Where the figures do not support a confident recommendation, say what to measure first instead of guessing.
+- Never name a JSON field in the prose. Write "leads fell 22%", not "count.deltaPct is -22".
+- Write dates as a person would — "31 August", not "2026-08-31". Do not open a note with "Action:".
+- Between three and five notes. \`tone\` is "good" where nothing needs doing, "warn" where something should be watched, "bad" where something is going wrong.
+
+Reply with JSON only:
+{"headline": string, "notes": [{"tone": "good"|"warn"|"bad", "title": string, "detail": string}]}`
+
+/**
+ * One section of the dashboard, reviewed on request.
+ *
+ * The operator's own prompt is appended to the rules above rather than
+ * replacing them. It says what this reader cares about — which campaigns
+ * matter, which figure they are judged on — and that is worth carrying. What
+ * it cannot do is license the model to invent a figure or to describe a
+ * connector's silence as a zero, so the rules that forbid those stay above it
+ * and the prompt is introduced as a preference rather than as an instruction
+ * that outranks them.
+ */
+async function analyseSection(
+  body: Record<string, unknown>,
+  apiKey: string,
+  model: string,
+): Promise<TargetAdvice> {
+  const prompt =
+    typeof body.prompt === 'string' ? body.prompt.trim().slice(0, MAX_PROMPT_CHARS) : ''
+
+  const system = prompt
+    ? `${SECTION_SYSTEM}
+
+The reader of this dashboard has written down what they want attention paid to. Follow it where it does not conflict with the rules above; the rules above win on any point of conflict, and it can never license inventing or estimating a figure.
+
+Their note: ${prompt}`
+    : SECTION_SYSTEM
+
+  const content = await complete(
+    apiKey,
+    model,
+    system,
+    JSON.stringify({
+      section: body.section,
+      label: typeof body.label === 'string' ? body.label : body.section,
+      snapshot: body.snapshot,
+    }),
+    SECTION_MAX_TOKENS,
+  )
+
+  return readAdvice(content, model)
 }
 
 /** Anything the model invents outside the three tones reads as a warning. */

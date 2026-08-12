@@ -710,13 +710,15 @@ export function ProfitSummaryCard({
                           {formatDeltaPercent(figure.change)}
                         </span>
                       )}
+                      {figure.previous !== undefined && (
+                        <span className="text-[11px] tabular-nums text-label">
+                          vs {figure.previous}
+                        </span>
+                      )}
                     </div>
-                    {figure.previous !== undefined && (
+                    {figure.difference !== undefined && (
                       <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[11px] tabular-nums">
-                        <span className="text-label">{figure.previous}</span>
-                        {figure.difference !== undefined && (
-                          <span className={MOVE_INK}>{figure.difference}</span>
-                        )}
+                        <span className={MOVE_INK}>{figure.difference}</span>
                       </div>
                     )}
                   </div>
@@ -850,7 +852,7 @@ function StripFigure({
           />
         )}
       </div>
-      <div className="mt-0.5 flex items-baseline gap-1.5">
+      <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5">
         <span className="text-[13.5px] font-semibold tabular-nums text-ink">
           {figure.value}
         </span>
@@ -869,16 +871,15 @@ function StripFigure({
             {formatDeltaPercent(figure.change)}
           </span>
         )}
+        {figure.previous !== undefined && (
+          <span className="text-[11px] tabular-nums text-label">vs {figure.previous}</span>
+        )}
       </div>
-      {/* The second line mirrors the first: what it was sits under what it is,
-          and how far it moved in currency sits under how far it moved in
-          proportion. Each column reads straight down. */}
-      {(figure.previous !== undefined || figure.difference !== undefined) && (
+      {/* The baseline now follows the percentage above; this line preserves
+          the absolute move without repeating that comparison figure. */}
+      {figure.difference !== undefined && (
         <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[11px] tabular-nums">
-          <span className="text-label">{figure.previous ?? ''}</span>
-          {figure.difference !== undefined && (
-            <span className={MOVE_INK}>{figure.difference}</span>
-          )}
+          <span className={MOVE_INK}>{figure.difference}</span>
         </div>
       )}
     </button>
@@ -987,8 +988,8 @@ function StatementRow({
         {/* Set below the change in weight: it is what the change was measured
             from, not a second claim about this period. */}
         {showPrevious && (
-          <span className="hidden w-[5rem] text-right text-[11px] tabular-nums text-label sm:block">
-            {previous ?? ''}
+          <span className="w-[5rem] shrink-0 text-right text-[11px] tabular-nums text-label">
+            {previous === undefined ? '' : `vs ${previous}`}
           </span>
         )}
       </dd>
