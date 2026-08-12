@@ -821,7 +821,7 @@ export function ProfitSummaryCard({
         <div className="mt-4 overflow-x-auto border-t border-row-line pt-1">
           <dl
             className={`flex flex-col ${
-              anyChange ? (anyPrevious ? 'min-w-[25rem]' : 'min-w-[20rem]') : 'min-w-[14.5rem]'
+              anyChange ? 'min-w-[20rem] sm:min-w-[25rem]' : 'min-w-[14.5rem]'
             }`}
           >
             {lines.map((line, index) => (
@@ -1020,7 +1020,7 @@ function StatementRow({
         {/* Set below the change in weight: it is what the change was measured
             from, not a second claim about this period. */}
         {showPrevious && (
-          <span className="w-[5rem] text-right text-[11px] tabular-nums text-label">
+          <span className="hidden w-[5rem] text-right text-[11px] tabular-nums text-label sm:block">
             {previous ?? ''}
           </span>
         )}

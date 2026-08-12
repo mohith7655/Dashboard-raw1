@@ -51,7 +51,7 @@ export function StatRows({ rows }: { rows: StatRowData[] }) {
     <div className="mt-3 overflow-x-auto border-t border-row-line pt-1">
       <dl
         className={`flex flex-col ${
-          anyChange ? (anyPrevious ? 'min-w-[25rem]' : 'min-w-[20rem]') : 'min-w-[14.5rem]'
+          anyChange ? 'min-w-[20rem] sm:min-w-[25rem]' : 'min-w-[14.5rem]'
         }`}
       >
         {rows.map((row, index) => (
@@ -141,7 +141,7 @@ function StatRow({
             change: it is context for the two columns before it, not a third
             number competing with them. */}
         {showPrevious && (
-          <span className="w-[5rem] text-right text-[11px] tabular-nums text-label">
+          <span className="hidden w-[5rem] text-right text-[11px] tabular-nums text-label sm:block">
             {row.previous ?? ''}
           </span>
         )}

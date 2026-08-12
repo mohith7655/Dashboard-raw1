@@ -139,7 +139,11 @@ export function InsightsSection({
         />
       </button>
 
-      <div id={bodyId} hidden={!open} className="flex flex-col gap-4">
+      {/* `flex` on this element would outrank the `hidden` attribute —
+          `display: flex` beats `display: none` — and the body would never
+          collapse. The layout class goes on a child instead. */}
+      <div id={bodyId} hidden={!open}>
+        <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -281,6 +285,7 @@ export function InsightsSection({
           </p>
         </div>
       )}
+        </div>
       </div>
     </section>
   )
