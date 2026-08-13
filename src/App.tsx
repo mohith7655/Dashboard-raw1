@@ -749,6 +749,11 @@ export default function App() {
                 of the period, this shows which day made it that shape. */}
             <RevenueBreakdownCard
               rows={woo.data?.dailyBreakdown ?? []}
+              // The same series the plot above it draws, folded onto whichever
+              // grain the table is set to. Passed rather than fetched here so
+              // the chart and the table can never disagree about a day.
+              traffic={traffic.data?.series ?? []}
+              trafficAvailable={!traffic.error && (traffic.data?.available ?? false)}
               loading={woo.isLoading}
               unavailable={woo.error ? 'Revenue breakdown unavailable' : undefined}
             />

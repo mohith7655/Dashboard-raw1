@@ -131,6 +131,28 @@ export interface RevenueBreakdownRow {
 export const BREAKDOWN_GRAINS = ['day', 'week', 'month'] as const
 export type BreakdownGrain = (typeof BREAKDOWN_GRAINS)[number]
 
+/**
+ * A breakdown row with the analytics provider's traffic joined onto it.
+ *
+ * Kept as a separate type rather than as two more fields on the row above,
+ * because the two halves come from different places and fail separately: the
+ * money is Metorik's and the visitors are the analytics provider's, and a day
+ * can perfectly well have orders on it and no traffic figure at all. Nulls
+ * carry that distinction — they are "not reported", never zero.
+ */
+export interface RevenueBreakdownViewRow extends RevenueBreakdownRow {
+  visitors: number | null
+  /**
+   * Orders ÷ visitors for this bucket, as a ratio in 0..1.
+   *
+   * Always struck from the two columns beside it rather than averaged from the
+   * days in the bucket or taken from the provider's own figure. A reader who
+   * divides the orders column by the visitors column has to arrive at exactly
+   * this number, and a mean of daily rates would not give it to them.
+   */
+  conversion: number | null
+}
+
 export interface SourceRevenue {
   source: string
   revenue: number

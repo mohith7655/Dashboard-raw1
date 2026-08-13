@@ -5,7 +5,12 @@
  * a week's row is the sum of its days, and getting that wrong is a reporting
  * error rather than a layout one.
  */
-import type { BreakdownGrain, RevenueBreakdownRow } from './types'
+import type {
+  BreakdownGrain,
+  RevenueBreakdownRow,
+  RevenueBreakdownViewRow,
+  TrafficPoint,
+} from './types'
 import { round2 } from './derive'
 import { formatDate } from './format'
 
@@ -95,6 +100,56 @@ export function totalRow(rows: RevenueBreakdownRow[]): RevenueBreakdownRow {
   for (const key of MONEY_KEYS) total[key] = round2(total[key])
 
   return total
+}
+
+/**
+ * Visitors per bucket, folded on the same calendar as the money above.
+ *
+ * A map rather than a merged row: the traffic series and the statement are
+ * separate sources and neither is guaranteed to cover the other's days, so the
+ * join has to be able to answer "nothing reported" for a bucket rather than
+ * inventing a zero for it.
+ */
+export function bucketVisitors(
+  series: TrafficPoint[],
+  grain: BreakdownGrain,
+): Map<string, number> {
+  const byBucket = new Map<string, number>()
+  for (const point of series) {
+    const date = bucketStart(point.date, grain)
+    byBucket.set(date, (byBucket.get(date) ?? 0) + point.visitors)
+  }
+  return byBucket
+}
+
+/**
+ * The statement joined to the traffic, with conversion struck per bucket.
+ *
+ * The rate is computed here, after the folding, and never carried through it.
+ * Summing a week's orders and its visitors and dividing once is the week's
+ * conversion; averaging seven daily rates is a different number that belongs
+ * to no week — and on a day with two visitors and one order it is a wild one.
+ *
+ * `available` is the provider's own answer to whether it is connected at all.
+ * With it false every bucket reports null, which the table prints as a dash:
+ * a store with no analytics has an unknown conversion rate, not one of zero.
+ */
+export function withTraffic(
+  rows: RevenueBreakdownRow[],
+  visitorsByBucket: Map<string, number>,
+  available: boolean,
+): RevenueBreakdownViewRow[] {
+  return rows.map((row) => {
+    const visitors = available ? (visitorsByBucket.get(row.date) ?? null) : null
+    return {
+      ...row,
+      visitors,
+      // Guarded against the empty bucket as well as the missing one: a day the
+      // provider reported zero visitors for divides into an infinite rate, not
+      // a hundred percent one.
+      conversion: visitors === null || visitors === 0 ? null : row.orders / visitors,
+    }
+  })
 }
 
 /** The last day of the calendar week or month `date` opens. */

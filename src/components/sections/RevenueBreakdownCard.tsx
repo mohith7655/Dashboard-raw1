@@ -3,20 +3,36 @@ import { ChevronDown, ChevronUp } from 'lucide-react'
 import type {
   BreakdownGrain,
   RevenueBreakdownRow,
+  RevenueBreakdownViewRow,
   SortDirection,
+  TrafficPoint,
 } from '../../lib/types'
 import { BREAKDOWN_GRAINS } from '../../lib/types'
-import { bucketLabel, bucketRows, totalRow } from '../../lib/revenueBreakdown'
-import { formatCurrency, formatInteger } from '../../lib/format'
+import {
+  bucketLabel,
+  bucketRows,
+  bucketVisitors,
+  totalRow,
+  withTraffic,
+} from '../../lib/revenueBreakdown'
+import { formatCurrency, formatInteger, formatPercent } from '../../lib/format'
 import { Skeleton } from '../Skeleton'
 
 interface RevenueBreakdownCardProps {
   rows: RevenueBreakdownRow[]
+  /** The analytics provider's daily visitors, folded onto the table's grain. */
+  traffic: TrafficPoint[]
+  /**
+   * False when no analytics provider is connected. Distinct from an empty
+   * series: the first means the conversion column cannot be known, the second
+   * that it is known and nobody came.
+   */
+  trafficAvailable: boolean
   loading: boolean
   unavailable?: string
 }
 
-type SortField = keyof RevenueBreakdownRow
+type SortField = keyof RevenueBreakdownViewRow
 
 const GRAIN_LABELS: Record<BreakdownGrain, string> = {
   day: 'Day',
@@ -31,19 +47,37 @@ interface ColumnSpec {
   negative?: boolean
   /** Counts rather than money. */
   count?: boolean
+  /** A ratio in 0..1, printed as a percentage. */
+  rate?: boolean
   /** The line the table is really about, carried in the ink of a total. */
   lead?: boolean
+  /** Closes the headline group, and takes a rule to mark where detail begins. */
+  divide?: boolean
 }
 
+/**
+ * The five figures a day is actually judged on, then the statement behind them.
+ *
+ * Traffic, orders, what was billed, what went back, and the rate that connects
+ * the first two — read straight across from the date, before the reader
+ * reaches a single line of the breakdown. The detail columns still follow, in
+ * the order the statement itself reads, for the day a headline needs
+ * explaining.
+ */
 const COLUMNS: ColumnSpec[] = [
+  { key: 'visitors', header: 'Visitors', count: true },
   { key: 'orders', header: 'Orders', count: true },
+  { key: 'totalSales', header: 'Total Sales', lead: true },
+  { key: 'refunds', header: 'Refunds', negative: true },
+  { key: 'conversion', header: 'Conversion', rate: true, divide: true },
   { key: 'grossSales', header: 'Gross Sales' },
   { key: 'discounts', header: 'Discounts', negative: true },
-  { key: 'refunds', header: 'Refunds', negative: true },
   { key: 'shippingCharged', header: 'Shipping' },
   { key: 'taxCollected', header: 'Tax' },
-  { key: 'totalSales', header: 'Total Sales', lead: true },
 ]
+
+/** The rightmost column, which carries the card's padding. */
+const LAST = COLUMNS[COLUMNS.length - 1].key
 
 /**
  * The statement a row at a time.
@@ -58,6 +92,8 @@ const COLUMNS: ColumnSpec[] = [
  */
 export function RevenueBreakdownCard({
   rows,
+  traffic,
+  trafficAvailable,
   loading,
   unavailable,
 }: RevenueBreakdownCardProps) {
@@ -65,25 +101,53 @@ export function RevenueBreakdownCard({
   const [sort, setSort] = useState<SortField>('date')
   const [direction, setDirection] = useState<SortDirection>('asc')
 
-  const grouped = useMemo(() => bucketRows(rows, grain), [rows, grain])
+  /*
+   * Money folded first, then traffic folded onto the same buckets, then the
+   * rate struck from the two. In that order because conversion cannot survive
+   * the folding: a week's rate is its orders over its visitors, computed once,
+   * and there is no way to reach that by combining the daily rates.
+   */
+  const grouped = useMemo(() => {
+    const money = bucketRows(rows, grain)
+    return withTraffic(money, bucketVisitors(traffic, grain), trafficAvailable)
+  }, [rows, traffic, trafficAvailable, grain])
 
   const sorted = useMemo(() => {
     const copy = [...grouped]
     copy.sort((a, b) => {
       const left = a[sort]
       const right = b[sort]
-      const order =
-        typeof left === 'string' && typeof right === 'string'
+      if (typeof left === 'string' && typeof right === 'string') {
+        return direction === 'asc'
           ? left.localeCompare(right)
-          : Number(left) - Number(right)
+          : right.localeCompare(left)
+      }
+      // A column the provider never reported sorts to the bottom either way.
+      // Coercing null to zero would file "unknown" among the worst days, which
+      // is a claim the dash on screen is careful not to make.
+      if (left === null && right === null) return 0
+      if (left === null) return 1
+      if (right === null) return -1
+      const order = Number(left) - Number(right)
       return direction === 'asc' ? order : -order
     })
     return copy
   }, [grouped, sort, direction])
 
   // Off the ungrouped rows, so the figure under the table is the period's own
-  // and never changes with the grain above it.
-  const totals = useMemo(() => totalRow(rows), [rows])
+  // and never changes with the grain above it. The rate is struck from those
+  // totals for the same reason it is struck per bucket above.
+  const totals = useMemo((): RevenueBreakdownViewRow => {
+    const money = totalRow(rows)
+    const visitors = trafficAvailable
+      ? traffic.reduce((sum, point) => sum + point.visitors, 0)
+      : null
+    return {
+      ...money,
+      visitors,
+      conversion: visitors === null || visitors === 0 ? null : money.orders / visitors,
+    }
+  }, [rows, traffic, trafficAvailable])
   // The period's own bounds, so a partial week or month at either edge is
   // labelled with the days it holds rather than the days its calendar has.
   const firstDate = rows.length ? rows[0].date : ''
@@ -109,6 +173,11 @@ export function RevenueBreakdownCard({
             Paid orders only, in store currency — the same figures the statement
             above reports for the whole period. Refunds sit on the day the money
             went back, which may not be the period the order was placed in.
+            Visitors come from the analytics provider rather than from the
+            orders, and conversion is this row&apos;s orders over this row&apos;s
+            visitors — so a week&apos;s rate is struck once from its own totals,
+            not averaged from its days. A dash means the provider reported
+            nothing for that bucket, which is not the same as nobody arriving.
           </p>
         </div>
 
@@ -142,7 +211,7 @@ export function RevenueBreakdownCard({
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] border-collapse text-[13px]">
+          <table className="w-full min-w-[900px] border-collapse text-[13px]">
             <thead>
               <tr className="border-b border-line text-left">
                 <SortableTh
@@ -162,7 +231,9 @@ export function RevenueBreakdownCard({
                     direction={direction}
                     onSort={onSort}
                     align="right"
-                    className={column.key === 'totalSales' ? 'pr-5' : ''}
+                    className={`${column.divide ? 'border-r border-row-line' : ''} ${
+                      column.key === LAST ? 'pr-5' : ''
+                    }`}
                   />
                 ))}
               </tr>
@@ -207,25 +278,43 @@ function Cell({
   strong = false,
 }: {
   column: ColumnSpec
-  row: RevenueBreakdownRow
+  row: RevenueBreakdownViewRow
   strong?: boolean
 }) {
   const value = row[column.key]
+
+  // Null is "the provider did not report", which is not zero and must not be
+  // printed as one. The dash says so without taking a position on what the
+  // figure would have been.
+  if (value === null) {
+    return (
+      <td
+        className={`h-11 px-3 text-right align-middle text-muted ${
+          column.divide ? 'border-r border-row-line' : ''
+        } ${column.key === LAST ? 'pr-5' : ''}`}
+      >
+        —
+      </td>
+    )
+  }
+
   const amount = typeof value === 'number' ? value : 0
 
   // A deduction of nothing is not worth the red or the parentheses: a day with
   // no refunds should read as quiet, not as a zero someone has to check.
   const deducting = column.negative && amount > 0
 
-  const text = column.count
-    ? formatInteger(amount)
-    : deducting
-      ? `(${formatCurrency(amount)})`
-      : formatCurrency(amount)
+  const text = column.rate
+    ? formatPercent(amount)
+    : column.count
+      ? formatInteger(amount)
+      : deducting
+        ? `(${formatCurrency(amount)})`
+        : formatCurrency(amount)
 
   const tone = deducting
     ? 'text-neg'
-    : column.lead || column.count || strong
+    : column.lead || column.count || column.rate || strong
       ? 'text-ink'
       : 'text-muted'
 
@@ -233,7 +322,9 @@ function Cell({
     <td
       className={`h-11 px-3 text-right align-middle tabular-nums ${tone} ${
         strong || column.lead ? 'font-semibold' : ''
-      } ${column.key === 'totalSales' ? 'pr-5' : ''}`}
+      } ${column.divide ? 'border-r border-row-line' : ''} ${
+        column.key === LAST ? 'pr-5' : ''
+      }`}
     >
       {text}
     </td>
