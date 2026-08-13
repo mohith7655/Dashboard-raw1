@@ -15,7 +15,9 @@ import type {
   Ga4Report,
   GscDimension,
   GscReport,
+  FlodeskReport,
   LeadReport,
+  MailchimpReport,
   MarkifactAccount,
   MerchantFeed,
   SectionPromptKey,
@@ -46,6 +48,8 @@ import * as shippingCosts from './adapters/shippingCosts'
 import * as ga4 from './adapters/ga4'
 import * as searchConsole from './adapters/searchConsole'
 import * as leads from './adapters/leads'
+import * as mailchimp from './adapters/mailchimp'
+import * as flodesk from './adapters/flodesk'
 import * as sectionPrompts from './adapters/sectionPrompts'
 import * as merchantCenter from './adapters/merchantCenter'
 import * as markifact from './adapters/markifact'
@@ -102,6 +106,13 @@ export const queryKeys = {
   // to hold the comparison as well as the range.
   leads: (range: DateRange, against: DateRange | null) =>
     ['leads', range.start, range.end, vs(against)] as const,
+  // Sends are counted window to window, so the comparison belongs in the key
+  // for the same reason it does above.
+  mailchimp: (range: DateRange, against: DateRange | null) =>
+    ['mailchimp', range.start, range.end, vs(against)] as const,
+  // No comparison in the key: Flodesk returns nothing that is measured over a
+  // window, so there is no second payload for one to distinguish.
+  flodesk: (range: DateRange) => ['flodesk', range.start, range.end] as const,
   markifact: () => ['markifact'] as const,
   sectionPrompts: () => ['sectionPrompts'] as const,
 }
@@ -313,6 +324,48 @@ export function useLeads(
     useQuery({
       queryKey: queryKeys.leads(range, against),
       queryFn: () => unwrap(leads.fetchLeads(range, against)),
+      enabled,
+      placeholderData: (prev) => prev,
+    }),
+  )
+}
+
+/**
+ * Email engagement from Mailchimp.
+ *
+ * Unlike the Leads query beside it, this one is not gated on its tab. The
+ * Overview carries a strip of the same figures, so the fetch has to happen on
+ * a page the Email tab has not been opened on — and both read the one cache
+ * entry rather than firing twice.
+ */
+export function useMailchimp(
+  range: DateRange,
+  against: DateRange | null,
+): SourceQuery<MailchimpReport> {
+  return toSourceQuery(
+    useQuery({
+      queryKey: queryKeys.mailchimp(range, against),
+      queryFn: () => unwrap(mailchimp.fetchMailchimp(range, against)),
+      placeholderData: (prev) => prev,
+    }),
+  )
+}
+
+/**
+ * Flodesk list health.
+ *
+ * Gated on the Email tab, unlike Mailchimp beside it: nothing from Flodesk
+ * appears on the Overview, so there is nothing to fetch until the tab that
+ * shows it is open.
+ */
+export function useFlodesk(
+  range: DateRange,
+  enabled: boolean,
+): SourceQuery<FlodeskReport> {
+  return toSourceQuery(
+    useQuery({
+      queryKey: queryKeys.flodesk(range),
+      queryFn: () => unwrap(flodesk.fetchFlodesk(range)),
       enabled,
       placeholderData: (prev) => prev,
     }),

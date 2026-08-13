@@ -94,6 +94,7 @@ export type DashboardView =
   | 'markets'
   | 'ads'
   | 'leads'
+  | 'email'
   | 'search'
   | 'markifact'
   | 'insights'
@@ -146,6 +147,15 @@ export const DASHBOARD_TABS: DashboardTab[] = [
     label: 'Lead Data',
     icon: Users,
     blurb: 'New leads from email lists and Facebook lead ads, with list conversion.',
+  },
+  {
+    id: 'email',
+    label: 'Email',
+    icon: Mail,
+    // Next to Lead Data deliberately: that tab counts who joined a list and
+    // what they bought, this one what happened to the mail sent to them. Two
+    // halves of the same funnel, read in the order they happen.
+    blurb: 'Campaign performance from Mailchimp — who opened, who clicked, who left.',
   },
   {
     id: 'markets',

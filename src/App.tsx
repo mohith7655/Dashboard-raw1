@@ -14,6 +14,8 @@ import { MarketsTrafficSection } from './components/sections/MarketsTrafficSecti
 import { ProfitLossSection } from './components/sections/ProfitLossSection'
 import { ShippingSection } from './components/sections/ShippingSection'
 import { LeadsSection } from './components/sections/LeadsSection'
+import { EmailSection } from './components/sections/EmailSection'
+import { EmailStatsCard } from './components/sections/EmailStatsCard'
 import { InsightsSection } from './components/sections/InsightsSection'
 import { SearchFeedSection } from './components/sections/SearchFeedSection'
 import { MarkifactSection } from './components/sections/MarkifactSection'
@@ -69,7 +71,9 @@ import {
   useSectionAnalysis,
   useSectionPrompts,
   useSaveSectionPrompts,
+  useFlodesk,
   useLeads,
+  useMailchimp,
   useMerchantFeed,
   useSearchConsole,
   useTrafficMetrics,
@@ -237,6 +241,12 @@ export default function App() {
   const saveSectionPrompts = useSaveSectionPrompts()
   const sectionAnalysis = useSectionAnalysis()
   const leadData = useLeads(range, against, view === 'leads')
+  // Not gated on its tab, unlike the leads sheet beside it: the Overview
+  // carries a strip of the same figures, so this has to have run before the
+  // Email tab is ever opened. Both readers share the one cache entry.
+  const mailchimp = useMailchimp(range, against)
+  // Gated on its tab: nothing from Flodesk reaches the Overview.
+  const flodesk = useFlodesk(range, view === 'email')
 
   /*
    * The two sections that carry a period of their own.
@@ -355,13 +365,20 @@ export default function App() {
     if (openai.error) {
       found.push({ key: 'openai', error: openai.error, retry: openai.refetch })
     }
+    // Banner-worthy like the ad platforms, and for the same reason: it is
+    // fetched on every view, so a failure is a broken connector rather than a
+    // tab that happens to be open.
+    if (mailchimp.error) {
+      found.push({ key: 'mailchimp', error: mailchimp.error, retry: mailchimp.refetch })
+    }
     return found.filter((b) => !dismissed.includes(b.key))
-  }, [woo, meta, google, openai, orders, dismissed])
+  }, [woo, meta, google, openai, mailchimp, orders, dismissed])
 
   const retrying = (key: string): boolean => {
     if (key === 'metorik') return woo.isFetching || orders.isFetching
     if (key === 'meta') return meta.isFetching
     if (key === 'openai') return openai.isFetching
+    if (key === 'mailchimp') return mailchimp.isFetching
     return google.isFetching
   }
 
@@ -481,6 +498,18 @@ export default function App() {
             against={against}
             meta={meta.data}
             analysis={analysisFor('leads')}
+          />
+        )}
+
+        {view === 'email' && (
+          <EmailSection
+            report={mailchimp.data}
+            loading={mailchimp.isLoading}
+            failed={!!mailchimp.error}
+            range={range}
+            flodesk={flodesk.data}
+            flodeskLoading={flodesk.isLoading}
+            flodeskFailed={!!flodesk.error}
           />
         )}
 
@@ -736,6 +765,19 @@ export default function App() {
                 unavailable={woo.error ? 'Traffic source data unavailable' : undefined}
               />
             </div>
+
+            {/* Email as four figures, under the channels that produced the
+                revenue above. The full campaign list, the audiences and the
+                benchmark live on the Email tab; this is here so a period in
+                which the list was mailed — or was not — is visible without
+                opening it. */}
+            <EmailStatsCard
+              report={mailchimp.data}
+              range={range}
+              loading={mailchimp.isLoading}
+              failed={!!mailchimp.error}
+              standalone
+            />
 
             <RecentOrders
               page={orders.data ?? null}

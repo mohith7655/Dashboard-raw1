@@ -937,6 +937,171 @@ export interface LeadReport {
   lastSeen: Record<LeadSourceKey, string | null>
 }
 
+/* ------------------------------ Mailchimp ------------------------------ */
+
+/**
+ * What the sends in the period add up to.
+ *
+ * Every rate here is struck from the totals — opens divided by emails sent
+ * across the whole window — rather than averaged from the per-campaign rates
+ * the API returns. A mean of rates weights a send to 97 people the same as one
+ * to 64,000, which on these audiences is the difference between a headline
+ * that describes the list and one that describes the smallest campaign in it.
+ */
+export interface MailchimpTotals {
+  /** Sends in the window, so a rate can be read against how much produced it. */
+  campaigns: Metric
+  emailsSent: Metric
+  /** Distinct people who opened, not total opens. */
+  opens: Metric
+  /** Distinct subscribers who clicked. */
+  clicks: Metric
+  unsubscribed: Metric
+  /** Hard and soft together — a bounce is a bounce to a sender. */
+  bounces: Metric
+  /** Ratios, 0–1, to match every other rate on the dashboard. */
+  openRate: Metric
+  clickRate: Metric
+  unsubscribeRate: Metric
+}
+
+export interface MailchimpCampaign {
+  id: string
+  title: string
+  subject: string
+  /** Which audience it went to, as Mailchimp names it. */
+  listName: string
+  /** ISO 8601 with offset, as the API returns it. */
+  sentAt: string
+  emailsSent: number
+  uniqueOpens: number
+  /** Ratio, 0–1. */
+  openRate: number
+  /**
+   * The same rate with Apple Mail's automatic opens stripped out.
+   *
+   * Null where Mailchimp did not report the proxy-excluded count. Carried
+   * beside the headline rather than in place of it: the raw rate is the one
+   * that compares to the industry benchmark, and this is the one that says how
+   * much of it was a person.
+   */
+  proxyExcludedOpenRate: number | null
+  uniqueClicks: number
+  clickRate: number
+  unsubscribed: number
+  bounces: number
+}
+
+/** An audience as it stands now — a list has a state, not a history. */
+export interface MailchimpAudience {
+  id: string
+  name: string
+  members: number
+  unsubscribes: number
+  cleaned: number
+  /** Ratios, 0–1. Mailchimp reports these as percentages; converted upstream. */
+  openRate: number
+  clickRate: number
+  /**
+   * Mailchimp's own monthly averages — people joining and leaving per month.
+   * Counts, not rates, despite the name the API gives them.
+   */
+  subsPerMonth: number
+  unsubsPerMonth: number
+  lastSentAt: string | null
+}
+
+/**
+ * Mailchimp's eCommerce-sector averages, as it reported them against the most
+ * recent send in the window. Ratios, 0–1.
+ */
+export interface MailchimpBenchmark {
+  openRate: number
+  clickRate: number
+  unsubRate: number
+  bounceRate: number
+}
+
+export interface MailchimpReport {
+  totals: MailchimpTotals
+  /** Sends inside the window, most recent first. */
+  campaigns: MailchimpCampaign[]
+  /** Every audience on the account, largest first. Not window-scoped. */
+  audiences: MailchimpAudience[]
+  benchmark: MailchimpBenchmark | null
+  /**
+   * The most recent send on the account at any date.
+   *
+   * The figure that tells an empty window apart from a broken connector. A
+   * period with no campaigns in it is an ordinary result for a sender who
+   * batches their sends, and the card says which it is rather than printing a
+   * screen of zeroes.
+   */
+  lastSendAt: string | null
+  /**
+   * Share of opens surviving Apple's proxy exclusion, across the window.
+   *
+   * Null when no send in the window reported the proxy-excluded count.
+   */
+  proxyExcludedOpenRate: number | null
+}
+
+/* ------------------------------- Flodesk ------------------------------- */
+
+/**
+ * What Flodesk can actually answer.
+ *
+ * Deliberately not the shape of `MailchimpReport`, because the two APIs are
+ * not comparable. Flodesk's public API exposes subscribers, segments and a
+ * list of campaigns — and for those campaigns it returns a name, a status and
+ * two timestamps, with no opens, no clicks, no recipient count and no send
+ * time. There is no engagement to model, so none is modelled: a type carrying
+ * `openRate` that could only ever hold zero would put a figure on screen that
+ * looks measured and is not.
+ *
+ * Nor is any of it scoped to a window. The subscriber endpoint filters on
+ * status and segment but not on date — every date parameter is ignored and
+ * returns the full 73,000 — so counting who joined during the period would
+ * mean paging the whole list on every load. The counts here are current
+ * state, and the card says so.
+ */
+export interface FlodeskSegment {
+  id: string
+  name: string
+  members: number
+  createdAt: string
+}
+
+export interface FlodeskCampaign {
+  id: string
+  name: string
+  /** `done`, `draft` or `failed`, as Flodesk reports it. */
+  status: string
+  /** Subject with Flodesk's editor markup stripped out. */
+  subject: string
+  createdAt: string
+  /**
+   * When Flodesk last touched the campaign.
+   *
+   * Used as the date it is filed under, and named as such on screen. It is the
+   * closest thing to a send time the API offers, but it is not one: an edit
+   * after the fact moves it, and the API exposes no field that does not.
+   */
+  updatedAt: string
+}
+
+export interface FlodeskReport {
+  /** Account-wide counts as they stand. Not scoped to the period. */
+  subscribers: { total: number; active: number; unsubscribed: number }
+  segments: FlodeskSegment[]
+  /** Completed campaigns last touched inside the window. */
+  campaigns: FlodeskCampaign[]
+  /** The most recent completed campaign at any date, for the empty case. */
+  lastCampaignAt: string | null
+  /** Completed campaigns on the account, however old. */
+  campaignsAllTime: number
+}
+
 /* ------------------------------- Targets ------------------------------- */
 
 /**
