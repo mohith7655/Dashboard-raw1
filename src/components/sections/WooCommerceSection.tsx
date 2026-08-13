@@ -1,4 +1,9 @@
-import type { DateRange, WooMetrics } from '../../lib/types'
+import type {
+  DateRange,
+  LeadReport,
+  TrafficMetrics,
+  WooMetrics,
+} from '../../lib/types'
 import { SectionLabel } from '../SectionLabel'
 import { StoreStatsCard } from './StoreStatsCard'
 
@@ -10,6 +15,10 @@ interface WooCommerceSectionProps {
   range: DateRange
   /** The window those are compared against, or null when comparison is off. */
   against: DateRange | null
+  /** Passed straight through to the stats card, which counts them. */
+  leads: LeadReport | undefined
+  /** Also for the stats card — the denominator under the lead rate. */
+  traffic: TrafficMetrics | undefined
   /**
    * Controls on the section's own title row, right-aligned.
    *
@@ -62,6 +71,8 @@ export function WooCommerceSection({
   failed,
   range,
   against,
+  leads,
+  traffic,
   actions,
   analysis,
   summary,
@@ -90,6 +101,8 @@ export function WooCommerceSection({
           metrics={metrics}
           range={range}
           against={against}
+          leads={leads}
+          traffic={traffic}
           loading={loading}
           failed={failed}
         />

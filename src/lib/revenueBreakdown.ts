@@ -7,10 +7,12 @@
  */
 import type {
   BreakdownGrain,
+  LeadDayPoint,
   RevenueBreakdownRow,
   RevenueBreakdownViewRow,
   TrafficPoint,
 } from './types'
+import { LEAD_SOURCES } from './types'
 import { round2 } from './derive'
 import { formatDate } from './format'
 
@@ -123,6 +125,26 @@ export function bucketVisitors(
 }
 
 /**
+ * Leads per bucket, every source added together, on the same calendar.
+ *
+ * Sources are summed rather than kept apart: the table has one column for
+ * them, and which list somebody joined is a question the Lead Data tab
+ * answers at length.
+ */
+export function bucketLeads(
+  series: LeadDayPoint[],
+  grain: BreakdownGrain,
+): Map<string, number> {
+  const byBucket = new Map<string, number>()
+  for (const point of series) {
+    const date = bucketStart(point.date, grain)
+    const total = LEAD_SOURCES.reduce((sum, key) => sum + (point[key] ?? 0), 0)
+    byBucket.set(date, (byBucket.get(date) ?? 0) + total)
+  }
+  return byBucket
+}
+
+/**
  * The statement joined to the traffic, with conversion struck per bucket.
  *
  * The rate is computed here, after the folding, and never carried through it.
@@ -138,16 +160,27 @@ export function withTraffic(
   rows: RevenueBreakdownRow[],
   visitorsByBucket: Map<string, number>,
   available: boolean,
+  leadsByBucket?: Map<string, number>,
 ): RevenueBreakdownViewRow[] {
   return rows.map((row) => {
     const visitors = available ? (visitorsByBucket.get(row.date) ?? null) : null
+    // Undefined map means the sheet has not been read at all, which is not the
+    // same as a bucket it holds no rows for — the first is unknown everywhere,
+    // the second is a genuine nought on a day the automation did report.
+    const leads = leadsByBucket ? (leadsByBucket.get(row.date) ?? 0) : null
+
+    // Both rates guard the empty denominator as well as the missing one: a day
+    // the provider reported zero visitors for divides into an infinite rate,
+    // not a hundred percent one.
+    const per = (top: number | null) =>
+      top === null || visitors === null || visitors === 0 ? null : top / visitors
+
     return {
       ...row,
       visitors,
-      // Guarded against the empty bucket as well as the missing one: a day the
-      // provider reported zero visitors for divides into an infinite rate, not
-      // a hundred percent one.
-      conversion: visitors === null || visitors === 0 ? null : row.orders / visitors,
+      leads,
+      conversion: per(row.orders),
+      leadRate: per(leads),
     }
   })
 }

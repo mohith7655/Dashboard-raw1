@@ -204,6 +204,11 @@ export function DashboardPage() {
             failed={!!woo.error}
             range={range}
             against={against}
+            // This page is not mounted; App.tsx carries the live wiring,
+            // including the leads and traffic queries. Without them the stats
+            // card simply omits its lead rows.
+            leads={undefined}
+            traffic={undefined}
             summary={
               <ProfitSummaryCard
                 woo={woo.data}

@@ -2,14 +2,16 @@ import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import type {
   BreakdownGrain,
+  LeadDayPoint,
   RevenueBreakdownRow,
   RevenueBreakdownViewRow,
   SortDirection,
   TrafficPoint,
 } from '../../lib/types'
-import { BREAKDOWN_GRAINS } from '../../lib/types'
+import { BREAKDOWN_GRAINS, LEAD_SOURCES } from '../../lib/types'
 import {
   bucketLabel,
+  bucketLeads,
   bucketRows,
   bucketVisitors,
   totalRow,
@@ -22,6 +24,12 @@ interface RevenueBreakdownCardProps {
   rows: RevenueBreakdownRow[]
   /** The analytics provider's daily visitors, folded onto the table's grain. */
   traffic: TrafficPoint[]
+  /**
+   * Daily lead captures from the Make.com sheet, every source summed. Undefined
+   * where that sheet has not been read, which prints as a dash rather than a
+   * nought — see `withTraffic`.
+   */
+  leads?: LeadDayPoint[]
   /**
    * False when no analytics provider is connected. Distinct from an empty
    * series: the first means the conversion column cannot be known, the second
@@ -56,19 +64,23 @@ interface ColumnSpec {
 }
 
 /**
- * The five figures a day is actually judged on, then the statement behind them.
+ * The funnel a day at a time, then the statement behind it.
  *
- * Traffic, orders, what was billed, what went back, and the rate that connects
- * the first two — read straight across from the date, before the reader
- * reaches a single line of the breakdown. The detail columns still follow, in
- * the order the statement itself reads, for the day a headline needs
- * explaining.
+ * Read straight across from the date: who arrived, how many left an address,
+ * how many bought, what that billed, what went back — then the two rates those
+ * counts imply. Quantities first and rates after, so the reader has both
+ * numerators and the denominator in view before meeting the division.
+ *
+ * The statement's own columns still follow the rule, in the order the
+ * statement reads, for the day a headline needs explaining.
  */
 const COLUMNS: ColumnSpec[] = [
   { key: 'visitors', header: 'Visitors', count: true },
+  { key: 'leads', header: 'Leads', count: true },
   { key: 'orders', header: 'Orders', count: true },
   { key: 'totalSales', header: 'Total Sales', lead: true },
   { key: 'refunds', header: 'Refunds', negative: true },
+  { key: 'leadRate', header: 'Lead %', rate: true },
   { key: 'conversion', header: 'Conversion', rate: true, divide: true },
   { key: 'grossSales', header: 'Gross Sales' },
   { key: 'discounts', header: 'Discounts', negative: true },
@@ -93,6 +105,7 @@ const LAST = COLUMNS[COLUMNS.length - 1].key
 export function RevenueBreakdownCard({
   rows,
   traffic,
+  leads,
   trafficAvailable,
   loading,
   unavailable,
@@ -109,8 +122,13 @@ export function RevenueBreakdownCard({
    */
   const grouped = useMemo(() => {
     const money = bucketRows(rows, grain)
-    return withTraffic(money, bucketVisitors(traffic, grain), trafficAvailable)
-  }, [rows, traffic, trafficAvailable, grain])
+    return withTraffic(
+      money,
+      bucketVisitors(traffic, grain),
+      trafficAvailable,
+      leads ? bucketLeads(leads, grain) : undefined,
+    )
+  }, [rows, traffic, leads, trafficAvailable, grain])
 
   const sorted = useMemo(() => {
     const copy = [...grouped]
@@ -142,12 +160,24 @@ export function RevenueBreakdownCard({
     const visitors = trafficAvailable
       ? traffic.reduce((sum, point) => sum + point.visitors, 0)
       : null
+    const leadTotal = leads
+      ? leads.reduce(
+          (sum, point) =>
+            sum + LEAD_SOURCES.reduce((n, key) => n + (point[key] ?? 0), 0),
+          0,
+        )
+      : null
+    const per = (top: number | null) =>
+      top === null || visitors === null || visitors === 0 ? null : top / visitors
+
     return {
       ...money,
       visitors,
-      conversion: visitors === null || visitors === 0 ? null : money.orders / visitors,
+      leads: leadTotal,
+      conversion: per(money.orders),
+      leadRate: per(leadTotal),
     }
-  }, [rows, traffic, trafficAvailable])
+  }, [rows, traffic, leads, trafficAvailable])
   // The period's own bounds, so a partial week or month at either edge is
   // labelled with the days it holds rather than the days its calendar has.
   const firstDate = rows.length ? rows[0].date : ''
@@ -173,11 +203,16 @@ export function RevenueBreakdownCard({
             Paid orders only, in store currency — the same figures the statement
             above reports for the whole period. Refunds sit on the day the money
             went back, which may not be the period the order was placed in.
-            Visitors come from the analytics provider rather than from the
-            orders, and conversion is this row&apos;s orders over this row&apos;s
-            visitors — so a week&apos;s rate is struck once from its own totals,
-            not averaged from its days. A dash means the provider reported
-            nothing for that bucket, which is not the same as nobody arriving.
+            Visitors come from the analytics provider and leads from the
+            Make.com sheet, neither from the orders. Both rates are this
+            row&apos;s count over this row&apos;s visitors — lead % the share who
+            left an address, conversion the share who bought — so a week&apos;s
+            rate is struck once from its own totals, never averaged from its
+            days. A dash means that source reported nothing for the bucket,
+            which is not the same as nobody arriving. Leads are counted once
+            per day, so somebody who signed up on two of them appears on both —
+            which is why this column can run a little above the deduplicated
+            figure in Orders and customers above.
           </p>
         </div>
 
@@ -211,7 +246,7 @@ export function RevenueBreakdownCard({
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] border-collapse text-[13px]">
+          <table className="w-full min-w-[1060px] border-collapse text-[13px]">
             <thead>
               <tr className="border-b border-line text-left">
                 <SortableTh

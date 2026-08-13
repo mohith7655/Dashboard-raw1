@@ -22,7 +22,6 @@ import { MarkifactSection } from './components/sections/MarkifactSection'
 import { RevenueBreakdownCard } from './components/sections/RevenueBreakdownCard'
 import { TargetsSection } from './components/sections/TargetsSection'
 import { RevenueAndRefunds } from './components/charts/RevenueAndRefunds'
-import { TrafficAndOrders } from './components/charts/TrafficAndOrders'
 import { OrdersByStatus } from './components/charts/OrdersByStatus'
 import { RevenueByTrafficSource } from './components/charts/RevenueByTrafficSource'
 import { RecentOrders } from './components/RecentOrders'
@@ -240,7 +239,11 @@ export default function App() {
   const sectionPrompts = useSectionPrompts()
   const saveSectionPrompts = useSaveSectionPrompts()
   const sectionAnalysis = useSectionAnalysis()
-  const leadData = useLeads(range, against, view === 'leads')
+  // No longer gated on the Leads tab: the Overview now counts leads in the
+  // Orders and customers card and in the breakdown table, so the sheet has to
+  // have been read before that tab is ever opened. Both readers share the one
+  // cache entry rather than fetching twice.
+  const leadData = useLeads(range, against, true)
   // Not gated on its tab, unlike the leads sheet beside it: the Overview
   // carries a strip of the same figures, so this has to have run before the
   // Email tab is ever opened. Both readers share the one cache entry.
@@ -605,6 +608,11 @@ export default function App() {
               failed={!!ceoData.woo.error}
               range={ceoScope.range}
               against={ceoScope.against}
+              // The page's own leads and traffic rather than the section's
+              // scoped window: both are page-level queries, and the CEO
+              // section's range control moves only the figures Metorik serves.
+              leads={leadData.data}
+              traffic={traffic.data}
               actions={
                 <>
                   {/* The section's own period, ahead of the two controls that
@@ -720,29 +728,24 @@ export default function App() {
             />
 
 
-            {/* One plot, two scales: a refund spike is read against the day
-                that produced it without the smaller series flattening onto
-                the axis. */}
+            {/* The whole trading day in one card: what came in, what it
+                earned, and what went back. Four aligned panels rather than one
+                plot — dollars, people and a rate cannot share an axis without
+                one of them vanishing onto it. This absorbed the separate
+                Visitors, Orders and Refunds chart that used to sit below. */}
             <RevenueAndRefunds
               revenue={woo.data?.revenueSeries ?? []}
               refunds={woo.data?.refundSeries ?? []}
-              loading={woo.isLoading}
-              unavailable={woo.error ? 'Revenue data unavailable' : undefined}
-            />
-
-            {/* The funnel behind the revenue above: who arrived, how many
-                bought, at what rate, and what went back. */}
-            <TrafficAndOrders
-              traffic={traffic.data?.series ?? []}
-              refunds={woo.data?.refundSeries ?? []}
-              loading={traffic.isLoading || woo.isLoading}
-              unavailable={
-                traffic.error
-                  ? 'Traffic data unavailable'
-                  : traffic.data && !traffic.data.available
-                    ? 'No analytics provider is connected'
-                    : undefined
+              // Empty rather than absent when the provider is not connected,
+              // so the panels render with dashes instead of blanking the card
+              // — the money half is still worth reading without it.
+              traffic={
+                traffic.error || !(traffic.data?.available ?? false)
+                  ? []
+                  : (traffic.data?.series ?? [])
               }
+              loading={woo.isLoading || traffic.isLoading}
+              unavailable={woo.error ? 'Revenue data unavailable' : undefined}
             />
 
             {/* Directly under the plot it tabulates: the chart shows the shape
@@ -753,6 +756,10 @@ export default function App() {
               // grain the table is set to. Passed rather than fetched here so
               // the chart and the table can never disagree about a day.
               traffic={traffic.data?.series ?? []}
+              // Undefined rather than an empty array while the sheet is in
+              // flight or has failed, so the lead columns show a dash rather
+              // than claiming nobody signed up.
+              leads={leadData.data?.series}
               trafficAvailable={!traffic.error && (traffic.data?.available ?? false)}
               loading={woo.isLoading}
               unavailable={woo.error ? 'Revenue breakdown unavailable' : undefined}

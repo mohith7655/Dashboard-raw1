@@ -143,6 +143,22 @@ export type BreakdownGrain = (typeof BREAKDOWN_GRAINS)[number]
 export interface RevenueBreakdownViewRow extends RevenueBreakdownRow {
   visitors: number | null
   /**
+   * People who left an address on this day, every source added together.
+   *
+   * Null where the leads sheet has not been read, for the same reason the
+   * visitors are: a day with no row in it is a day the automation did not
+   * report, which is not a day nobody signed up.
+   */
+  leads: number | null
+  /**
+   * Leads ÷ visitors for this bucket, as a ratio in 0..1.
+   *
+   * The step conversion misses: a visitor who leaves without buying has not
+   * necessarily left without giving you anything. Struck from the two columns
+   * beside it, on the same rule as `conversion`.
+   */
+  leadRate: number | null
+  /**
    * Orders ÷ visitors for this bucket, as a ratio in 0..1.
    *
    * Always struck from the two columns beside it rather than averaged from the

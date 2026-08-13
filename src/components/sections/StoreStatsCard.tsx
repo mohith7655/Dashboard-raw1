@@ -1,8 +1,19 @@
 import { Users } from 'lucide-react'
-import type { DateRange, WooMetrics } from '../../lib/types'
+import type {
+  DateRange,
+  LeadReport,
+  TrafficMetrics,
+  WooMetrics,
+} from '../../lib/types'
+import { LEAD_SOURCES, LEAD_SOURCE_LABELS } from '../../lib/types'
 import { daysInRange } from '../../lib/dateRange'
 import { deltaPct, failedOrderCount } from '../../lib/derive'
-import { formatCurrency, formatInteger, formatPrevious } from '../../lib/format'
+import {
+  formatCurrency,
+  formatInteger,
+  formatPercent,
+  formatPrevious,
+} from '../../lib/format'
 import { StatRows, type StatRowData } from '../StatRows'
 import { Skeleton } from '../Skeleton'
 
@@ -12,6 +23,17 @@ interface StoreStatsCardProps {
   range: DateRange
   /** The window those are compared against, or null when comparison is off. */
   against: DateRange | null
+  /**
+   * Leads captured in the period, from the sheet the Make.com automations
+   * write into. Undefined while loading or where that source failed — the
+   * lead rows are simply left off rather than shown as zero.
+   */
+  leads: LeadReport | undefined
+  /**
+   * Traffic for the same period, needed for the one figure a lead count cannot
+   * give on its own: the share of arrivals that left an address.
+   */
+  traffic: TrafficMetrics | undefined
   loading: boolean
   failed: boolean
 }
@@ -28,10 +50,12 @@ export function StoreStatsCard({
   metrics,
   range,
   against,
+  leads,
+  traffic,
   loading,
   failed,
 }: StoreStatsCardProps) {
-  const rows = metrics ? buildRows(metrics, range, against) : []
+  const rows = metrics ? buildRows(metrics, range, against, leads, traffic) : []
 
   return (
     <div className="card">
@@ -63,6 +87,8 @@ function buildRows(
   metrics: WooMetrics,
   range: DateRange,
   against: DateRange | null,
+  leads: LeadReport | undefined,
+  traffic: TrafficMetrics | undefined,
 ): StatRowData[] {
   const total = (
     label: string,
@@ -141,5 +167,81 @@ function buildRows(
       perDayBefore === null ? null : deltaPct(perDay, perDayBefore),
       perDayBefore === null ? undefined : formatCurrency(perDayBefore),
     ),
+    ...leadRows(leads, traffic),
   ]
+}
+
+/**
+ * Leads, and the share of arrivals that became one.
+ *
+ * The card counted customers and orders — the two ends of the funnel — with
+ * nothing about the step between them, where somebody gives an address without
+ * buying. These rows sit under the sales figures rather than above them
+ * because that is the order the funnel runs in from the store's point of view:
+ * what it earned, then what it captured to earn from later.
+ *
+ * Left off entirely when the sheet has not answered. A zero here would read as
+ * a period that captured nobody, which is a much stronger claim than "the
+ * automation behind this has not reported".
+ */
+function leadRows(
+  leads: LeadReport | undefined,
+  traffic: TrafficMetrics | undefined,
+): StatRowData[] {
+  if (!leads) return []
+
+  const total = LEAD_SOURCES.reduce(
+    (sum, key) => sum + leads.sources[key].count.value,
+    0,
+  )
+
+  // Only where the provider is actually connected and reported somebody. A
+  // rate struck against zero visitors is not a rate.
+  const visitors =
+    traffic && traffic.available && traffic.visitors.value > 0
+      ? traffic.visitors.value
+      : null
+
+  const rows: StatRowData[] = [
+    {
+      label: 'Leads',
+      value: formatInteger(total),
+      kind: 'total',
+      share: null,
+      // The sources it sums carry their own baselines and one of them can be
+      // missing, which would make a combined delta compare a two-source total
+      // against a three-source one.
+      change: null,
+      polarity: 'up-good',
+    },
+  ]
+
+  for (const key of LEAD_SOURCES) {
+    const { count } = leads.sources[key]
+    rows.push({
+      label: LEAD_SOURCE_LABELS[key],
+      value: formatInteger(count.value),
+      kind: 'part',
+      share: total ? count.value / total : 0,
+      change: count.deltaPct,
+      previous: formatPrevious(count, formatInteger),
+      polarity: 'up-good',
+    })
+  }
+
+  if (visitors !== null) {
+    rows.push({
+      label: 'Lead rate',
+      value: formatPercent(total / visitors),
+      kind: 'total',
+      share: null,
+      // Struck from two figures that each carry their own baseline, so a delta
+      // here would need both to be present and comparable. Left off rather
+      // than computed from one of them.
+      change: null,
+      polarity: 'up-good',
+    })
+  }
+
+  return rows
 }
