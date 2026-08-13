@@ -18,6 +18,7 @@
 import type {
   DateRange,
   MailchimpAudience,
+  MailchimpAutomation,
   MailchimpBenchmark,
   MailchimpCampaign,
   MailchimpReport,
@@ -69,6 +70,16 @@ const REPORT_FIELDS = [
   'reports.industry_stats.bounce_rate',
 ].join(',')
 
+const AUTOMATION_FIELDS = [
+  'automations.id',
+  'automations.status',
+  'automations.start_time',
+  'automations.emails_sent',
+  'automations.settings.title',
+  'automations.report_summary.open_rate',
+  'automations.report_summary.click_rate',
+].join(',')
+
 const LIST_FIELDS = [
   'lists.id',
   'lists.name',
@@ -91,7 +102,7 @@ export default async function handler(request: Request): Promise<Response> {
     const prefix = serverPrefix(key)
 
     /*
-     * Four calls, in parallel and no more than four: Mailchimp allows ten
+     * Five calls, in parallel and no more than five: Mailchimp allows ten
      * simultaneous connections per account, and a fan-out over campaigns would
      * blow through that on a busy month. Everything on screen is derived from
      * these instead.
@@ -100,12 +111,18 @@ export default async function handler(request: Request): Promise<Response> {
      * the all-time probe asks for a single row — it exists only to date the
      * most recent send, which is what tells an empty period apart from a
      * broken connector.
+     *
+     * Automations need a call of their own because they are not in `/reports`
+     * at all: asking it for `type=automation` returns nothing, so a tab built
+     * on that endpoint alone reports no activity for a store whose welcome
+     * series is sending every day.
      */
-    const [current, previous, lists, latest] = await Promise.all([
+    const [current, previous, lists, latest, automations] = await Promise.all([
       fetchReports(prefix, key, range),
       against ? fetchReports(prefix, key, against) : Promise.resolve([]),
       fetchLists(prefix, key),
       fetchLatestSend(prefix, key),
+      fetchAutomations(prefix, key),
     ])
 
     const campaigns = current.map(toCampaign).sort((a, b) => b.sentAt.localeCompare(a.sentAt))
@@ -114,11 +131,14 @@ export default async function handler(request: Request): Promise<Response> {
       totals: totalsOf(campaigns, against ? previous.map(toCampaign) : null),
       campaigns,
       audiences: toAudiences(lists),
-      // Taken from the most recent send in the window: the benchmark is a
-      // sector average Mailchimp attaches to a campaign, and the newest one is
-      // the closest to the period being read.
-      benchmark: benchmarkOf(current),
-      lastSendAt: latest,
+      automations,
+      // From the newest send in the window, falling back to the newest on the
+      // account. Without the fallback a month with no campaigns in it would
+      // have nothing to set its automations against — which is the month the
+      // comparison is most wanted, since it is the one where the automations
+      // are the whole of the activity.
+      benchmark: benchmarkOf(current) ?? latest.benchmark,
+      lastSendAt: latest.sendTime,
       proxyExcludedOpenRate: proxyRateOf(campaigns),
     }
     return json(report)
@@ -209,16 +229,76 @@ async function fetchLists(prefix: string, key: string): Promise<Record<string, u
   return asArray(payload.lists).filter(isRecord)
 }
 
-/** The newest send on the account, whatever the window. One row is enough. */
-async function fetchLatestSend(prefix: string, key: string): Promise<string | null> {
+/**
+ * The automations, live ones first.
+ *
+ * Ones that have never sent are dropped: two of the seven on this account are
+ * unstarted drafts, and a row of noughts beside a running series is furniture
+ * that invites the reader to wonder what broke.
+ *
+ * The totals are lifetime and cannot be otherwise — Mailchimp reports an
+ * automation only as a running sum since it started, with no endpoint that
+ * cuts it to a date range. Sorted by status before volume so the ones still
+ * sending lead, whatever their size relative to a large paused series.
+ */
+async function fetchAutomations(
+  prefix: string,
+  key: string,
+): Promise<MailchimpAutomation[]> {
+  const payload = await call<{ automations?: unknown }>(prefix, key, '/automations', {
+    count: '100',
+    fields: AUTOMATION_FIELDS,
+  })
+
+  return asArray(payload.automations)
+    .filter(isRecord)
+    .map((row): MailchimpAutomation => {
+      const settings = isRecord(row.settings) ? row.settings : {}
+      const summary = isRecord(row.report_summary) ? row.report_summary : {}
+      const started = row.start_time
+      return {
+        id: typeof row.id === 'string' ? row.id : '',
+        title: typeof settings.title === 'string' && settings.title
+          ? settings.title
+          : '(untitled automation)',
+        status: typeof row.status === 'string' ? row.status : '',
+        startedAt: typeof started === 'string' ? started : null,
+        emailsSent: num(row.emails_sent),
+        openRate: num(summary.open_rate),
+        clickRate: num(summary.click_rate),
+      }
+    })
+    .filter((a) => a.emailsSent > 0)
+    .sort((a, b) => {
+      const live = (s: string) => (s === 'sending' ? 0 : 1)
+      return live(a.status) - live(b.status) || b.emailsSent - a.emailsSent
+    })
+}
+
+/**
+ * The newest send on the account, whatever the window. One row is enough.
+ *
+ * It carries the sector benchmark as well as the date, so that a window with
+ * no campaigns in it still has one to set the automations against. The
+ * benchmark is a slow-moving average for the whole eCommerce sector rather
+ * than anything about this period, so reading it off July's send while looking
+ * at August costs nothing in accuracy.
+ */
+async function fetchLatestSend(
+  prefix: string,
+  key: string,
+): Promise<{ sendTime: string | null; benchmark: MailchimpBenchmark | null }> {
   const payload = await call<{ reports?: unknown }>(prefix, key, '/reports', {
     count: '1',
     sort_field: 'send_time',
     sort_dir: 'DESC',
-    fields: 'reports.send_time',
+    fields: 'reports.send_time,reports.industry_stats',
   })
-  const [row] = asArray(payload.reports).filter(isRecord)
-  return typeof row?.send_time === 'string' ? row.send_time : null
+  const rows = asArray(payload.reports).filter(isRecord)
+  return {
+    sendTime: typeof rows[0]?.send_time === 'string' ? rows[0].send_time : null,
+    benchmark: benchmarkOf(rows),
+  }
 }
 
 function toCampaign(row: Record<string, unknown>): MailchimpCampaign {

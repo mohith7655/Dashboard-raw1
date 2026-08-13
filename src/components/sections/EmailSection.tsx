@@ -13,6 +13,7 @@ import type { StatRowData } from '../StatRows'
 import { Skeleton } from '../Skeleton'
 import { CampaignTable } from '../charts/CampaignTable'
 import { EmailEngagement } from '../charts/EmailEngagement'
+import { AutomationsCard } from './AutomationsCard'
 import { EmailStatsCard } from './EmailStatsCard'
 import { FlodeskCard } from './FlodeskCard'
 
@@ -98,6 +99,10 @@ export function EmailSection({
 
   const empty = !!report && report.campaigns.length === 0
 
+  /** Automations still adding to their totals, as opposed to paused ones. */
+  const liveAutomations =
+    report?.automations.filter((a) => a.status === 'sending').length ?? 0
+
   return (
     <section className="flex flex-col gap-4">
       <SectionLabel size="lg" glyph={<Mail size={16} className="text-muted" />}>
@@ -129,11 +134,20 @@ export function EmailSection({
           */}
           {empty && (
             <div className="card">
-              <p className="text-[13px] text-ink">No campaigns were sent in this period.</p>
+              <p className="text-[13px] text-ink">
+                No broadcast campaigns were sent in this period.
+              </p>
               <p className="mt-1 text-[12.5px] text-muted">
                 {report?.lastSendAt
-                  ? `The most recent send was ${formatDay(report.lastSendAt.slice(0, 10))}. The audiences below are current, not scoped to the period — a list has a size now, not over a window.`
-                  : 'This account has no sends on record.'}
+                  ? `The most recent was ${formatDay(report.lastSendAt.slice(0, 10))}.`
+                  : 'This account has no broadcast sends on record.'}{' '}
+                {/* Said here specifically, because this is the screen on which
+                    somebody concludes the email programme has stopped. A
+                    quiet month for campaigns is not a quiet month for email:
+                    the automations below keep sending to everyone who joins. */}
+                {liveAutomations > 0
+                  ? `${liveAutomations === 1 ? 'One automation is' : `${liveAutomations} automations are`} still sending, and ${liveAutomations === 1 ? 'its' : 'their'} totals are below. The audiences and automations here are current rather than scoped to the period — neither has a size that belongs to a window.`
+                  : 'The audiences below are current, not scoped to the period — a list has a size now, not over a window.'}
               </p>
             </div>
           )}
@@ -149,6 +163,16 @@ export function EmailSection({
 
               <CampaignTable campaigns={report.campaigns} benchmark={report.benchmark} />
             </>
+          )}
+
+          {/* Outside the branch above deliberately: an automation sends on the
+              days nobody scheduled a campaign, so the period with no broadcasts
+              in it is exactly the period this card is needed on. */}
+          {report && (
+            <AutomationsCard
+              automations={report.automations}
+              benchmark={report.benchmark}
+            />
           )}
 
           <RowsCard

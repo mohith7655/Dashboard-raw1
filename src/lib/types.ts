@@ -1022,12 +1022,48 @@ export interface MailchimpBenchmark {
   bounceRate: number
 }
 
+/**
+ * A running automation — a welcome series, a lead follow-up.
+ *
+ * Kept apart from the campaigns rather than folded in with them, because the
+ * figures are not the same kind of thing. A campaign is one send on one day
+ * and can be counted into a window; an automation has been sending
+ * continuously since the day it was switched on, and Mailchimp reports it only
+ * as a running total since that date. There is no endpoint that cuts an
+ * automation's opens to a date range, so these totals are lifetime and the
+ * card that shows them says so.
+ *
+ * They are also absent from `/reports` entirely — `?type=automation` returns
+ * nothing — which is why a tab built on that endpoint alone showed a store
+ * with live automations no email activity at all.
+ */
+export interface MailchimpAutomation {
+  id: string
+  title: string
+  /**
+   * `sending` for a live automation, `paused` for one switched off, `save` for
+   * one never started. The first is the only one still adding to its totals.
+   */
+  status: string
+  startedAt: string | null
+  /** Lifetime, since `startedAt`. */
+  emailsSent: number
+  /** Ratios, 0–1, lifetime. */
+  openRate: number
+  clickRate: number
+}
+
 export interface MailchimpReport {
   totals: MailchimpTotals
   /** Sends inside the window, most recent first. */
   campaigns: MailchimpCampaign[]
   /** Every audience on the account, largest first. Not window-scoped. */
   audiences: MailchimpAudience[]
+  /**
+   * Automations that have ever sent, live ones first. Lifetime totals — see
+   * `MailchimpAutomation`. Never window-scoped, whatever the picker says.
+   */
+  automations: MailchimpAutomation[]
   benchmark: MailchimpBenchmark | null
   /**
    * The most recent send on the account at any date.
