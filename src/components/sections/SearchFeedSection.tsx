@@ -52,18 +52,15 @@ export function SearchFeedSection({
       <div className="flex flex-col gap-4">
         <div>
           <SectionLabel>Organic Search</SectionLabel>
-          <p className="mt-1 max-w-prose text-[12px] leading-relaxed text-muted">
-            What Google showed and what it earned, before any of it reached
-            analytics. GA4 counts the visit; only this counts the impression that
-            never became one, the query behind it, and the rank that decided.
-            {lagging && (
-              <span className="text-ink">
-                {' '}
-                Data runs to {formatDay(lagging)} — Search Console finalises two
-                to three days late, so the end of this range is still filling in.
-              </span>
-            )}
-          </p>
+          {/* Not prose about the section, but the one thing a reader cannot
+              infer from the figures: how far the data actually reaches. Search
+              Console finalises two to three days late, so without this the tail
+              of the range reads as a collapse. */}
+          {lagging && (
+            <p className="mt-1 text-[12px] text-muted">
+              Data runs to <span className="text-ink">{formatDay(lagging)}</span>
+            </p>
+          )}
         </div>
 
         <SearchConsoleCard
@@ -86,11 +83,6 @@ export function SearchFeedSection({
       <div className="flex flex-col gap-4">
         <div>
           <SectionLabel>Product Feed</SectionLabel>
-          <p className="mt-1 max-w-prose text-[12px] leading-relaxed text-muted">
-            Whether the catalogue behind the Shopping ads is eligible to serve.
-            The spend on the Ad Spend tab buys nothing for an item Merchant
-            Center has disapproved.
-          </p>
         </div>
 
         <MerchantFeedCard feed={feed} loading={feedLoading} error={feedError} />

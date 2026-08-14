@@ -8,7 +8,6 @@ import { shippingEconomics } from '../../lib/pnl'
 import {
   countryShipping,
   storeShipping,
-  unlistedCharged,
 } from '../../lib/shippingPnl'
 import { shippingCostLines, totalShippingCost } from '../../lib/shippingCosts'
 import { SectionLabel } from '../SectionLabel'
@@ -66,7 +65,6 @@ export function ShippingSection({
     () => countryShipping(markets, charged, extraCosts ?? []),
     [markets, charged, extraCosts],
   )
-  const unlisted = unlistedCharged(charged, byCountry)
 
   return (
     <section className="flex flex-col gap-4">
@@ -99,7 +97,6 @@ export function ShippingSection({
 
       <ShippingByCountryTable
         rows={byCountry}
-        unlisted={unlisted}
         loading={loading || (chargedLoading && byCountry.length === 0)}
         unavailable={
           failed

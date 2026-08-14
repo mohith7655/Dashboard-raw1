@@ -10,7 +10,6 @@ import {
   formatDecimal,
   formatDeltaPercent,
   formatInteger,
-  formatPercent,
   formatComparison,
 } from '../../lib/format'
 import { RowsCard } from '../RowsCard'
@@ -214,10 +213,6 @@ export function LeadsSection({
     return { now, before, change: before === null ? null : deltaPct(now, before) }
   }, [totals, days, against])
 
-  const converted = report?.converted ?? null
-  const conversion =
-    converted && converted.signups > 0 ? converted.ordered / converted.signups : null
-
   /**
    * Exactly the figures this section is rendering, posted as they stand.
    *
@@ -319,19 +314,20 @@ export function LeadsSection({
         </div>
       ) : (
         <>
-          {/* Three figures: how many came in, how fast they are coming, and
-              what they cost. The rate is the one that survives a change in the
-              length of the period, so it earns a box of its own rather than a
-              line of small print under the total. */}
+          {/* Three figures: the deduplicated email-contact total, how fast
+              every capture source is producing leads, and what Facebook leads
+              cost. The rate survives a change in period length, so it earns a
+              box of its own rather than a line of small print under the total. */}
           {report && totals && (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               <Headline
-                label="New leads"
-                value={formatInteger(totals.current)}
-                note={`over ${days} ${days === 1 ? 'day' : 'days'}`}
+                label="Unique contacts"
+                value={formatInteger(report.uniqueContacts.count.value)}
+                change={report.uniqueContacts.count.deltaPct}
+                note="Mailchimp + Flodesk, deduplicated by email"
               />
               <Headline
-                label="Leads / day"
+                label="Captured leads / day"
                 value={perDay === null ? '—' : formatDecimal(perDay.now)}
                 change={perDay?.change ?? null}
                 note={
@@ -370,23 +366,6 @@ export function LeadsSection({
             rows={valueRows}
             unavailable={failed ? 'Leads unavailable' : null}
             subtitle="Orders placed by people on a list, counted on the order's own date."
-            footnote={
-              converted && (
-                <>
-                  Of the {formatInteger(converted.signups)} who joined a list in
-                  this period, {formatInteger(converted.ordered)} have ordered
-                  since —{' '}
-                  <span className="text-ink">
-                    {conversion === null ? '—' : formatPercent(conversion)}
-                  </span>
-                  . Counted as a cohort: their orders are matched by email at any
-                  date, because a lead who joined on the last day of the period
-                  and bought the next morning still converted. Dividing this
-                  period&apos;s orders by this period&apos;s signups would set one
-                  group of people against a different one.
-                </>
-              )
-            }
           />
 
           {report && report.campaigns.length > 0 && (

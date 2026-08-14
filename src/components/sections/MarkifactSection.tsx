@@ -107,11 +107,6 @@ export function MarkifactSection({ account, loading, error }: MarkifactSectionPr
     <section className="flex flex-col gap-4">
       <div>
         <SectionLabel>Markifact</SectionLabel>
-        <p className="mt-1 max-w-prose text-[12px] leading-relaxed text-muted">
-          The automation workspace, not the marketing in it. Markifact&apos;s API
-          key reaches connections, credits and the operation log; the report
-          operations themselves are MCP-only and are not readable from here.
-        </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -187,11 +182,6 @@ export function MarkifactSection({ account, loading, error }: MarkifactSectionPr
                 )}
               </span>
             </div>
-            <p className="mt-1 max-w-prose text-[12px] leading-relaxed text-muted">
-              Ranked by credits spent. One operation quietly consuming the
-              month&apos;s allowance, or an agent that started failing, is
-              invisible until the log is added up.
-            </p>
           </div>
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-icon-btn text-muted">
             <Activity size={15} strokeWidth={2} />

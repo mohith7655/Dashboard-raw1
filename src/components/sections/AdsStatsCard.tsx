@@ -303,18 +303,6 @@ export function AdsStatsCard({
       ) : (
         <>
           <StatRows rows={rows} />
-          {/* The ROAS above is struck from a narrower base than the spend
-              above it. Saying so is the whole point — a return quietly
-              measured against a different denominator is worse than none. */}
-          {unattributed.length > 0 && (
-            <p className="mt-3 text-[12px] leading-relaxed text-muted">
-              {unattributed.join(' and ')} report no attributed conversions, so
-              they are counted in spend, impressions and clicks but left out of
-              ROAS. Blended ROAS in the CEO dashboard includes their spend, since it measures
-              against the store&apos;s own revenue rather than a platform&apos;s
-              claim.
-            </p>
-          )}
         </>
         )}
       </div>

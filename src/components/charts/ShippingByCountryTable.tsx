@@ -9,8 +9,6 @@ const MAX_BODY = 'max-h-[520px]'
 
 interface ShippingByCountryTableProps {
   rows: CountryShipping[]
-  /** Postage from destinations beyond the per-country cap, or zero. */
-  unlisted: number
   loading?: boolean
   unavailable?: string
 }
@@ -25,7 +23,6 @@ interface ShippingByCountryTableProps {
  */
 export function ShippingByCountryTable({
   rows,
-  unlisted,
   loading,
   unavailable,
 }: ShippingByCountryTableProps) {
@@ -160,14 +157,6 @@ export function ShippingByCountryTable({
             </table>
           </div>
 
-          {unlisted > 0 && (
-            <p className="px-5 pb-4 pt-3 text-[12px] text-muted">
-              A further {formatCurrency(unlisted)} of postage came from
-              destinations beyond the ones listed — the split is read one country
-              at a time, so the longest tail is left off rather than making a
-              request for each.
-            </p>
-          )}
         </>
       )}
     </div>

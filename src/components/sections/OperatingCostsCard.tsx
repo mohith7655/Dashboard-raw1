@@ -124,15 +124,6 @@ export function OperatingCostsCard({
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-4 pt-5">
         <div className="min-w-0">
           <h3 className="text-[15px] font-semibold text-ink">Operating costs</h3>
-          <p className="mt-0.5 max-w-prose text-[12px] text-muted">
-            Costs the store never sees — payroll, software, rent. A recurring
-            cost asks when it{' '}
-            <span className="text-ink">started</span> — that date sets both when
-            it began and which day it lands on, so a subscription taken out on
-            the 5th charges the 5th of every month — and when it{' '}
-            <span className="text-ink">ended</span>, blank while it still runs. A
-            one-off asks only for the day it was charged.
-          </p>
         </div>
         <button
           type="button"

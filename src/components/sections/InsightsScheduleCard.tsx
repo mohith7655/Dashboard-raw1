@@ -93,11 +93,10 @@ export function InsightsScheduleCard({
             <CalendarClock size={15} className="text-muted" />
             Automatic reports
           </h3>
-          <p className="mt-0.5 max-w-prose text-[12px] leading-relaxed text-muted">
-            Writes a report on its own, without anyone having the dashboard
-            open. Times are on the store&apos;s calendar — {timeZoneLabel(zone)} —
-            and a run lands in the first hour at or after the time you pick.
-          </p>
+          {/* Kept to the one fact the controls below cannot show: which clock
+              the times are set on. A schedule read in the wrong timezone is
+              set wrong. */}
+          <p className="mt-0.5 text-[12px] text-muted">{timeZoneLabel(zone)}</p>
         </div>
       </div>
 

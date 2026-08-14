@@ -100,13 +100,6 @@ export function ShippingCostsCard({
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-4 pt-5">
         <div className="min-w-0">
           <h3 className="text-[15px] font-semibold text-ink">Extra shipping costs</h3>
-          <p className="mt-0.5 max-w-prose text-[12px] text-muted">
-            What the orders do not carry — customs, fuel surcharges, a per-region
-            handling fee. <span className="text-ink">Per order</span> multiplies
-            by the parcels that went to that country in the period;{' '}
-            <span className="text-ink">flat for period</span> applies whole,
-            whether or not anything shipped there.
-          </p>
         </div>
         <button
           type="button"

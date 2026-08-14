@@ -153,13 +153,6 @@ export function MerchantFeedCard({ feed, loading, error }: MerchantFeedCardProps
       <div className="card p-0">
         <div className="px-5 pb-4 pt-5">
           <h3 className="text-[15px] font-semibold text-ink">Item issues</h3>
-          <p className="mt-0.5 max-w-prose text-[12px] leading-relaxed text-muted">
-            Worst first: an issue that stops items serving outranks one that only
-            demotes them. The count is the products affected, taken as the worst
-            single destination rather than summed across them — the same product
-            is reported once per destination, and adding those up would count it
-            several times over.
-          </p>
         </div>
 
         {feed.issues.length === 0 ? (
@@ -176,16 +169,6 @@ export function MerchantFeedCard({ feed, loading, error }: MerchantFeedCardProps
         )}
       </div>
 
-      {feed.destinations.length > 1 && (
-        <p className="text-[12px] leading-relaxed text-muted">
-          Counted across {feed.destinations.length} destination and country
-          combinations:{' '}
-          {feed.destinations
-            .map((d) => `${d.destination}${d.country ? ` (${d.country})` : ''}`)
-            .join(', ')}
-          .
-        </p>
-      )}
     </div>
   )
 }

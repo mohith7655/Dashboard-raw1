@@ -112,14 +112,6 @@ export function FlodeskCard({ report, loading, failed }: FlodeskCardProps) {
         icon={Layers}
         rows={segmentRows}
         subtitle="Active subscribers in each segment, largest first. Segments overlap, so these do not sum to the list."
-        footnote={
-          <p className="mt-3 border-t border-row-line pt-3 text-[12px] text-muted">
-            Current state, not the period on screen. Flodesk&apos;s subscriber
-            endpoint filters on status and segment but not on date — every date
-            parameter it is given is ignored — so there is no honest way to ask
-            it how many of these joined during the window.
-          </p>
-        }
       />
 
       <RowsCard
@@ -142,16 +134,6 @@ export function FlodeskCard({ report, loading, failed }: FlodeskCardProps) {
                 )} on the account was ${formatDay(report.lastCampaignAt.slice(0, 10))}.`
               : 'No completed Flodesk campaigns on the account.'
             : null
-        }
-        footnote={
-          report.campaigns.length > 0 && (
-            <p className="mt-3 border-t border-row-line pt-3 text-[12px] text-muted">
-              Dated by when Flodesk last touched the campaign, which is the
-              closest thing to a send time its API offers — editing a campaign
-              after it went out moves this date, and no field that stays put is
-              exposed.
-            </p>
-          )
         }
       />
     </section>
