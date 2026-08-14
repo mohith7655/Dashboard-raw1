@@ -2,6 +2,7 @@ import { Users } from 'lucide-react'
 import type {
   DateRange,
   LeadReport,
+  OrderStatus,
   TrafficMetrics,
   WooMetrics,
 } from '../../lib/types'
@@ -146,15 +147,35 @@ function buildRows(
       metrics.returningCustomers.deltaPct,
       formatPrevious(metrics.returningCustomers, formatInteger),
     ),
-    total(
-      'Total orders',
-      formatInteger(metrics.totalOrders.value),
+    /*
+     * The heading is every order placed, not the paid ones.
+     *
+     * `totalOrders` counts completed, processing and refunded — a failed order
+     * is precisely one that never joined it — so it is not a total the parts
+     * below can divide: taking 7 failures out of 158 paid orders would be
+     * subtracting them from a figure they were never in. The count of orders
+     * placed is the one that does divide, and it divides exactly.
+     */
+    total('Orders placed', formatInteger(placed), null),
+    // The old `Total orders` row, to the digit: the paid statuses are what
+    // this figure has always been. It keeps that row's baseline, which is the
+    // only delta of the four — the status counts are held for the selected
+    // period alone, so the rest have nothing to be measured against.
+    part(
+      'Processed',
+      metrics.totalOrders.value,
+      placed,
       metrics.totalOrders.deltaPct,
       formatPrevious(metrics.totalOrders, formatInteger),
     ),
-    // No delta: the status counts are only kept for the selected period, so
-    // there is nothing to measure this against rather than nothing to report.
     { ...part('Failed', failed, placed, null), polarity: 'down-good' },
+    // Whatever else the period holds, so the parts always add up to the
+    // heading. Listed rather than assumed: a store that starts putting orders
+    // on hold would otherwise leave a gap nothing on the card accounts for.
+    ...otherStatuses(metrics, placed).map((row) => ({
+      ...row,
+      polarity: 'down-good' as const,
+    })),
     total(
       'Avg order value',
       formatCurrency(metrics.avgOrderValue.value),
@@ -169,6 +190,30 @@ function buildRows(
     ),
     ...leadRows(leads, traffic),
   ]
+}
+
+/**
+ * Statuses that are neither paid nor already named on the card.
+ *
+ * `Processed` covers completed, processing and refunded; `Failed` is listed
+ * outright because it is the one worth watching. Anything left — cancelled, on
+ * hold — is rendered here so the parts sum to the orders placed above them. A
+ * status with no orders in the period is dropped rather than shown as a zero.
+ */
+function otherStatuses(metrics: WooMetrics, placed: number): StatRowData[] {
+  const named: OrderStatus[] = ['completed', 'processing', 'refunded', 'failed']
+
+  return metrics.ordersByStatus
+    .filter((row) => !named.includes(row.status) && row.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .map((row) => ({
+      // Capitalised for the column it sits in; the API's own casing is lower.
+      label: row.status.charAt(0).toUpperCase() + row.status.slice(1).replace('-', ' '),
+      value: formatInteger(row.count),
+      kind: 'part' as const,
+      share: placed ? row.count / placed : 0,
+      change: null,
+    }))
 }
 
 /**
