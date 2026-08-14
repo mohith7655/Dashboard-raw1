@@ -8,7 +8,7 @@ import type {
 import { LEAD_SOURCES } from '../../lib/types'
 import { daysInRange, includesToday } from '../../lib/dateRange'
 import { deltaPct } from '../../lib/derive'
-import { formatDecimal, formatInteger, formatPercent } from '../../lib/format'
+import { formatComparison, formatDecimal, formatPercent } from '../../lib/format'
 import { FigureBox, type FigureBoxData } from '../FigureBox'
 import { Skeleton } from '../Skeleton'
 
@@ -26,11 +26,21 @@ interface FunnelStatsCardProps {
  * The three rates the day is actually judged on, under the spend that bought
  * them.
  *
- * The card above says what advertising cost; these say what it produced — the
- * share of arrivals who left an address, the share who bought, and how many
- * orders a day that came to. All three survive a change in the length of the
- * period, which the totals either side of them do not, so they are the figures
- * that answer "is this normal" rather than "how much".
+ * The card above says what advertising cost; these say what it produced — how
+ * many orders a day that came to, the share of arrivals who bought, and the
+ * share who at least left an address. All three survive a change in the length
+ * of the period, which the totals either side of them do not, so they are the
+ * figures that answer "is this normal" rather than "how much".
+ *
+ * Read outward from the sale: the orders a day is the figure the day is
+ * settled on, the conversion rate is what produced it, and the lead rate is
+ * what feeds that in turn.
+ *
+ * Two lines each, in the same grammar the revenue rows use: the figure with
+ * its percentage, then the baseline that percentage was struck against and the
+ * move in the figure's own unit. Both halves of the second line come from
+ * formatComparison off a single value, so the move is always this figure less
+ * the baseline printed beside it.
  *
  * A figure whose source has not answered is left out rather than shown as
  * nought: no analytics provider means an unknown conversion rate, not one of
@@ -47,6 +57,46 @@ export function FunnelStatsCard({
   const figures = useMemo((): FigureBoxData[] => {
     const out: FigureBoxData[] = []
 
+    /* ---------------------------- Orders per day --------------------------- */
+    if (woo) {
+      const days = daysInRange(range)
+      // Divided by the comparison window's own length, not this one's. The two
+      // are equal under the default comparison but not under "same month last
+      // year", where one divisor for both would report growth that never was.
+      const priorDays = against ? daysInRange(against) : null
+      const perDay = woo.totalOrders.value / days
+      const before =
+        woo.totalOrders.previous == null || priorDays === null
+          ? null
+          : woo.totalOrders.previous / priorDays
+
+      /*
+       * With today in the range the last day is a part-day, and the divisor
+       * treats it as a whole one — so the figure runs low, by more the earlier
+       * in the day it is read. The Today toggle on the row above is what
+       * removes it, and the label says so rather than a third line under the
+       * box: these read as one band with the ad-spend boxes beside them, and
+       * only where every row is the same height.
+       */
+      out.push({
+        label: includesToday(range) ? 'Orders / day (to date)' : 'Orders / day',
+        value: formatDecimal(perDay),
+        change: before === null ? null : deltaPct(perDay, before),
+        ...formatComparison({ value: perDay, previous: before }, formatDecimal),
+      })
+    }
+
+    /* --------------------------- Conversion rate --------------------------- */
+    if (traffic && traffic.available) {
+      out.push({
+        label: 'Conversion',
+        value: formatPercent(traffic.conversionRate.value),
+        change: traffic.conversionRate.deltaPct,
+        ...formatComparison(traffic.conversionRate, formatPercent),
+      })
+    }
+
+    /* ------------------------------ Lead rate ------------------------------ */
     // Only where the provider is connected and somebody actually arrived. A
     // rate struck against nought visitors is not a rate.
     const visitors =
@@ -56,7 +106,6 @@ export function FunnelStatsCard({
     const visitorsBefore =
       traffic && traffic.visitors.previous ? traffic.visitors.previous : null
 
-    /* ------------------------------ Lead rate ------------------------------ */
     if (leads && visitors !== null) {
       const captured = LEAD_SOURCES.reduce(
         (sum, key) => sum + leads.sources[key].count.value,
@@ -80,60 +129,7 @@ export function FunnelStatsCard({
         label: 'Lead rate',
         value: formatPercent(rate),
         change: before === null ? null : deltaPct(rate, before),
-        previous: before === null ? undefined : formatPercent(before),
-        note: `${formatInteger(captured)} of ${formatInteger(visitors)} visitors`,
-      })
-    }
-
-    /* --------------------------- Conversion rate --------------------------- */
-    if (traffic && traffic.available) {
-      out.push({
-        label: 'Conversion',
-        value: formatPercent(traffic.conversionRate.value),
-        change: traffic.conversionRate.deltaPct,
-        previous:
-          traffic.conversionRate.previous == null
-            ? undefined
-            : formatPercent(traffic.conversionRate.previous),
-        note: `${formatInteger(traffic.orders.value)} orders from ${formatInteger(
-          traffic.visitors.value,
-        )} visitors`,
-      })
-    }
-
-    /* ---------------------------- Orders per day --------------------------- */
-    if (woo) {
-      const days = daysInRange(range)
-      // Divided by the comparison window's own length, not this one's. The two
-      // are equal under the default comparison but not under "same month last
-      // year", where one divisor for both would report growth that never was.
-      const priorDays = against ? daysInRange(against) : null
-      const perDay = woo.totalOrders.value / days
-      const before =
-        woo.totalOrders.previous == null || priorDays === null
-          ? null
-          : woo.totalOrders.previous / priorDays
-
-      /*
-       * The day count is only claimed where every day in it is a whole one.
-       *
-       * With today counted the last day is a part-day, and the divisor above
-       * still treats it as a full one — so the figure runs low, by more the
-       * earlier in the day it is read. Printing "over 14 days" under it would
-       * assert fourteen complete days of trading and make a soft figure look
-       * measured. The note says what is actually in the range instead, and the
-       * Today toggle on the row above is what removes the part-day.
-       */
-      out.push({
-        label: 'Orders / day',
-        value: formatDecimal(perDay),
-        change: before === null ? null : deltaPct(perDay, before),
-        previous: before === null ? undefined : formatDecimal(before),
-        note: includesToday(range)
-          ? `${formatInteger(woo.totalOrders.value)} so far, today part-counted`
-          : `${formatInteger(woo.totalOrders.value)} over ${days} ${
-              days === 1 ? 'day' : 'days'
-            }`,
+        ...formatComparison({ value: rate, previous: before }, formatPercent),
       })
     }
 
@@ -143,9 +139,9 @@ export function FunnelStatsCard({
   if (loading) {
     return (
       <div className="grid grid-cols-3 gap-2">
-        <Skeleton className="h-[84px] w-full" />
-        <Skeleton className="h-[84px] w-full" />
-        <Skeleton className="h-[84px] w-full" />
+        <Skeleton className="h-[80px] w-full" />
+        <Skeleton className="h-[80px] w-full" />
+        <Skeleton className="h-[80px] w-full" />
       </div>
     )
   }
