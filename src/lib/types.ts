@@ -1091,6 +1091,36 @@ export interface MailchimpAutomation {
   clickRate: number
 }
 
+/**
+ * A Customer Journey — what Mailchimp's UI calls an Automation flow.
+ *
+ * The other half of the Automations screen, and a separate API from the
+ * classic automations beside it: `/customer-journeys/journeys`, which the API
+ * root does not even advertise among its resources. A dashboard reading
+ * `/automations` alone sees the Classic tab and nothing else, which on this
+ * account hides the only journey still running.
+ *
+ * The figures are contacts rather than emails, and that is the shape of the
+ * thing rather than a gap in it. A journey moves people through steps, so it
+ * reports how many entered, how many are partway through and how many reached
+ * the end. There is no open rate on a journey to fetch — the classic
+ * automations carry those, and the card keeps the two apart rather than
+ * inventing a common set of columns for them.
+ */
+export interface MailchimpJourney {
+  id: number
+  name: string
+  /** `sending` for a live journey, `paused` otherwise. */
+  status: string
+  /** The audience it draws from, as Mailchimp names it. */
+  listName: string
+  /** Contacts who have entered, since it was first switched on. */
+  started: number
+  inProgress: number
+  completed: number
+  startedAt: string | null
+}
+
 export interface MailchimpReport {
   totals: MailchimpTotals
   /** Sends inside the window, most recent first. */
@@ -1102,6 +1132,11 @@ export interface MailchimpReport {
    * `MailchimpAutomation`. Never window-scoped, whatever the picker says.
    */
   automations: MailchimpAutomation[]
+  /**
+   * Customer Journeys, live ones first. Lifetime contact counts — see
+   * `MailchimpJourney`. Never window-scoped, as the automations are not.
+   */
+  journeys: MailchimpJourney[]
   benchmark: MailchimpBenchmark | null
   /**
    * The most recent send on the account at any date.

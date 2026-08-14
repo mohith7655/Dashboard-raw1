@@ -101,7 +101,8 @@ export function EmailSection({
 
   /** Automations still adding to their totals, as opposed to paused ones. */
   const liveAutomations =
-    report?.automations.filter((a) => a.status === 'sending').length ?? 0
+    (report?.automations.filter((a) => a.status === 'sending').length ?? 0) +
+    (report?.journeys.filter((j) => j.status === 'sending').length ?? 0)
 
   return (
     <section className="flex flex-col gap-4">
@@ -171,6 +172,7 @@ export function EmailSection({
           {report && (
             <AutomationsCard
               automations={report.automations}
+              journeys={report.journeys}
               benchmark={report.benchmark}
             />
           )}

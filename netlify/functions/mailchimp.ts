@@ -21,6 +21,7 @@ import type {
   MailchimpAutomation,
   MailchimpBenchmark,
   MailchimpCampaign,
+  MailchimpJourney,
   MailchimpReport,
   MailchimpTotals,
 } from '../../src/lib/types'
@@ -102,7 +103,7 @@ export default async function handler(request: Request): Promise<Response> {
     const prefix = serverPrefix(key)
 
     /*
-     * Five calls, in parallel and no more than five: Mailchimp allows ten
+     * Six calls, in parallel and no more than six: Mailchimp allows ten
      * simultaneous connections per account, and a fan-out over campaigns would
      * blow through that on a busy month. Everything on screen is derived from
      * these instead.
@@ -112,18 +113,22 @@ export default async function handler(request: Request): Promise<Response> {
      * most recent send, which is what tells an empty period apart from a
      * broken connector.
      *
-     * Automations need a call of their own because they are not in `/reports`
-     * at all: asking it for `type=automation` returns nothing, so a tab built
-     * on that endpoint alone reports no activity for a store whose welcome
-     * series is sending every day.
+     * The last two are the whole of the Automations screen, and neither is in
+     * `/reports`: asking it for `type=automation` returns nothing. Mailchimp
+     * splits that screen across two endpoints and two tabs — Classic
+     * Automations under `/automations`, Automation flows under
+     * `/customer-journeys/journeys` — so reading one of them shows the reader
+     * half the automations they have and no sign that the other half exists.
      */
-    const [current, previous, lists, latest, automations] = await Promise.all([
-      fetchReports(prefix, key, range),
-      against ? fetchReports(prefix, key, against) : Promise.resolve([]),
-      fetchLists(prefix, key),
-      fetchLatestSend(prefix, key),
-      fetchAutomations(prefix, key),
-    ])
+    const [current, previous, lists, latest, automations, journeys] =
+      await Promise.all([
+        fetchReports(prefix, key, range),
+        against ? fetchReports(prefix, key, against) : Promise.resolve([]),
+        fetchLists(prefix, key),
+        fetchLatestSend(prefix, key),
+        fetchAutomations(prefix, key),
+        fetchJourneys(prefix, key),
+      ])
 
     const campaigns = current.map(toCampaign).sort((a, b) => b.sentAt.localeCompare(a.sentAt))
 
@@ -132,6 +137,7 @@ export default async function handler(request: Request): Promise<Response> {
       campaigns,
       audiences: toAudiences(lists),
       automations,
+      journeys,
       // From the newest send in the window, falling back to the newest on the
       // account. Without the fallback a month with no campaigns in it would
       // have nothing to set its automations against — which is the month the
@@ -272,6 +278,55 @@ async function fetchAutomations(
     .sort((a, b) => {
       const live = (s: string) => (s === 'sending' ? 0 : 1)
       return live(a.status) - live(b.status) || b.emailsSent - a.emailsSent
+    })
+}
+
+/**
+ * Customer Journeys — the Automation flows tab of Mailchimp's own UI.
+ *
+ * A second endpoint entirely, and one the API root does not advertise. Read
+ * separately from `/automations` because it is separate: asking `/reports` for
+ * `type=automation` returns nothing, and asking `/automations` returns only
+ * the Classic tab. A dashboard wanting both has to call both.
+ *
+ * Live journeys lead, then the largest. Journeys nobody has entered are
+ * dropped, as the unstarted automations are — a row of noughts beside a
+ * running flow invites the reader to wonder what broke.
+ */
+async function fetchJourneys(
+  prefix: string,
+  key: string,
+): Promise<MailchimpJourney[]> {
+  const payload = await call<{ journeys?: unknown }>(
+    prefix,
+    key,
+    '/customer-journeys/journeys',
+    { count: '100' },
+  )
+
+  return asArray(payload.journeys)
+    .filter(isRecord)
+    .map((row): MailchimpJourney => {
+      const stats = isRecord(row.stats) ? row.stats : {}
+      const started = row.first_started_at
+      return {
+        id: num(row.id),
+        name:
+          typeof row.journey_name === 'string' && row.journey_name
+            ? row.journey_name
+            : '(untitled journey)',
+        status: typeof row.status === 'string' ? row.status : '',
+        listName: typeof row.list_name === 'string' ? row.list_name : '',
+        started: num(stats.started),
+        inProgress: num(stats.in_progress),
+        completed: num(stats.completed),
+        startedAt: typeof started === 'string' ? started : null,
+      }
+    })
+    .filter((j) => j.started > 0)
+    .sort((a, b) => {
+      const live = (s: string) => (s === 'sending' ? 0 : 1)
+      return live(a.status) - live(b.status) || b.started - a.started
     })
 }
 

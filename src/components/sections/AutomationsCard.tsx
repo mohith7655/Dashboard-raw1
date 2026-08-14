@@ -1,132 +1,251 @@
-import type { MailchimpAutomation, MailchimpBenchmark } from '../../lib/types'
+import type { ReactNode } from 'react'
+import type {
+  MailchimpAutomation,
+  MailchimpBenchmark,
+  MailchimpJourney,
+} from '../../lib/types'
 import { formatCtr, formatDay, formatInteger, formatPercent } from '../../lib/format'
 
 interface AutomationsCardProps {
   automations: MailchimpAutomation[]
+  journeys: MailchimpJourney[]
   /** For marking a rate against Mailchimp's sector average, where one loaded. */
   benchmark: MailchimpBenchmark | null
 }
 
 /**
- * The automations, and what they have earned since they were switched on.
+ * The whole Automations screen, which Mailchimp splits in two.
  *
- * These are the sends nobody schedules — a welcome series, a lead follow-up —
- * and on this account they outperform the broadcast campaigns by a wide
- * margin. They are shown apart from those campaigns rather than beside them
- * because the figures answer different questions: a campaign's rate belongs to
- * a day, an automation's belongs to every day since it started, and adding one
- * to the other would produce a number that is true of no period at all.
+ * Its UI has an Automation flows tab and a Classic Automations tab, and the
+ * API keeps them as far apart as the interface does — journeys on
+ * `/customer-journeys/journeys`, classic series on `/automations`, neither in
+ * `/reports`. Both are shown here under the names Mailchimp gives them, so a
+ * reader comparing this card against that screen can find every row.
  *
- * Nothing here moves with the date picker, and the card says so — otherwise a
- * reader who narrows the range and sees these figures hold still would be
- * right to distrust them.
+ * They are two tables rather than one because they do not measure the same
+ * thing. A classic automation sends email and reports opens; a journey moves
+ * contacts through steps and reports how many entered, how many are partway
+ * through and how many came out the end. Forcing both into one set of columns
+ * would mean three empty cells on every row of whichever lost.
+ *
+ * Nothing here moves with the date picker, and both tables say so — these are
+ * running totals since each was switched on, and a reader who narrows the
+ * range and sees them hold still would be right to distrust them otherwise.
  */
-export function AutomationsCard({ automations, benchmark }: AutomationsCardProps) {
-  if (automations.length === 0) return null
+export function AutomationsCard({
+  automations,
+  journeys,
+  benchmark,
+}: AutomationsCardProps) {
+  if (automations.length === 0 && journeys.length === 0) return null
 
-  const live = automations.filter((a) => a.status === 'sending')
+  const liveJourneys = journeys.filter((j) => j.status === 'sending').length
+  const liveAutomations = automations.filter((a) => a.status === 'sending').length
 
   return (
     <div className="card p-0">
       <div className="px-5 pb-4 pt-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="text-[15px] font-semibold text-ink">Automations</h3>
-            <p className="mt-0.5 text-[12px] text-muted">
-              {live.length > 0
-                ? `${formatInteger(live.length)} still sending`
-                : 'None currently sending'}
-              {' · '}
-              totals since each was switched on, not for the period on screen
-            </p>
+        <h3 className="text-[15px] font-semibold text-ink">Automations</h3>
+        <p className="mt-0.5 text-[12px] text-muted">
+          {liveJourneys + liveAutomations > 0
+            ? `${formatInteger(liveJourneys + liveAutomations)} still running`
+            : 'None currently running'}
+          {' · '}
+          totals since each was switched on, not for the period on screen
+        </p>
+      </div>
+
+      {journeys.length > 0 && (
+        <>
+          <Subhead
+            label="Automation flows"
+            note="Contacts moving through each journey"
+          />
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[600px] border-collapse text-[13px]">
+              <thead>
+                <tr className="border-b border-line text-left">
+                  <Th className="pl-5">Journey</Th>
+                  <Th align="right">Started</Th>
+                  <Th align="right">In progress</Th>
+                  <Th align="right" className="pr-5">
+                    Completed
+                  </Th>
+                </tr>
+              </thead>
+              <tbody>
+                {journeys.map((j) => (
+                  <tr key={j.id} className="border-b border-row-line last:border-0">
+                    <Td className="pl-5">
+                      <Name
+                        title={j.name}
+                        status={j.status}
+                        sub={[j.listName, j.startedAt && `since ${formatDay(j.startedAt.slice(0, 10))}`]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      />
+                    </Td>
+                    <Td align="right" className="tabular-nums text-ink">
+                      {formatInteger(j.started)}
+                    </Td>
+                    <Td align="right" className="tabular-nums text-muted">
+                      {formatInteger(j.inProgress)}
+                    </Td>
+                    <Td align="right" className="pr-5 tabular-nums text-ink">
+                      {formatInteger(j.completed)}
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
-      </div>
+        </>
+      )}
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[560px] border-collapse text-[13px]">
-          <thead>
-            <tr className="border-b border-line text-left">
-              <th
-                scope="col"
-                className="px-3 py-2.5 pl-5 text-[11px] font-medium uppercase tracking-[0.06em] text-label"
-              >
-                Automation
-              </th>
-              <th
-                scope="col"
-                className="px-3 py-2.5 text-right text-[11px] font-medium uppercase tracking-[0.06em] text-label"
-              >
-                Sent
-              </th>
-              <th
-                scope="col"
-                className="px-3 py-2.5 text-right text-[11px] font-medium uppercase tracking-[0.06em] text-label"
-              >
-                Open rate
-              </th>
-              <th
-                scope="col"
-                className="px-3 py-2.5 pr-5 text-right text-[11px] font-medium uppercase tracking-[0.06em] text-label"
-              >
-                Click rate
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {automations.map((a) => (
-              <tr key={a.id} className="border-b border-row-line last:border-0">
-                <td className="h-12 px-3 pl-5 align-middle">
-                  <div className="min-w-0 max-w-[300px]">
-                    <div className="flex items-center gap-2">
-                      <StatusDot status={a.status} />
-                      <span className="truncate text-ink" title={a.title}>
-                        {a.title}
-                      </span>
-                    </div>
-                    <div className="truncate pl-[14px] text-[11.5px] text-label">
-                      {a.status === 'sending' ? 'Sending' : 'Paused'}
-                      {a.startedAt && ` · since ${formatDay(a.startedAt.slice(0, 10))}`}
-                    </div>
-                  </div>
-                </td>
-                <td className="h-12 px-3 text-right align-middle tabular-nums text-muted">
-                  {formatInteger(a.emailsSent)}
-                </td>
-                <td className="h-12 px-3 text-right align-middle tabular-nums text-ink">
-                  {formatPercent(a.openRate)}
-                </td>
-                <td className="h-12 px-3 pr-5 text-right align-middle tabular-nums text-ink">
-                  {formatCtr(a.clickRate)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {automations.length > 0 && (
+        <>
+          <Subhead
+            label="Classic automations"
+            note="Email sent by each series, and how it was received"
+          />
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[600px] border-collapse text-[13px]">
+              <thead>
+                <tr className="border-b border-line text-left">
+                  <Th className="pl-5">Automation</Th>
+                  <Th align="right">Sent</Th>
+                  <Th align="right">Open rate</Th>
+                  <Th align="right" className="pr-5">
+                    Click rate
+                  </Th>
+                </tr>
+              </thead>
+              <tbody>
+                {automations.map((a) => (
+                  <tr key={a.id} className="border-b border-row-line last:border-0">
+                    <Td className="pl-5">
+                      <Name
+                        title={a.title}
+                        status={a.status}
+                        sub={
+                          a.startedAt ? `since ${formatDay(a.startedAt.slice(0, 10))}` : ''
+                        }
+                      />
+                    </Td>
+                    <Td align="right" className="tabular-nums text-muted">
+                      {formatInteger(a.emailsSent)}
+                    </Td>
+                    <Td align="right" className="tabular-nums text-ink">
+                      {formatPercent(a.openRate)}
+                    </Td>
+                    <Td align="right" className="pr-5 tabular-nums text-ink">
+                      {formatCtr(a.clickRate)}
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
-      {benchmark && (
+      {benchmark && automations.length > 0 && (
         <p className="border-t border-row-line px-5 py-3 text-[12px] text-muted">
           The sector averages are {formatPercent(benchmark.openRate)} opens and{' '}
           {formatCtr(benchmark.clickRate)} clicks. An automation reaches somebody
           who has just asked to hear from you, which is why these tend to beat
-          both the benchmark and the broadcast campaigns above.
+          both the benchmark and the broadcast campaigns above. The journeys have
+          no rate to compare — they report contacts rather than email.
         </p>
       )}
     </div>
   )
 }
 
+/** Names one of the two halves, in Mailchimp's own words for it. */
+function Subhead({ label, note }: { label: string; note: string }) {
+  return (
+    <div className="border-t border-line bg-btn/40 px-5 py-2">
+      <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-label">
+        {label}
+      </div>
+      <div className="text-[11.5px] text-muted">{note}</div>
+    </div>
+  )
+}
+
 /**
- * Live or not, as a dot with a text label beside it in the cell below — the
- * colour is never the only thing carrying the state.
+ * A row's name, its state, and where it came from.
+ *
+ * The dot is never the only thing carrying the state — the word sits directly
+ * under it, so the colour is a convenience rather than the signal.
  */
-function StatusDot({ status }: { status: string }) {
+function Name({
+  title,
+  status,
+  sub,
+}: {
+  title: string
+  status: string
+  sub: string
+}) {
   const live = status === 'sending'
   return (
-    <span
-      aria-hidden
-      className={`h-1.5 w-1.5 shrink-0 rounded-full ${live ? 'bg-pos' : 'bg-label'}`}
-    />
+    <div className="min-w-0 max-w-[320px]">
+      <div className="flex items-center gap-2">
+        <span
+          aria-hidden
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${live ? 'bg-pos' : 'bg-label'}`}
+        />
+        <span className="truncate text-ink" title={title}>
+          {title}
+        </span>
+      </div>
+      <div className="truncate pl-[14px] text-[11.5px] text-label">
+        {live ? 'Running' : 'Paused'}
+        {sub && ` · ${sub}`}
+      </div>
+    </div>
+  )
+}
+
+function Th({
+  children,
+  align = 'left',
+  className = '',
+}: {
+  children: ReactNode
+  align?: 'left' | 'right'
+  className?: string
+}) {
+  return (
+    <th
+      scope="col"
+      className={`px-3 py-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-label ${
+        align === 'right' ? 'text-right' : 'text-left'
+      } ${className}`}
+    >
+      {children}
+    </th>
+  )
+}
+
+function Td({
+  children,
+  align = 'left',
+  className = '',
+}: {
+  children: ReactNode
+  align?: 'left' | 'right'
+  className?: string
+}) {
+  return (
+    <td
+      className={`h-12 px-3 align-middle ${
+        align === 'right' ? 'text-right' : 'text-left'
+      } ${className}`}
+    >
+      {children}
+    </td>
   )
 }
