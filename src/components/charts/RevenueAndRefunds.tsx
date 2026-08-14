@@ -24,20 +24,21 @@ import { ChartCard, TooltipCard } from './ChartCard'
  * Five series, five colours, chosen with the palette validator rather than by
  * eye and every axis printed in the colour of what it measures.
  *
- * Money green, refunds red, conversion blue, visitors a neutral grey, orders
- * amber. The green and the red are the steps that survive being asked to sit
- * beside each other: red against green is the pair colour-blind readers lose
- * first, and it took searching the green ramp to find one that clears the
- * separation target rather than merely looking green. This set does clear it —
- * worst pair across all ten ΔE 9.0 simulated, 16.6 unsimulated, every colour
- * above 3:1 on the card.
+ * Money white, refunds red, conversion blue, visitors a neutral grey, orders
+ * amber. Revenue takes the neutral deliberately: it is the series the card is
+ * named for, white is the loudest thing available on this ground, and holding
+ * a hue back from it leaves the three coloured series further apart from each
+ * other than any four-hue set could manage. Worst pair across all ten is ΔE
+ * 12.9 simulated and 17.1 unsimulated, against 9.0 and 16.6 when revenue was
+ * green and had to share the wheel — red against green is the pair
+ * colour-blind readers lose first, and this set never asks them to make it.
  *
  * Colour still never carries identity alone: visitors are a hatched bar and
- * orders a line drawn through it, each series has its axis in its own colour,
+ * orders a dash drawn across it, each series has its axis in its own colour,
  * the legend draws each mark in its own shape, and the tooltip prints every
  * value against its name.
  */
-const REVENUE = '#149414'
+const REVENUE = '#f4f4f5'
 const REFUND = '#e66767'
 const ORDERS = '#eda100'
 const RATE = '#3987e5'
@@ -66,7 +67,10 @@ const VISITORS_INK = '#8a8a92'
  * the lightest of them measures 5.2:1.
  */
 const INK = {
-  revenue: '#146414',
+  // The one that cannot follow its mark: white on a light card is nothing. It
+  // takes the tooltip's own text colour instead, which is the right reading —
+  // revenue is the default series, and the default ink says so.
+  revenue: '#27272a',
   refund: '#b3261e',
   visitors: '#52514e',
   orders: '#8a6100',
@@ -133,7 +137,7 @@ interface Point {
  * and would lie flat on the baseline of a scale reaching into the hundreds —
  * there is no honest way to share. Its axis is printed in its own colour so
  * the exception is visible: follow the blue line to the blue numbers, and
- * infer nothing from blue sitting above grey.
+ * infer nothing from blue sitting above white.
  *
  * Everything else shares the one scale, deliberately. Revenue against refunds,
  * because they are both money and that comparison is the point — on separate
