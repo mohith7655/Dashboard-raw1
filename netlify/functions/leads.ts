@@ -17,10 +17,13 @@ import type {
   LeadReport,
   LeadSourceStats,
   LeadDayPoint,
+  UniqueContactPoint,
+  BreakdownGrain,
   LeadCampaign,
 } from '../../src/lib/types'
 import { LEAD_SOURCES } from '../../src/lib/types'
 import { metric } from '../../src/lib/derive'
+import { bucketStart } from '../../src/lib/revenueBreakdown'
 import {
   json,
   readComparison,
@@ -134,6 +137,10 @@ export default async function handler(request: Request): Promise<Response> {
       flodesk: statsFor(flodesk, range, against),
       facebook: statsFor(facebook, range, against),
     }
+    // The two email automations can capture the same person. Keep their
+    // per-source counts for attribution, but offer the dashboard one contact
+    // total that can never count an address twice.
+    const uniqueContacts = statsFor([...mailchimp, ...flodesk], range, against)
 
     const orders: Record<'mailchimp' | 'flodesk', LeadSourceStats> = {
       mailchimp: statsFor(mailchimpOrders, range, against),
@@ -158,8 +165,14 @@ export default async function handler(request: Request): Promise<Response> {
     const report: LeadReport = {
       sources,
       orders,
+      uniqueContacts,
       converted,
       series: seriesOf({ mailchimp, flodesk, facebook }, range),
+      uniqueContactBuckets: {
+        day: uniqueContactPointsOf([...mailchimp, ...flodesk], range, 'day'),
+        week: uniqueContactPointsOf([...mailchimp, ...flodesk], range, 'week'),
+        month: uniqueContactPointsOf([...mailchimp, ...flodesk], range, 'month'),
+      },
       campaigns: campaignsIn(facebook, range),
       // Named so a stale automation cannot pass for a quiet week. The Facebook
       // tab in particular stops receiving rows whenever the Make scenario
@@ -500,6 +513,40 @@ function seriesOf(
     })
   }
   return points
+}
+
+/**
+ * Exact unique contacts in each table bucket.
+ *
+ * The period total above de-duplicates across the entire window. Here the
+ * same operation happens in each day, week or month before only its count
+ * leaves the function, so the Revenue Breakdown can be regrouped without
+ * turning a contact who appears twice into two people.
+ */
+function uniqueContactPointsOf(
+  rows: Row[],
+  range: DateRange,
+  grain: BreakdownGrain,
+): UniqueContactPoint[] {
+  const counts = new Map<string, Set<string>>()
+  const unkeyed = new Map<string, number>()
+
+  for (const row of rows) {
+    if (!within(row.day, range)) continue
+    const bucket = bucketStart(row.day, grain)
+    if (!row.key) {
+      unkeyed.set(bucket, (unkeyed.get(bucket) ?? 0) + 1)
+      continue
+    }
+    const seen = counts.get(bucket) ?? new Set<string>()
+    seen.add(row.key)
+    counts.set(bucket, seen)
+  }
+
+  return [...new Set([...counts.keys(), ...unkeyed.keys()])].sort().map((date) => ({
+    date,
+    contacts: (counts.get(date)?.size ?? 0) + (unkeyed.get(date) ?? 0),
+  }))
 }
 
 function eachDay(range: DateRange): string[] {

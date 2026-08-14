@@ -11,6 +11,7 @@ import type {
   RevenueBreakdownRow,
   RevenueBreakdownViewRow,
   TrafficPoint,
+  UniqueContactPoint,
 } from './types'
 import { LEAD_SOURCES } from './types'
 import { round2 } from './derive'
@@ -144,6 +145,17 @@ export function bucketLeads(
   return byBucket
 }
 
+/** Unique Mailchimp/Flodesk email contacts, folded onto the requested grain. */
+export function bucketContacts(
+  series: UniqueContactPoint[],
+): Map<string, number> {
+  const byBucket = new Map<string, number>()
+  for (const point of series) {
+    byBucket.set(point.date, point.contacts)
+  }
+  return byBucket
+}
+
 /**
  * The statement joined to the traffic, with conversion struck per bucket.
  *
@@ -161,6 +173,7 @@ export function withTraffic(
   visitorsByBucket: Map<string, number>,
   available: boolean,
   leadsByBucket?: Map<string, number>,
+  contactsByBucket?: Map<string, number>,
 ): RevenueBreakdownViewRow[] {
   return rows.map((row) => {
     const visitors = available ? (visitorsByBucket.get(row.date) ?? null) : null
@@ -168,6 +181,7 @@ export function withTraffic(
     // same as a bucket it holds no rows for — the first is unknown everywhere,
     // the second is a genuine nought on a day the automation did report.
     const leads = leadsByBucket ? (leadsByBucket.get(row.date) ?? 0) : null
+    const contacts = contactsByBucket ? (contactsByBucket.get(row.date) ?? 0) : null
 
     // Both rates guard the empty denominator as well as the missing one: a day
     // the provider reported zero visitors for divides into an infinite rate,
@@ -179,6 +193,7 @@ export function withTraffic(
       ...row,
       visitors,
       leads,
+      contacts,
       conversion: per(row.orders),
       leadRate: per(leads),
     }

@@ -7,10 +7,12 @@ import type {
   RevenueBreakdownViewRow,
   SortDirection,
   TrafficPoint,
+  UniqueContactPoint,
 } from '../../lib/types'
 import { BREAKDOWN_GRAINS, LEAD_SOURCES } from '../../lib/types'
 import {
   bucketLabel,
+  bucketContacts,
   bucketLeads,
   bucketRows,
   bucketVisitors,
@@ -30,6 +32,14 @@ interface RevenueBreakdownCardProps {
    * nought — see `withTraffic`.
    */
   leads?: LeadDayPoint[]
+  /**
+   * Mailchimp/Flodesk contacts by day, week and month, deduplicated by email
+   * within each bucket. Kept separate from leads because Facebook lead ads are
+   * a capture source, not an email-list contact.
+   */
+  uniqueContacts?: Record<BreakdownGrain, UniqueContactPoint[]>
+  /** Exact, whole-period unique contact count for the table's totals row. */
+  uniqueContactTotal?: number
   /**
    * False when no analytics provider is connected. Distinct from an empty
    * series: the first means the conversion column cannot be known, the second
@@ -77,6 +87,7 @@ interface ColumnSpec {
 const COLUMNS: ColumnSpec[] = [
   { key: 'visitors', header: 'Visitors', count: true },
   { key: 'leads', header: 'Leads', count: true },
+  { key: 'contacts', header: 'Unique contacts', count: true },
   { key: 'orders', header: 'Orders', count: true },
   { key: 'totalSales', header: 'Total Sales', lead: true },
   { key: 'refunds', header: 'Refunds', negative: true },
@@ -106,6 +117,8 @@ export function RevenueBreakdownCard({
   rows,
   traffic,
   leads,
+  uniqueContacts,
+  uniqueContactTotal,
   trafficAvailable,
   loading,
   unavailable,
@@ -127,8 +140,9 @@ export function RevenueBreakdownCard({
       bucketVisitors(traffic, grain),
       trafficAvailable,
       leads ? bucketLeads(leads, grain) : undefined,
+      uniqueContacts ? bucketContacts(uniqueContacts[grain]) : undefined,
     )
-  }, [rows, traffic, leads, trafficAvailable, grain])
+  }, [rows, traffic, leads, uniqueContacts, trafficAvailable, grain])
 
   const sorted = useMemo(() => {
     const copy = [...grouped]
@@ -174,10 +188,11 @@ export function RevenueBreakdownCard({
       ...money,
       visitors,
       leads: leadTotal,
+      contacts: uniqueContactTotal ?? null,
       conversion: per(money.orders),
       leadRate: per(leadTotal),
     }
-  }, [rows, traffic, leads, trafficAvailable])
+  }, [rows, traffic, leads, uniqueContactTotal, trafficAvailable])
   // The period's own bounds, so a partial week or month at either edge is
   // labelled with the days it holds rather than the days its calendar has.
   const firstDate = rows.length ? rows[0].date : ''
@@ -199,21 +214,6 @@ export function RevenueBreakdownCard({
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-4 pt-5">
         <div className="min-w-0">
           <h3 className="text-[15px] font-semibold text-ink">Revenue Breakdown</h3>
-          <p className="mt-0.5 max-w-prose text-[12px] leading-relaxed text-muted">
-            Paid orders only, in store currency — the same figures the statement
-            above reports for the whole period. Refunds sit on the day the money
-            went back, which may not be the period the order was placed in.
-            Visitors come from the analytics provider and leads from the
-            Make.com sheet, neither from the orders. Both rates are this
-            row&apos;s count over this row&apos;s visitors — lead % the share who
-            left an address, conversion the share who bought — so a week&apos;s
-            rate is struck once from its own totals, never averaged from its
-            days. A dash means that source reported nothing for the bucket,
-            which is not the same as nobody arriving. Leads are counted once
-            per day, so somebody who signed up on two of them appears on both —
-            which is why this column can run a little above the deduplicated
-            figure in Orders and customers above.
-          </p>
         </div>
 
         <label className="flex items-center gap-2">
@@ -245,8 +245,9 @@ export function RevenueBreakdownCard({
           No orders in this period.
         </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1060px] border-collapse text-[13px]">
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1170px] border-collapse text-[13px]">
             <thead>
               <tr className="border-b border-line text-left">
                 <SortableTh
@@ -300,8 +301,13 @@ export function RevenueBreakdownCard({
                 ))}
               </tr>
             </tfoot>
-          </table>
-        </div>
+            </table>
+          </div>
+          <p className="px-5 pb-5 pt-3 text-[12px] text-muted">
+            Unique contacts deduplicate Mailchimp and Flodesk signups by email in each
+            day, week or month. Facebook lead ads remain in Leads.
+          </p>
+        </>
       )}
     </div>
   )

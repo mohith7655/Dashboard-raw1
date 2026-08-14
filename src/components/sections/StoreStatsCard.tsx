@@ -1,4 +1,3 @@
-import { Users } from 'lucide-react'
 import type {
   DateRange,
   LeadReport,
@@ -59,13 +58,12 @@ export function StoreStatsCard({
   const rows = metrics ? buildRows(metrics, range, against, leads, traffic) : []
 
   return (
-    <div className="card">
-      <div className="flex items-start justify-between gap-3">
-        <div className="kpi-label truncate">Orders and customers</div>
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-icon-btn text-muted">
-          <Users size={15} strokeWidth={2} />
-        </span>
-      </div>
+    // Like the CEO statement and All ads above it, this is a section of the
+    // dashboard rather than a separate panel. Its rows and dividers carry the
+    // grouping; a card background would make it look detached from the spend
+    // and funnel figures that lead into it.
+    <div>
+      <div className="kpi-label truncate">Orders and customers</div>
 
       {loading ? (
         <div className="mt-3 flex flex-col gap-2 border-t border-row-line pt-3">
@@ -254,6 +252,15 @@ function leadRows(
 
   const rows: StatRowData[] = [
     {
+      label: 'Unique contacts',
+      value: formatInteger(leads.uniqueContacts.count.value),
+      kind: 'total',
+      share: null,
+      change: leads.uniqueContacts.count.deltaPct,
+      ...formatComparison(leads.uniqueContacts.count, formatInteger),
+      polarity: 'up-good',
+    },
+    {
       label: 'Leads',
       value: formatInteger(total),
       kind: 'total',
@@ -278,6 +285,10 @@ function leadRows(
       polarity: 'up-good',
     })
   }
+
+  // The contact row has a narrower scope than the source breakdown: it is the
+  // unique union of the two email lists, whereas Leads also includes Facebook
+  // captures and keeps each source visible for attribution.
 
   if (visitors !== null) {
     rows.push({
