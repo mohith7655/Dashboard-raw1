@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import type { Comparison, DateRange, PresetId } from '../lib/types'
 import { rangeFromPreset } from '../lib/dateRange'
 import { DateRangePicker } from './DateRangePicker'
@@ -70,15 +71,21 @@ export function Header({
 }
 
 /**
- * Yesterday and today, as one segmented control.
+ * Yesterday and today, as one segmented control that goes back.
  *
  * Set from the same presets the picker's own panel offers, so the two cannot
  * disagree about where a day starts — both run through `rangeFromPreset`, and
  * that reads the store's timezone rather than the reader's.
  *
- * Each button shows whether it is the period currently on screen. Pressing the
- * pressed one is left as a no-op rather than a toggle back: the page always has
- * some period selected, and there is nothing for it to return to.
+ * Pressing a button jumps to that day and remembers what was on screen;
+ * pressing the lit one returns to it. That makes a quick day a look rather
+ * than a move — glance at today, then drop back into the month you were
+ * reading — which is how these two get used and what the picker cannot do,
+ * since going back through it means remembering the dates yourself.
+ *
+ * The memory is dropped as soon as the period changes by any other route. A
+ * button offering to return you to a month you left three controls ago would
+ * be a worse surprise than not offering at all.
  */
 function QuickDays({
   range,
@@ -87,35 +94,53 @@ function QuickDays({
   range: DateRange
   onRangeChange: (range: DateRange) => void
 }) {
+  const [previous, setPrevious] = useState<DateRange | null>(null)
+  /** The range this control last set, so a change from elsewhere is visible. */
+  const applied = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (applied.current === keyOf(range)) return
+    applied.current = null
+    setPrevious(null)
+  }, [range])
+
+  const press = (preset: PresetId, active: boolean) => {
+    // The lit button goes back where it can, and is otherwise inert — the page
+    // always has some period selected, so there is nothing to toggle off to.
+    if (active && !previous) return
+
+    const next = active ? (previous as DateRange) : rangeFromPreset(preset)
+    setPrevious(active ? null : range)
+    applied.current = keyOf(next)
+    onRangeChange(next)
+  }
+
   return (
     <div className="flex overflow-hidden rounded-lg border border-btn-border">
-      <QuickDay
-        preset="yesterday"
-        label="Yesterday"
-        range={range}
-        onRangeChange={onRangeChange}
-      />
+      <QuickDay preset="yesterday" label="Yesterday" range={range} onPress={press} canReturn={!!previous} />
       <span aria-hidden className="w-px bg-btn-border" />
-      <QuickDay
-        preset="today"
-        label="Today"
-        range={range}
-        onRangeChange={onRangeChange}
-      />
+      <QuickDay preset="today" label="Today" range={range} onPress={press} canReturn={!!previous} />
     </div>
   )
+}
+
+function keyOf(range: DateRange): string {
+  return `${range.start}:${range.end}`
 }
 
 function QuickDay({
   preset,
   label,
   range,
-  onRangeChange,
+  onPress,
+  canReturn,
 }: {
   preset: PresetId
   label: string
   range: DateRange
-  onRangeChange: (range: DateRange) => void
+  onPress: (preset: PresetId, active: boolean) => void
+  /** Whether pressing the lit button has somewhere to go back to. */
+  canReturn: boolean
 }) {
   /*
    * Matched on the dates rather than on `range.preset`.
@@ -131,8 +156,10 @@ function QuickDay({
   return (
     <button
       type="button"
-      onClick={() => onRangeChange(rangeFromPreset(preset))}
+      onClick={() => onPress(preset, active)}
       aria-pressed={active}
+      // Says what the second press does, since the button's own word cannot.
+      title={active && canReturn ? `Back to the previous period` : undefined}
       className={`px-2.5 py-2 text-[13px] transition-colors ${
         active
           ? 'bg-[#5b9bd8]/12 text-ink'
