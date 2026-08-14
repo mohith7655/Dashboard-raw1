@@ -9,6 +9,7 @@ import { ProfitSummaryCard } from './components/sections/ProfitSummaryCard'
 import { CouponUsageCard } from './components/sections/CouponUsageCard'
 import { AdsSection } from './components/sections/AdsSection'
 import { AdsStatsCard } from './components/sections/AdsStatsCard'
+import { FunnelStatsCard } from './components/sections/FunnelStatsCard'
 import { AdSpendSection } from './components/sections/AdSpendSection'
 import { MarketsTrafficSection } from './components/sections/MarketsTrafficSection'
 import { ProfitLossSection } from './components/sections/ProfitLossSection'
@@ -335,6 +336,24 @@ export default function App() {
     setPage(1)
     setDismissed([])
     setOpenCustomer(null)
+
+    /*
+     * Back to the top of whichever tab is open — the tab itself does not
+     * change, and this is what stops it looking as though it had.
+     *
+     * A day holds far less than a month: campaign tables empty, breakdown
+     * rows collapse from thirty to one, and several tabs lose most of their
+     * height. A reader scrolled deep into the old content keeps that scroll
+     * offset, so the browser leaves them against whatever now sits there — or
+     * pinned to the bottom of a page that no longer reaches them. Either reads
+     * as having been sent somewhere else rather than as the page having shrunk
+     * under them.
+     *
+     * Instant rather than smooth: from three thousand pixels down a smooth
+     * scroll is a long animated fall, and the reader has already asked for a
+     * different period rather than for a tour of the old one.
+     */
+    window.scrollTo({ top: 0, behavior: 'auto' })
   }
 
   const onSortChange = (field: OrderSortField) => {
@@ -694,15 +713,31 @@ export default function App() {
                 />
               }
               beforeStats={
-                <AdsStatsCard
-                  metrics={adsData.combined ?? undefined}
-                  platforms={adsData.reportedAds}
-                  blended={adsData.blended}
-                  subtitle={scopeOf(adsData.reportedAds)}
-                  loading={adsData.adsLoading}
-                  analysis={analysisFor('ads')}
-                  rangeControl={<SectionRangeControl {...adsScope.control} />}
-                />
+                <>
+                  <AdsStatsCard
+                    metrics={adsData.combined ?? undefined}
+                    platforms={adsData.reportedAds}
+                    blended={adsData.blended}
+                    subtitle={scopeOf(adsData.reportedAds)}
+                    loading={adsData.adsLoading}
+                    analysis={analysisFor('ads')}
+                    rangeControl={<SectionRangeControl {...adsScope.control} />}
+                  />
+
+                  {/* Directly under the spend, because these are what it
+                      bought. On the page's own window rather than the ad
+                      card's: leads and traffic are page-level queries, and the
+                      range control above moves only the figures Metorik
+                      serves to that card. */}
+                  <FunnelStatsCard
+                    woo={woo.data}
+                    traffic={traffic.data}
+                    leads={leadData.data}
+                    range={range}
+                    against={against}
+                    loading={woo.isLoading || traffic.isLoading}
+                  />
+                </>
               }
               footer={
                 // The statement names coupons as one line — a single figure
