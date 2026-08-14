@@ -3,7 +3,7 @@ import { Percent, Receipt } from 'lucide-react'
 import type { AdsMetrics, DateRange, OperatingCost, WooMetrics } from '../../lib/types'
 import { profitWaterfall } from '../../lib/pnl'
 import { costLines, totalOperatingCost } from '../../lib/operatingCosts'
-import { formatCurrency, formatPercent, formatPrevious } from '../../lib/format'
+import { formatCurrency, formatPercent, formatComparison, } from '../../lib/format'
 import { type StatRowData } from '../StatRows'
 import { RowsCard } from '../RowsCard'
 import { SectionLabel } from '../SectionLabel'
@@ -77,7 +77,7 @@ export function ProfitLossSection({
         kind: 'total',
         share: null,
         change: woo.totalRevenue.deltaPct,
-        previous: formatPrevious(woo.totalRevenue, formatCurrency),
+        ...formatComparison(woo.totalRevenue, formatCurrency),
       },
       {
         label: 'Total cost',
@@ -85,7 +85,7 @@ export function ProfitLossSection({
         kind: 'part',
         share: woo.totalRevenue.value ? woo.totalCost.value / woo.totalRevenue.value : 0,
         change: woo.totalCost.deltaPct,
-        previous: formatPrevious(woo.totalCost, formatCurrency),
+        ...formatComparison(woo.totalCost, formatCurrency),
         polarity: 'down-good',
       },
       {
@@ -94,7 +94,7 @@ export function ProfitLossSection({
         kind: 'part',
         share: woo.totalRevenue.value ? woo.grossProfit.value / woo.totalRevenue.value : 0,
         change: woo.grossProfit.deltaPct,
-        previous: formatPrevious(woo.grossProfit, formatCurrency),
+        ...formatComparison(woo.grossProfit, formatCurrency),
       },
       {
         // No share of its own: it is already the share the row above takes of
@@ -105,7 +105,7 @@ export function ProfitLossSection({
         kind: 'part',
         share: null,
         change: woo.grossMargin.deltaPct,
-        previous: formatPrevious(woo.grossMargin, formatPercent),
+        ...formatComparison(woo.grossMargin, formatPercent),
       },
     ]
   }, [woo])

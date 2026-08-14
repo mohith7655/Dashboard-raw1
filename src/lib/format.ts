@@ -166,3 +166,23 @@ export function formatDifference(
   if (difference === 0) return `±${format(0)}`
   return `${difference > 0 ? '+' : '−'}${format(Math.abs(difference))}`
 }
+
+/**
+ * A figure's baseline and the move to it, ready to spread onto a row.
+ *
+ * Both are struck from the one metric so they cannot disagree: the move is
+ * always this row's figure less the baseline printed beside it, rather than
+ * something recovered from a percentage. Where the source knew no baseline
+ * both come back undefined, and the row prints neither — which is the
+ * distinction between "did not move" and "nothing to compare against".
+ */
+export function formatComparison(
+  m: { value: number; previous?: number | null },
+  format: (n: number) => string,
+): { previous?: string; difference?: string } {
+  if (m.previous === null || m.previous === undefined) return {}
+  return {
+    previous: format(m.previous),
+    difference: formatDifference(m.value - m.previous, format),
+  }
+}

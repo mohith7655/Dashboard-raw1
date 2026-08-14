@@ -11,7 +11,7 @@ import {
   formatDeltaPercent,
   formatInteger,
   formatPercent,
-  formatPrevious as was,
+  formatComparison,
 } from '../../lib/format'
 import { RowsCard } from '../RowsCard'
 import { SectionLabel } from '../SectionLabel'
@@ -109,7 +109,7 @@ export function LeadsSection({
         kind: 'part',
         share: total ? count.value / total : 0,
         change: count.deltaPct,
-        previous: was(count, formatInteger),
+        ...formatComparison(count, formatInteger),
         polarity: 'up-good',
       })
     }
@@ -142,7 +142,7 @@ export function LeadsSection({
         kind: 'part',
         share: listOrders ? count.value / listOrders : 0,
         change: count.deltaPct,
-        previous: was(count, formatInteger),
+        ...formatComparison(count, formatInteger),
         polarity: 'up-good',
       })
     }

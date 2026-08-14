@@ -7,6 +7,7 @@ import {
   formatCtr,
   formatDecimal,
   formatInteger,
+  formatComparison,
 } from '../../lib/format'
 import { DataTable, paginateRows, type Column } from '../DataTable'
 import { RowsCard } from '../RowsCard'
@@ -93,7 +94,12 @@ export function SearchConsoleCard({
           kind: 'total',
           share: null,
           change: metric((t) => t.impressions)?.deltaPct ?? null,
-          previous: was ? formatInteger(was.impressions) : undefined,
+          ...(was
+            ? formatComparison(
+                { value: totals.impressions, previous: was.impressions },
+                formatInteger,
+              )
+            : {}),
         },
         {
           label: 'Organic clicks',
@@ -101,7 +107,9 @@ export function SearchConsoleCard({
           kind: 'part',
           share: totals.impressions ? totals.clicks / totals.impressions : 0,
           change: metric((t) => t.clicks)?.deltaPct ?? null,
-          previous: was ? formatInteger(was.clicks) : undefined,
+          ...(was
+            ? formatComparison({ value: totals.clicks, previous: was.clicks }, formatInteger)
+            : {}),
         },
         {
           // No share of its own: it is already the share the row above takes of
@@ -111,7 +119,9 @@ export function SearchConsoleCard({
           kind: 'part',
           share: null,
           change: metric((t) => t.ctr)?.deltaPct ?? null,
-          previous: was ? formatCtr(was.ctr) : undefined,
+          ...(was
+            ? formatComparison({ value: totals.ctr, previous: was.ctr }, formatCtr)
+            : {}),
         },
         {
           label: 'Avg. position',
@@ -119,7 +129,9 @@ export function SearchConsoleCard({
           kind: 'total',
           share: null,
           change: metric((t) => t.position)?.deltaPct ?? null,
-          previous: was ? formatDecimal(was.position) : undefined,
+          ...(was
+            ? formatComparison({ value: totals.position, previous: was.position }, formatDecimal)
+            : {}),
           // Rank 3 beats rank 8: a fall in this number is a rise up the page.
           polarity: 'down-good',
         },

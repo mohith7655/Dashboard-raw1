@@ -6,10 +6,10 @@ import {
   formatCurrency,
   formatInteger,
   formatRoas,
+  formatComparison,
 } from '../../lib/format'
 import { StatRows, type StatRowData } from '../StatRows'
 import { Skeleton } from '../Skeleton'
-import { formatPrevious } from '../../lib/format'
 import { SectionLabel } from '../SectionLabel'
 
 interface AdsSectionProps {
@@ -102,7 +102,7 @@ export function AdsSection({
         kind: 'total',
         share: null,
         change: metrics[key].deltaPct,
-        previous: formatPrevious(metrics[key], format),
+        ...formatComparison(metrics[key], format),
         polarity,
       })
 
@@ -124,7 +124,7 @@ export function AdsSection({
           // Each platform's own change, not a share of the combined one — Meta
           // can be up over the window while Google is down.
           change: platform.metrics[key].deltaPct,
-          previous: formatPrevious(platform.metrics[key], format),
+          ...formatComparison(platform.metrics[key], format),
           polarity,
         })
       }

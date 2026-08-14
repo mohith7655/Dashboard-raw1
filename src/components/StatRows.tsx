@@ -1,6 +1,5 @@
-import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { Polarity } from '../lib/types'
-import { formatDeltaPercent, formatPercent } from '../lib/format'
+import { formatPercent } from '../lib/format'
 
 /** A heading figure, or one of the parts that make it up. */
 export interface StatRowData {
@@ -10,23 +9,43 @@ export interface StatRowData {
   kind: 'total' | 'part'
   /** Share of the heading above it, where the parts add up to one. */
   share: number | null
+  /**
+   * Retained on the type but no longer drawn — see the note on `StatRows`. The
+   * rows state the move in the figure's own units instead.
+   */
   change: number | null
   /**
    * The same figure over the comparison window, already formatted.
    *
-   * A percentage says a direction and a size but not a scale: `+40%` off a base
-   * the reader cannot see is unreadable, and on a small base it is noise dressed
-   * as news. Printed beside the change rather than in place of it, so the row
-   * carries both what moved and what it moved from.
+   * This is what a row is actually read against, so it sits in the column the
+   * percentage used to hold rather than in small print underneath it.
    */
   previous?: string
+  /**
+   * The move from that baseline, signed and in the figure's own units.
+   *
+   * The pair replaces the percentage. `+40%` off a base the reader cannot see
+   * is unreadable, and on a small base it is noise dressed as news — `130 → 91`
+   * says at a glance what `−30.0%` needed a second figure to explain. Struck
+   * from the two numbers beside it, never recovered from a percentage.
+   */
+  difference?: string
   /** Which direction reads as good. Defaults to up. */
   polarity?: Polarity
 }
 
-function changeColor(change: number, polarity: Polarity): string {
-  if (polarity === 'neutral' || change === 0) return 'text-muted'
-  const good = polarity === 'down-good' ? change < 0 : change > 0
+/**
+ * The ink a move is set in, read off its own sign.
+ *
+ * `formatDifference` writes `+`, `−` (U+2212) or `±` for no change, so the
+ * string carries its direction and there is no second number to consult. A
+ * move of nothing stays neutral whatever the polarity — it went nowhere, which
+ * is neither good nor bad.
+ */
+function moveColor(difference: string, polarity: Polarity): string {
+  if (polarity === 'neutral' || difference.startsWith('±')) return 'text-muted'
+  const rose = difference.startsWith('+')
+  const good = polarity === 'down-good' ? !rose : rose
   return good ? 'text-pos' : 'text-neg'
 }
 
@@ -39,11 +58,11 @@ function changeColor(change: number, polarity: Polarity): string {
  * inch from the label naming it, and the eye has to cross the gap.
  */
 export function StatRows({ rows }: { rows: StatRowData[] }) {
-  const anyChange = rows.some((row) => row.change !== null)
   const anyShare = rows.some((row) => row.share !== null)
   // Only when a comparison is actually running. With it off no row carries a
-  // baseline, and an empty column would take width from the figures.
+  // baseline, and two empty columns would take width from the figures.
   const anyPrevious = rows.some((row) => row.previous !== undefined)
+  const anyDifference = rows.some((row) => row.difference !== undefined)
 
   return (
     // On a narrow screen the rows scroll sideways rather than wrapping a
@@ -55,16 +74,16 @@ export function StatRows({ rows }: { rows: StatRowData[] }) {
           a real horizontal scroller nested in a vertical page. */}
       <dl
         className={`flex flex-col ${
-          anyChange ? 'min-w-[20rem]' : 'min-w-[14.5rem]'
+          anyPrevious ? 'min-w-[21rem]' : 'min-w-[14.5rem]'
         }`}
       >
         {rows.map((row, index) => (
           <StatRow
             key={`${row.label}-${index}`}
             row={row}
-            showChange={anyChange}
             showShare={anyShare}
             showPrevious={anyPrevious}
+            showDifference={anyDifference}
           />
         ))}
       </dl>
@@ -74,14 +93,14 @@ export function StatRows({ rows }: { rows: StatRowData[] }) {
 
 function StatRow({
   row,
-  showChange,
   showShare,
   showPrevious,
+  showDifference,
 }: {
   row: StatRowData
-  showChange: boolean
   showShare: boolean
   showPrevious: boolean
+  showDifference: boolean
 }) {
   const total = row.kind === 'total'
 
@@ -103,59 +122,44 @@ function StatRow({
       >
         {row.label}
       </dt>
-      {/* Two lines, not five columns. The baseline used to sit out at the far
-          right behind the word "vs", which put the figure and the figure it
-          moved from at opposite ends of the row — the one comparison the row
-          exists to make, and the eye had to cross everything else to make it.
-          Stacked directly underneath, the pair reads as a pair and the word
-          becomes unnecessary: a smaller, quieter number under a larger one is
-          already saying "before". */}
-      <dd className="flex shrink-0 flex-col">
-        <div className="flex items-baseline gap-1.5">
-          {/* A floor rather than a fixed width: the figures line up at the
-              magnitudes these lists hold, and an unusually large one widens its
-              column instead of being clipped. */}
+      {/* One line, and the comparison reads left to right: the figure, then
+          what it was, then the move between them. The baseline used to sit in
+          small print underneath and the percentage in the column now holding
+          the move — which meant the two numbers a row exists to compare were
+          on different lines, and the number bridging them was a proportion the
+          reader had to translate back into the unit they were reading. */}
+      <dd className="flex shrink-0 items-baseline gap-1.5">
+        {/* A floor rather than a fixed width: the figures line up at the
+            magnitudes these lists hold, and an unusually large one widens its
+            column instead of being clipped. */}
+        <span
+          className={`min-w-[4.75rem] text-right tabular-nums ${
+            total ? 'text-[12px] font-semibold text-ink' : 'text-[11px] text-muted'
+          }`}
+        >
+          {row.value}
+        </span>
+        {/* Each column holds its width even where a row has no figure for it,
+            so one gap cannot shunt the column beside it out of alignment. */}
+        {showShare && (
+          <span className="w-11 text-right text-[11px] tabular-nums text-muted">
+            {row.share === null ? '' : formatPercent(row.share)}
+          </span>
+        )}
+        {showPrevious && (
+          <span className="w-[4.75rem] text-right text-[11px] tabular-nums text-label">
+            {row.previous ?? ''}
+          </span>
+        )}
+        {showDifference && (
           <span
-            className={`min-w-[4.75rem] text-right tabular-nums ${
-              total ? 'text-[12px] font-semibold text-ink' : 'text-[11px] text-muted'
+            className={`w-[4.5rem] text-right text-[11px] tabular-nums ${
+              row.difference === undefined
+                ? 'text-muted'
+                : moveColor(row.difference, row.polarity ?? 'up-good')
             }`}
           >
-            {row.value}
-          </span>
-          {/* Each column holds its width even where a row has no figure for it,
-              so one gap cannot shunt the column beside it out of alignment. */}
-          {showShare && (
-            <span className="w-11 text-right text-[11px] tabular-nums text-muted">
-              {row.share === null ? '' : formatPercent(row.share)}
-            </span>
-          )}
-          {showChange && (
-            <span
-              className={`flex w-[4rem] items-center justify-end gap-0.5 text-[11px] tabular-nums ${
-                row.change === null
-                  ? 'text-muted'
-                  : changeColor(row.change, row.polarity ?? 'up-good')
-              }`}
-            >
-              {row.change !== null && (
-                <>
-                  {row.change < 0 ? (
-                    <ArrowDown size={10} strokeWidth={3} />
-                  ) : (
-                    <ArrowUp size={10} strokeWidth={3} />
-                  )}
-                  {formatDeltaPercent(row.change)}
-                </>
-              )}
-            </span>
-          )}
-        </div>
-        {/* Rendered whenever any row carries a baseline, empty where this one
-            does not: a line that appeared and vanished down the list would give
-            the rows ragged heights and break the scan the columns exist for. */}
-        {showPrevious && (
-          <span className="min-w-[4.75rem] text-right text-[10.5px] leading-tight tabular-nums text-label">
-            {row.previous ?? ''}
+            {row.difference ?? ''}
           </span>
         )}
       </dd>

@@ -11,7 +11,7 @@ import {
   formatCurrency,
   formatInteger,
   formatPercent,
-  formatPrevious,
+  formatComparison,
 } from '../../lib/format'
 import { StatRows, type StatRowData } from '../StatRows'
 import { SectionLabel } from '../SectionLabel'
@@ -212,7 +212,7 @@ function TrafficCard({
       kind: 'total',
       share: null,
       change: traffic.visitors.deltaPct,
-      previous: formatPrevious(traffic.visitors, formatInteger),
+      ...formatComparison(traffic.visitors, formatInteger),
     })
     rows.push({
       label: 'Converting',
@@ -222,7 +222,7 @@ function TrafficCard({
       // it belongs rather than as a figure of its own.
       share: visitors === 0 ? 0 : traffic.orders.value / visitors,
       change: traffic.orders.deltaPct,
-      previous: formatPrevious(traffic.orders, formatInteger),
+      ...formatComparison(traffic.orders, formatInteger),
     })
     rows.push({
       label: 'Conversion rate',
@@ -230,7 +230,7 @@ function TrafficCard({
       kind: 'total',
       share: null,
       change: traffic.conversionRate.deltaPct,
-      previous: formatPrevious(traffic.conversionRate, formatPercent),
+      ...formatComparison(traffic.conversionRate, formatPercent),
     })
     if (woo && !wooFailed && visitors > 0) {
       rows.push({

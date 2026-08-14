@@ -1,7 +1,7 @@
 import { Truck } from 'lucide-react'
 import type { CostSlice } from '../../lib/pnl'
 import type { Metric } from '../../lib/types'
-import { formatCurrency, formatPercent, formatPrevious } from '../../lib/format'
+import { formatComparison, formatCurrency, formatPercent } from '../../lib/format'
 import { StatRows, type StatRowData } from '../StatRows'
 import { Skeleton } from '../Skeleton'
 
@@ -99,7 +99,7 @@ function buildRows({
     // measured against other things entirely.
     share: null,
     change: costMetric?.deltaPct ?? null,
-    previous: costMetric ? formatPrevious(costMetric, formatCurrency) : undefined,
+    ...(costMetric ? formatComparison(costMetric, formatCurrency) : {}),
     polarity: down,
   })
   rows.push({
@@ -110,7 +110,7 @@ function buildRows({
     change: costMetric?.deltaPct ?? null,
     // The metric behind both rows is the carrier cost, so this is its baseline
     // and the total's above it only where no extra costs were entered.
-    previous: costMetric ? formatPrevious(costMetric, formatCurrency) : undefined,
+    ...(costMetric ? formatComparison(costMetric, formatCurrency) : {}),
     polarity: down,
   })
   // Only where some exist. A store that has entered none should not have to

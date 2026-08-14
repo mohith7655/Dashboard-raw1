@@ -11,8 +11,8 @@ import {
   formatInteger,
   formatDifference,
   formatPercent,
-  formatPrevious as was,
   formatRoas,
+  formatComparison,
 } from '../../lib/format'
 import {
   AnalyseButton,
@@ -417,7 +417,7 @@ function buildRows(
       kind: 'total',
       share: null,
       change: reports(metrics, key) ? metrics[key].deltaPct : null,
-      previous: reports(metrics, key) ? was(metrics[key], format) : undefined,
+      ...(reports(metrics, key) ? formatComparison(metrics[key], format) : {}),
       polarity,
     })
 
@@ -441,7 +441,7 @@ function buildRows(
         // can be up over the window while Google is down. Its own baseline for
         // the same reason.
         change: known ? platform.metrics[key].deltaPct : null,
-        previous: known ? was(platform.metrics[key], format) : undefined,
+        ...(known ? formatComparison(platform.metrics[key], format) : {}),
         polarity,
       })
     }
