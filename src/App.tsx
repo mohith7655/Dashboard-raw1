@@ -47,7 +47,7 @@ import { buildSnapshot } from './lib/insightsSnapshot'
 import { blendedAds, combinedAds } from './lib/pnl'
 import { failedOrderCount } from './lib/derive'
 import { costLines } from './lib/operatingCosts'
-import type { DashboardView } from './lib/navigation'
+import { useDashboardView } from './lib/useDashboardView'
 import {
   useGoogleAdsMetrics,
   useInsights,
@@ -169,7 +169,9 @@ export default function App() {
     [pickedRange, excludeToday],
   )
   const [comparison, setComparison] = useState<Comparison>(DEFAULT_COMPARISON)
-  const [view, setView] = useState<DashboardView>('overview')
+  // Read from and written to the URL hash, so a refresh or a bookmark comes
+  // back to the tab that was open rather than to the Overview.
+  const [view, setView] = useDashboardView()
   const [page, setPage] = useState(1)
   const [sort, setSort] = useState<OrderSortField>('date')
   const [direction, setDirection] = useState<SortDirection>('desc')
