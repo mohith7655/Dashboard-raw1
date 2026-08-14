@@ -710,15 +710,21 @@ export function ProfitSummaryCard({
                           {formatDeltaPercent(figure.change)}
                         </span>
                       )}
-                      {figure.previous !== undefined && (
-                        <span className="text-[11px] tabular-nums text-label">
-                          {figure.previous}
-                        </span>
-                      )}
                     </div>
-                    {figure.difference !== undefined && (
-                      <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[11px] tabular-nums">
-                        <span className={MOVE_INK}>{figure.difference}</span>
+                    {/* The two comparison figures share the second line: what
+                        it was, and how far it moved. They were on separate
+                        lines only because the baseline sat in the row above
+                        and wrapped out of it at this width — three lines of
+                        figures under a label, where two say the same thing. */}
+                    {(figure.previous !== undefined ||
+                      figure.difference !== undefined) && (
+                      <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-[11px] tabular-nums">
+                        {figure.previous !== undefined && (
+                          <span className="text-label">{figure.previous}</span>
+                        )}
+                        {figure.difference !== undefined && (
+                          <span className={MOVE_INK}>{figure.difference}</span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -819,8 +825,10 @@ export function ProfitSummaryCard({
 /**
  * One figure of the strip, in a box that opens what it is made of.
  *
- * The baseline reads inline after the change — `+22.9% vs $552.44` is one
- * sentence, where a figure on a second line doubles the height of every column.
+ * Two lines under the label: the figure with its percentage, then the two
+ * figures that percentage is made from — what it was, and how far it moved.
+ * Splitting those across two lines cost a third row of height in every column
+ * of the grid to say nothing the pair does not say together.
  */
 function StripFigure({
   figure,
@@ -871,15 +879,19 @@ function StripFigure({
             {formatDeltaPercent(figure.change)}
           </span>
         )}
-        {figure.previous !== undefined && (
-          <span className="text-[11px] tabular-nums text-label">{figure.previous}</span>
-        )}
       </div>
-      {/* The baseline now follows the percentage above; this line preserves
-          the absolute move without repeating that comparison figure. */}
-      {figure.difference !== undefined && (
-        <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[11px] tabular-nums">
-          <span className={MOVE_INK}>{figure.difference}</span>
+      {/* Both comparison figures on the second line — what it was, then how
+          far it moved. The baseline used to sit in the row above and wrap out
+          of it in a box this narrow, which cost a third line to say the same
+          thing. Two lines under the label, at every width. */}
+      {(figure.previous !== undefined || figure.difference !== undefined) && (
+        <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-[11px] tabular-nums">
+          {figure.previous !== undefined && (
+            <span className="text-label">{figure.previous}</span>
+          )}
+          {figure.difference !== undefined && (
+            <span className={MOVE_INK}>{figure.difference}</span>
+          )}
         </div>
       )}
     </button>

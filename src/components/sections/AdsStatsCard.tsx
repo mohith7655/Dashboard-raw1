@@ -369,13 +369,19 @@ function HeadlineFigure({ figure }: { figure: FigureSpec }) {
             {formatDeltaPercent(change)}
           </span>
         )}
-        {previous !== undefined && (
-          <span className="text-[11px] tabular-nums text-label">{previous}</span>
-        )}
       </div>
-      {difference !== undefined && (
-        <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[11px] tabular-nums">
-          <span className="text-[#5a5a62]">{difference}</span>
+      {/* Both comparison figures on one line — what it was, then how far it
+          moved. Matches the boxes in the CEO statement beside it, which is the
+          point: two cards in one section should not count their lines
+          differently. */}
+      {(previous !== undefined || difference !== undefined) && (
+        <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-[11px] tabular-nums">
+          {previous !== undefined && (
+            <span className="text-label">{previous}</span>
+          )}
+          {difference !== undefined && (
+            <span className="text-[#5a5a62]">{difference}</span>
+          )}
         </div>
       )}
     </div>
