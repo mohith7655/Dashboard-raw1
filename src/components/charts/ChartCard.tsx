@@ -3,7 +3,8 @@ import { Skeleton } from '../Skeleton'
 
 interface ChartCardProps {
   title: string
-  subtitle: string
+  /** Omitted, or empty, where the plot and its legend say enough on their own. */
+  subtitle?: string
   height: number
   loading?: boolean
   /** Rendered in place of the plot when the source failed. */
@@ -22,7 +23,9 @@ export function ChartCard({
   return (
     <div className="card">
       <h3 className="text-[15px] font-semibold text-ink">{title}</h3>
-      <p className="mt-0.5 text-[12px] text-muted">{subtitle}</p>
+      {/* Nothing at all rather than an empty paragraph, which would still take
+          its line height and leave the plot sitting low in the card. */}
+      {subtitle && <p className="mt-0.5 text-[12px] text-muted">{subtitle}</p>}
 
       <div className="mt-4" style={{ height }}>
         {loading ? (
