@@ -137,12 +137,6 @@ export const DASHBOARD_TABS: DashboardTab[] = [
     blurb: 'Spend across every platform, measured against store revenue.',
   },
   {
-    id: 'shipping',
-    label: 'Shipping Costs',
-    icon: Truck,
-    blurb: 'What shipping costs to fulfil, per order and against revenue.',
-  },
-  {
     id: 'leads',
     label: 'Lead Data',
     icon: Users,
@@ -186,6 +180,12 @@ export const DASHBOARD_TABS: DashboardTab[] = [
     label: 'Insights',
     icon: Sparkles,
     blurb: 'What the period’s figures add up to, and what to do about it — written by OpenAI on request.',
+  },
+  {
+    id: 'shipping',
+    label: 'Shipping Costs',
+    icon: Truck,
+    blurb: 'What shipping costs to fulfil, per order and against revenue.',
   },
 ]
 

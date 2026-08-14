@@ -4,7 +4,14 @@ import type {
   MailchimpBenchmark,
   MailchimpJourney,
 } from '../../lib/types'
-import { formatCtr, formatDay, formatInteger, formatPercent } from '../../lib/format'
+import { daysInRange, latestAvailableDate } from '../../lib/dateRange'
+import {
+  formatCtr,
+  formatDay,
+  formatDecimal,
+  formatInteger,
+  formatPercent,
+} from '../../lib/format'
 
 interface AutomationsCardProps {
   automations: MailchimpAutomation[]
@@ -109,10 +116,11 @@ export function AutomationsCard({
             note="Email sent by each series, and how it was received"
           />
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px] border-collapse text-[13px]">
+            <table className="w-full min-w-[680px] border-collapse text-[13px]">
               <thead>
                 <tr className="border-b border-line text-left">
                   <Th className="pl-5">Automation</Th>
+                  <Th align="right">Sent / day</Th>
                   <Th align="right">Sent</Th>
                   <Th align="right">Open rate</Th>
                   <Th align="right" className="pr-5">
@@ -121,7 +129,9 @@ export function AutomationsCard({
                 </tr>
               </thead>
               <tbody>
-                {automations.map((a) => (
+                {automations.map((a) => {
+                  const rate = perDay(a)
+                  return (
                   <tr key={a.id} className="border-b border-row-line last:border-0">
                     <Td className="pl-5">
                       <Name
@@ -131,6 +141,13 @@ export function AutomationsCard({
                           a.startedAt ? `since ${formatDay(a.startedAt.slice(0, 10))}` : ''
                         }
                       />
+                    </Td>
+                    {/* The rate first, then the total it was struck from —
+                        a lifetime count says how long a series has run as
+                        much as how hard it works, and the two together say
+                        which. */}
+                    <Td align="right" className="tabular-nums text-ink">
+                      {rate === null ? '—' : formatDecimal(rate)}
                     </Td>
                     <Td align="right" className="tabular-nums text-muted">
                       {formatInteger(a.emailsSent)}
@@ -142,7 +159,8 @@ export function AutomationsCard({
                       {formatCtr(a.clickRate)}
                     </Td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -155,11 +173,32 @@ export function AutomationsCard({
           {formatCtr(benchmark.clickRate)} clicks. An automation reaches somebody
           who has just asked to hear from you, which is why these tend to beat
           both the benchmark and the broadcast campaigns above. The journeys have
-          no rate to compare — they report contacts rather than email.
+          no rate to compare — they report contacts rather than email. Mail a day
+          is averaged over every day since each series started; Mailchimp
+          publishes no date for when a paused one stopped, so those averages
+          cover days that sent nothing and read low.
         </p>
       )}
     </div>
   )
+}
+
+/**
+ * Mail a day, averaged across every day since the series was switched on.
+ *
+ * Null where Mailchimp reported no start date, since there is then no span to
+ * divide by. For a paused series the span still runs to today — the API says
+ * when an automation started but never when it stopped, so the average covers
+ * days it was not sending and reads low. That is said under the table rather
+ * than corrected for, because correcting for it would need a date Mailchimp
+ * does not publish.
+ */
+function perDay(a: MailchimpAutomation): number | null {
+  if (!a.startedAt) return null
+  const start = a.startedAt.slice(0, 10)
+  const end = latestAvailableDate()
+  if (start > end) return null
+  return a.emailsSent / daysInRange({ start, end, preset: 'custom' })
 }
 
 /** Names one of the two halves, in Mailchimp's own words for it. */
