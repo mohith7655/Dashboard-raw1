@@ -63,8 +63,9 @@ export function StoreStatsCard({
     // grouping; a card background would make it look detached from the spend
     // and funnel figures that lead into it.
     <div>
-      <div className="kpi-label truncate">Orders and customers</div>
-
+      {/* No label of its own. The section heading directly above says Orders &
+          Customers, and a card repeating it under its own heading read as two
+          different groupings rather than one. */}
       {loading ? (
         <div className="mt-3 flex flex-col gap-2 border-t border-row-line pt-3">
           <Skeleton className="h-3.5 w-full" />

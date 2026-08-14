@@ -1,24 +1,6 @@
-import type {
-  DateRange,
-  LeadReport,
-  TrafficMetrics,
-  WooMetrics,
-} from '../../lib/types'
 import { SectionLabel } from '../SectionLabel'
-import { StoreStatsCard } from './StoreStatsCard'
 
 interface WooCommerceSectionProps {
-  metrics: WooMetrics | undefined
-  loading: boolean
-  failed: boolean
-  /** The selected period, for the figures measured per day of it. */
-  range: DateRange
-  /** The window those are compared against, or null when comparison is off. */
-  against: DateRange | null
-  /** Passed straight through to the stats card, which counts them. */
-  leads: LeadReport | undefined
-  /** Also for the stats card — the denominator under the lead rate. */
-  traffic: TrafficMetrics | undefined
   /**
    * Controls on the section's own title row, right-aligned.
    *
@@ -36,48 +18,31 @@ interface WooCommerceSectionProps {
    * open the statement to reach.
    */
   analysis?: React.ReactNode
-  /** Leads the section, above the store figures — the statement in full. */
+  /** Leads the section — the statement in full. */
   summary?: React.ReactNode
   /**
-   * Between the statement and the store figures.
+   * Under the statement.
    *
    * Where the advertising sits: it is what the statement's costliest line was
-   * spent on, and it reads before the order counts because those are the thing
-   * the spend was meant to produce.
+   * spent on, and it reads immediately after the line it explains.
    */
   beforeStats?: React.ReactNode
-  /**
-   * Closes the section, below the store figures.
-   *
-   * Its own slot rather than a second child of `summary`, so the order the
-   * cards read in is stated here instead of depending on how the caller
-   * happened to nest them.
-   */
-  footer?: React.ReactNode
 }
 
 /**
- * The statement, then who bought and how often — both as rows rather than one
- * document above a row of tiles restating it.
+ * The money the period made and what was spent to make it.
  *
- * The KPI grid that stood here held total sales, customers, average order
- * value and total orders, and below them the costs and profit the statement
- * already carried line by line. Total sales was on it twice, and its own copy
- * disagreed with the statement's by the discounts.
+ * Order counts used to close this section. They have their own now — see
+ * `OrdersCustomersSection` — because they answer a different question: this
+ * section is what the period earned, that one is who bought. Keeping them
+ * together meant one heading over both, and a reader looking for customers
+ * had to know to find them under a statement.
  */
 export function WooCommerceSection({
-  metrics,
-  loading,
-  failed,
-  range,
-  against,
-  leads,
-  traffic,
   actions,
   analysis,
   summary,
   beforeStats,
-  footer,
 }: WooCommerceSectionProps) {
   return (
     <section>
@@ -89,24 +54,9 @@ export function WooCommerceSection({
       {/* Under the control that opens it, above everything it is about. */}
       {analysis}
 
-      {/* Statement, then what was spent to fill it, then who bought, then what
-          was given away to make them buy. The order counts read after the
-          advertising because they are what the advertising was meant to
-          produce; the coupons that discounted them are a footnote to all three
-          and read last. */}
       <div className="flex flex-col gap-4">
         {summary}
         {beforeStats}
-        <StoreStatsCard
-          metrics={metrics}
-          range={range}
-          against={against}
-          leads={leads}
-          traffic={traffic}
-          loading={loading}
-          failed={failed}
-        />
-        {footer}
       </div>
     </section>
   )

@@ -3,6 +3,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { FacebookGlyph, GoogleGlyph } from '../components/SectionLabel'
 import { DashboardTabs } from '../components/DashboardTabs'
 import { WooCommerceSection } from '../components/sections/WooCommerceSection'
+import { OrdersCustomersSection } from '../components/sections/OrdersCustomersSection'
 import { ProfitSummaryCard } from '../components/sections/ProfitSummaryCard'
 import { CouponUsageCard } from '../components/sections/CouponUsageCard'
 import { AdsSection } from '../components/sections/AdsSection'
@@ -199,16 +200,6 @@ export function DashboardPage() {
       {view === 'overview' && (
         <div className="flex flex-col gap-8">
           <WooCommerceSection
-            metrics={woo.data}
-            loading={woo.isLoading}
-            failed={!!woo.error}
-            range={range}
-            against={against}
-            // This page is not mounted; App.tsx carries the live wiring,
-            // including the leads and traffic queries. Without them the stats
-            // card simply omits its lead rows.
-            leads={undefined}
-            traffic={undefined}
             summary={
               <ProfitSummaryCard
                 woo={woo.data}
@@ -240,28 +231,38 @@ export function DashboardPage() {
                 analysis={INERT_ANALYSIS}
               />
             }
-            footer={
-              // The statement names coupons as one line — a single figure come
-              // off gross sales. Which codes that figure was, and whether they
-              // are being reached for more than before, closes the section: it
-              // is a footnote to both the statement and the order counts above.
-              <CouponUsageCard
-                couponsUsed={coupons.data?.couponsUsed}
-                discountTotal={
-                  // The statement above reads its coupon figure off the order
-                  // totals, which is the authority. Metorik's per-coupon report
-                  // can leave a code's discount at zero, and a card that summed
-                  // those would state a smaller total than the line it
-                  // descends from.
-                  woo.data ? { value: woo.data.pnl.discounts, deltaPct: null } : undefined
-                }
-                coupons={coupons.data?.topCoupons ?? []}
-                lapsedCodes={coupons.data?.lapsedCodes}
-                against={against}
-                loading={coupons.isLoading}
-                failed={!!coupons.error}
-              />
+          />
+
+          {/* Its own section under the money, as on App.tsx. This page is not
+              mounted, so the leads and traffic queries that feed the rates are
+              absent and those figures simply do not render. */}
+          <OrdersCustomersSection
+            metrics={woo.data}
+            loading={woo.isLoading}
+            failed={!!woo.error}
+            range={range}
+            against={against}
+            leads={undefined}
+            traffic={undefined}
+            trafficLoading={false}
+          />
+
+          {/* Under the plot and the table it belongs to — the statement names
+              coupons as one figure, and this is which codes made it up. */}
+          <CouponUsageCard
+            couponsUsed={coupons.data?.couponsUsed}
+            discountTotal={
+              // The statement reads its coupon figure off the order totals,
+              // which is the authority. Metorik's per-coupon report can leave a
+              // code's discount at zero, and a card that summed those would
+              // state a smaller total than the line it descends from.
+              woo.data ? { value: woo.data.pnl.discounts, deltaPct: null } : undefined
             }
+            coupons={coupons.data?.topCoupons ?? []}
+            lapsedCodes={coupons.data?.lapsedCodes}
+            against={against}
+            loading={coupons.isLoading}
+            failed={!!coupons.error}
           />
 
 

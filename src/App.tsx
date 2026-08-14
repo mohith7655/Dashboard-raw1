@@ -9,7 +9,7 @@ import { ProfitSummaryCard } from './components/sections/ProfitSummaryCard'
 import { CouponUsageCard } from './components/sections/CouponUsageCard'
 import { AdsSection } from './components/sections/AdsSection'
 import { AdsStatsCard } from './components/sections/AdsStatsCard'
-import { FunnelStatsCard } from './components/sections/FunnelStatsCard'
+import { OrdersCustomersSection } from './components/sections/OrdersCustomersSection'
 import { AdSpendSection } from './components/sections/AdSpendSection'
 import { MarketsTrafficSection } from './components/sections/MarketsTrafficSection'
 import { ProfitLossSection } from './components/sections/ProfitLossSection'
@@ -624,16 +624,6 @@ export default function App() {
                 element rendered in both places put a paid analysis above the
                 figures on every visit to the Overview. */}
             <WooCommerceSection
-              metrics={ceoData.woo.data}
-              loading={ceoData.woo.isLoading}
-              failed={!!ceoData.woo.error}
-              range={ceoScope.range}
-              against={ceoScope.against}
-              // The page's own leads and traffic rather than the section's
-              // scoped window: both are page-level queries, and the CEO
-              // section's range control moves only the figures Metorik serves.
-              leads={leadData.data}
-              traffic={traffic.data}
               actions={
                 <>
                   {/* The section's own period, ahead of the two controls that
@@ -721,61 +711,29 @@ export default function App() {
                   loading={adsData.adsLoading}
                   analysis={analysisFor('ads')}
                   rangeControl={<SectionRangeControl {...adsScope.control} />}
-                  /*
-                   * Directly under Spend and Spend % of sales, inside the same
-                   * card, so the five boxes read as one block: what went out,
-                   * what share of sales it was, and the three rates it was
-                   * spent to move.
-                   *
-                   * On the page's own window rather than the ad card's. Leads
-                   * and traffic are page-level queries, and the range control
-                   * at the top of this card moves only the figures Metorik
-                   * serves it — so a narrowed ad window would leave these
-                   * three unchanged and say nothing about it.
-                   */
-                  figuresBelow={
-                    <FunnelStatsCard
-                      woo={woo.data}
-                      traffic={traffic.data}
-                      leads={leadData.data}
-                      range={range}
-                      against={against}
-                      loading={woo.isLoading || traffic.isLoading}
-                    />
-                  }
-                />
-              }
-              footer={
-                // The statement names coupons as one line — a single figure
-                // come off gross sales. Which codes that figure was, and
-                // whether they are being reached for more than before, closes
-                // the section rather than interrupting it: it is a footnote to
-                // both the statement and the order counts above it.
-                <CouponUsageCard
-                  couponsUsed={coupons.data?.couponsUsed}
-                  discountTotal={
-                    // The statement above reads its coupon figure off the order
-                    // totals, which is the authority. Metorik's per-coupon
-                    // report can leave a code's discount at zero, and a card
-                    // that summed those would state a smaller total than the
-                    // line it descends from.
-                    woo.data ? { value: woo.data.pnl.discounts, deltaPct: null } : undefined
-                  }
-                  coupons={coupons.data?.topCoupons ?? []}
-                  lapsedCodes={coupons.data?.lapsedCodes}
-                  against={against}
-                  loading={coupons.isLoading}
-                  failed={!!coupons.error}
                 />
               }
             />
 
+            {/* Its own section under the money. The page's own leads and
+                traffic rather than the CEO section's scoped window: both are
+                page-level queries, and that section's range control moves only
+                the figures Metorik serves it. */}
+            <OrdersCustomersSection
+              metrics={woo.data}
+              loading={woo.isLoading}
+              failed={!!woo.error}
+              range={range}
+              against={against}
+              leads={leadData.data}
+              traffic={traffic.data}
+              trafficLoading={traffic.isLoading}
+            />
 
-            {/* The whole trading day in one card: what came in, what it
-                earned, and what went back. Four aligned panels rather than one
-                plot — dollars, people and a rate cannot share an axis without
-                one of them vanishing onto it. This absorbed the separate
-                Visitors, Orders and Refunds chart that used to sit below. */}
+            {/* The whole trading day in one plot: what came in, what it
+                earned, and what went back, on one x axis. This absorbed the
+                separate Visitors, Orders and Refunds chart that used to sit
+                below. */}
             <RevenueAndRefunds
               revenue={woo.data?.revenueSeries ?? []}
               refunds={woo.data?.refundSeries ?? []}
@@ -808,6 +766,28 @@ export default function App() {
               trafficAvailable={!traffic.error && (traffic.data?.available ?? false)}
               loading={woo.isLoading}
               unavailable={woo.error ? 'Revenue breakdown unavailable' : undefined}
+            />
+
+            {/* Under the plot and the table it belongs to rather than up in the
+                statement. The statement names coupons as one figure off gross
+                sales; which codes made it up, and whether they are being
+                reached for more than before, is a reading of the period's
+                shape — so it sits with the two things that show that shape
+                rather than interrupting the money on the way to them. */}
+            <CouponUsageCard
+              couponsUsed={coupons.data?.couponsUsed}
+              discountTotal={
+                // The statement reads its coupon figure off the order totals,
+                // which is the authority. Metorik's per-coupon report can leave
+                // a code's discount at zero, and a card that summed those would
+                // state a smaller total than the line it descends from.
+                woo.data ? { value: woo.data.pnl.discounts, deltaPct: null } : undefined
+              }
+              coupons={coupons.data?.topCoupons ?? []}
+              lapsedCodes={coupons.data?.lapsedCodes}
+              against={against}
+              loading={coupons.isLoading}
+              failed={!!coupons.error}
             />
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
