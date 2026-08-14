@@ -37,13 +37,20 @@ export function FigureBox({
   note,
 }: FigureBoxData) {
   return (
-    <div className="min-w-0 rounded-lg border border-btn-border px-3 py-2.5">
-      <div className="truncate text-[10.5px] uppercase tracking-wide text-label">
+    <div className="min-w-0 rounded-lg border border-btn-border px-2.5 py-2.5 sm:px-3">
+      {/* Wraps rather than truncates. Three of these sit across the narrowest
+          phone, where "Orders / day" clipped to "ORDERS ..." and left the box
+          unlabelled — a second line of 10px type costs less than not knowing
+          which figure you are looking at. */}
+      <div className="text-[10.5px] uppercase leading-tight tracking-wide text-label">
         {label}
       </div>
 
       <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
-        <span className="truncate text-[24px] font-semibold leading-tight tabular-nums text-ink">
+        {/* Never truncated. It is the figure the box exists for, and "11...."
+            is worse than a smaller number. Steps down a size on the narrowest
+            screens instead. */}
+        <span className="text-[20px] font-semibold leading-tight tabular-nums text-ink sm:text-[24px]">
           {value}
         </span>
         {change !== null && (

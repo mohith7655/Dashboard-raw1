@@ -44,6 +44,18 @@ interface AdsStatsCardProps {
    * queries, and those live where the rest of the page's data does.
    */
   rangeControl?: React.ReactNode
+  /**
+   * More figures, directly under this card's own two.
+   *
+   * Outside the fold with them rather than inside the table below: they are
+   * the same kind of thing — a headline nobody should have to open anything to
+   * read — and a row that appeared only when the card was expanded would be a
+   * different claim about how important it is.
+   *
+   * Passed in rather than built here because these are struck from queries
+   * this card does not hold, and on a window it does not set.
+   */
+  figuresBelow?: React.ReactNode
 }
 
 type AdsMetricKey =
@@ -93,6 +105,7 @@ export function AdsStatsCard({
   loading,
   analysis,
   rangeControl,
+  figuresBelow,
 }: AdsStatsCardProps) {
   const rows = metrics ? buildRows(metrics, platforms) : []
   const unattributed = nonAttributing(platforms)
@@ -286,6 +299,8 @@ export function AdsStatsCard({
           ))}
         </div>
       )}
+
+      {figuresBelow && <div className="mt-2">{figuresBelow}</div>}
 
       <div id={bodyId} hidden={!open}>
         {subtitle && <p className="mt-3 text-[12px] text-muted">{subtitle}</p>}

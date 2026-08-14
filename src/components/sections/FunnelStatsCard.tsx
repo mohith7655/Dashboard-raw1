@@ -78,8 +78,13 @@ export function FunnelStatsCard({
        * box: these read as one band with the ad-spend boxes beside them, and
        * only where every row is the same height.
        */
+      /*
+       * "so far" rather than "(to date)": three of these boxes share the width
+       * of a phone, and the longer form pushed the label to a third line or
+       * clipped it to "ORDERS / DAY (T…", which says less than nothing.
+       */
       out.push({
-        label: includesToday(range) ? 'Orders / day (to date)' : 'Orders / day',
+        label: includesToday(range) ? 'Orders / day so far' : 'Orders / day',
         value: formatDecimal(perDay),
         change: before === null ? null : deltaPct(perDay, before),
         ...formatComparison({ value: perDay, previous: before }, formatDecimal),

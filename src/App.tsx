@@ -721,30 +721,28 @@ export default function App() {
                   loading={adsData.adsLoading}
                   analysis={analysisFor('ads')}
                   rangeControl={<SectionRangeControl {...adsScope.control} />}
-                />
-              }
-              afterStats={
-                /*
-                 * Under the order counts rather than under the ad spend.
-                 *
-                 * These are the rates those counts imply — orders over days,
-                 * orders over visitors, leads over visitors — so they read
-                 * after the rows they are struck from rather than above them.
-                 * Beneath the spend they invited the reading that advertising
-                 * alone produced them, which the lead rate in particular does
-                 * not claim.
-                 *
-                 * On the page's own window: leads and traffic are page-level
-                 * queries, and the range control on the ad card moves only the
-                 * figures Metorik serves to it.
-                 */
-                <FunnelStatsCard
-                  woo={woo.data}
-                  traffic={traffic.data}
-                  leads={leadData.data}
-                  range={range}
-                  against={against}
-                  loading={woo.isLoading || traffic.isLoading}
+                  /*
+                   * Directly under Spend and Spend % of sales, inside the same
+                   * card, so the five boxes read as one block: what went out,
+                   * what share of sales it was, and the three rates it was
+                   * spent to move.
+                   *
+                   * On the page's own window rather than the ad card's. Leads
+                   * and traffic are page-level queries, and the range control
+                   * at the top of this card moves only the figures Metorik
+                   * serves it — so a narrowed ad window would leave these
+                   * three unchanged and say nothing about it.
+                   */
+                  figuresBelow={
+                    <FunnelStatsCard
+                      woo={woo.data}
+                      traffic={traffic.data}
+                      leads={leadData.data}
+                      range={range}
+                      against={against}
+                      loading={woo.isLoading || traffic.isLoading}
+                    />
+                  }
                 />
               }
               footer={
