@@ -1,8 +1,6 @@
 import { useMemo } from 'react'
-import type { ReactNode } from 'react'
 import {
   Area,
-  Bar,
   CartesianGrid,
   ComposedChart,
   Line,
@@ -20,14 +18,26 @@ import {
   formatInteger,
   formatPercent,
 } from '../../lib/format'
-import { Skeleton } from '../Skeleton'
-import { TooltipCard } from './ChartCard'
+import { ChartCard, TooltipCard } from './ChartCard'
 
+/*
+ * Five series, five colours, and every axis printed in the colour of the line
+ * it measures.
+ *
+ * The set was chosen with the palette validator rather than by eye: every pair
+ * clears the normal-vision separation floor (worst 16.5) and every colour
+ * clears 3:1 against the card. No five-colour set can clear the colour-vision
+ * floors as well — red against green collapses to almost nothing for a protan
+ * or deutan reader, and that is a property of the eye rather than of the
+ * palette. So colour is never what carries identity here: each line has its
+ * own axis in its own colour, the legend names all five, and the tooltip
+ * prints every value with its label.
+ */
 const REVENUE = '#d4d4d8'
-const REFUND = '#e66767'
-const VISITORS = '#3987e5'
-const ORDERS = '#c98500'
-const RATE = '#199e70'
+const REFUND = '#f2666a'
+const VISITORS = '#4a9eff'
+const ORDERS = '#e3b341'
+const RATE = '#2ec27e'
 const FILL = 'refundArea'
 
 interface RevenueAndRefundsProps {
@@ -47,34 +57,29 @@ interface Point {
   visitors: number | null
   orders: number | null
   conversionRate: number | null
-  /** The rate in percentage points, which is what the axis plots. */
+  /** The rate in percentage points, which is what its axis plots. */
   ratePoints: number | null
 }
 
 /**
  * The trading day in full: what came in, what it earned, and what went back.
  *
- * This replaces two cards that each showed half of it — one revenue against
- * refunds, one visitors against orders — and made the reader hold a day in
- * their head while scrolling between them.
+ * One plot with four scales, because the five series carry three units two
+ * orders of magnitude apart — revenue near $700 a day, visitors near 600,
+ * orders near 12, conversion near 0.02. Forced onto a single axis the orders
+ * and the rate lie flat against the baseline and are not there at all.
  *
- * It is four aligned panels rather than one plot, and that is not a
- * presentational preference. The five series carry three units and magnitudes
- * two orders of magnitude apart: revenue near $700 a day, visitors near 600,
- * orders near 12, conversion near 0.02. On one scale the orders and the rate
- * lie flat on the axis and are simply not there. On two scales the crossings
- * between series become an artefact of where the axes were set rather than
- * anything in the data — and a reader comparing a revenue bar against a
- * visitors bar of the same height would be comparing dollars against people.
+ * Giving each its own axis makes every line legible, at a cost worth naming:
+ * the heights are no longer comparable between series, and a crossing point
+ * says nothing except where the axes happened to be set. The axes are printed
+ * in their lines' own colours so that the trade is at least visible — a reader
+ * following the amber line reads the amber numbers, and never infers anything
+ * from amber sitting above blue.
  *
- * Faceting also fixes what colour could not. Four series in one plot cannot be
- * told apart reliably: no four hues in this palette clear the contrast floors
- * against each other for a reader with colour-vision deficiency. One series to
- * a panel needs no legend and no hue matching at all — the panel's own title
- * names it.
- *
- * The panels share an x domain and only the last carries its labels, so a day
- * is read straight down the card.
+ * Revenue and refunds are the one pair that does share a scale, deliberately.
+ * They are both money and the comparison between them is the point: on
+ * separate axes a $173 refund drew taller than $1,070 of revenue, which
+ * inverted the very thing the pair exists to show.
  */
 export function RevenueAndRefunds({
   revenue,
@@ -94,9 +99,9 @@ export function RevenueAndRefunds({
     const byRefund = new Map(refunds.map((p) => [p.date, p.refunds]))
     const byTraffic = new Map(traffic.map((p) => [p.date, p]))
 
-    const dates = [
-      ...new Set([...byRevenue.keys(), ...byTraffic.keys()]),
-    ].sort((a, b) => a.localeCompare(b))
+    const dates = [...new Set([...byRevenue.keys(), ...byTraffic.keys()])].sort((a, b) =>
+      a.localeCompare(b),
+    )
 
     return dates.map((date) => {
       const point = byTraffic.get(date)
@@ -118,219 +123,203 @@ export function RevenueAndRefunds({
   const orders = data.reduce((sum, p) => sum + (p.orders ?? 0), 0)
 
   return (
-    <div className="card">
-      <h3 className="text-[15px] font-semibold text-ink">Revenue and Refunds Over Time</h3>
-      <p className="mt-0.5 max-w-prose text-[12px] leading-relaxed text-muted">
-        {visitors > 0
-          ? `${formatInteger(visitors)} visitors and ${formatInteger(orders)} orders over the period`
-          : 'Daily revenue, refunds, visitors, orders and conversion'}
-        {refunded > 0
-          ? `, against ${formatCurrency(refunded)} refunded across ${refundDays} ${
-              refundDays === 1 ? 'day' : 'days'
-            }`
-          : ', with nothing refunded'}
-        . Each measure keeps its own scale — dollars, people and a rate do not
-        share an axis honestly — and the panels share a timeline, so a day reads
-        straight down the card.
-      </p>
+    <ChartCard
+      title="Revenue and Refunds Over Time"
+      subtitle={
+        `${
+          visitors > 0
+            ? `${formatInteger(visitors)} visitors and ${formatInteger(orders)} orders`
+            : 'Daily revenue, refunds, visitors, orders and conversion'
+        }${
+          refunded > 0
+            ? `, against ${formatCurrency(refunded)} refunded across ${refundDays} ${
+                refundDays === 1 ? 'day' : 'days'
+              }`
+            : ', with nothing refunded'
+        }. Each line is read against the axis printed in its own colour — the ` +
+        `heights are not comparable between series. Revenue and refunds are the ` +
+        `one pair sharing a scale, because that comparison is the point.`
+      }
+      height={440}
+      loading={loading}
+      unavailable={unavailable}
+    >
+      <div className="flex h-full flex-col">
+        <div className="min-h-0 flex-1">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={data} margin={{ top: 8, right: 4, bottom: 4, left: 0 }}>
+              <defs>
+                <linearGradient id={FILL} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={REFUND} stopOpacity={0.28} />
+                  <stop offset="100%" stopColor={REFUND} stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
 
-      {loading ? (
-        <div className="mt-4 flex flex-col gap-3">
-          <Skeleton className="h-[150px] w-full" />
-          <Skeleton className="h-[90px] w-full" />
-          <Skeleton className="h-[90px] w-full" />
+              <CartesianGrid stroke="#232327" strokeWidth={1} vertical={false} />
+
+              <XAxis
+                dataKey="date"
+                tickFormatter={formatDay}
+                interval="preserveStartEnd"
+                tick={{ fill: '#8a8a92', fontSize: 11 }}
+                tickLine={false}
+                axisLine={{ stroke: '#262629' }}
+                minTickGap={16}
+              />
+
+              {/* Money, shared by revenue and refunds. Printed in the revenue
+                  colour: it is the series the scale is set by, and refunds are
+                  named in the legend and the tooltip rather than by their axis. */}
+              <YAxis
+                yAxisId="money"
+                orientation="left"
+                tickFormatter={formatAxisCurrency}
+                tick={{ fill: REVENUE, fontSize: 11 }}
+                tickLine={false}
+                axisLine={false}
+                width={62}
+              />
+
+              <YAxis
+                yAxisId="visitors"
+                orientation="left"
+                tickFormatter={formatCompactInteger}
+                tick={{ fill: VISITORS, fontSize: 11 }}
+                tickLine={false}
+                axisLine={false}
+                width={44}
+              />
+
+              <YAxis
+                yAxisId="orders"
+                orientation="right"
+                tickFormatter={formatCompactInteger}
+                tick={{ fill: ORDERS, fontSize: 11 }}
+                tickLine={false}
+                axisLine={false}
+                width={40}
+              />
+
+              <YAxis
+                yAxisId="rate"
+                orientation="right"
+                tickFormatter={(value: number) => `${value.toFixed(1)}%`}
+                tick={{ fill: RATE, fontSize: 11 }}
+                tickLine={false}
+                axisLine={false}
+                width={48}
+              />
+
+              <Tooltip
+                content={<DayTooltip />}
+                cursor={{ stroke: '#4a4a52', strokeWidth: 1 }}
+              />
+
+              {/* Refunds first, so the fill sits behind the revenue line rather
+                  than washing over it. */}
+              <Area
+                yAxisId="money"
+                type="monotone"
+                dataKey="refunds"
+                stroke={REFUND}
+                strokeWidth={2}
+                fill={`url(#${FILL})`}
+                dot={(props: { cx?: number; cy?: number; payload?: Point }) => {
+                  const { cx, cy, payload } = props
+                  if (
+                    !payload ||
+                    payload.refunds <= 0 ||
+                    cx === undefined ||
+                    cy === undefined
+                  ) {
+                    return <g key={payload?.date ?? 'none'} />
+                  }
+                  return <circle key={payload.date} cx={cx} cy={cy} r={2.5} fill={REFUND} />
+                }}
+                activeDot={{ r: 4, fill: REFUND, stroke: '#161618', strokeWidth: 2 }}
+                isAnimationActive={false}
+              />
+
+              <Line
+                yAxisId="visitors"
+                type="monotone"
+                dataKey="visitors"
+                stroke={VISITORS}
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 4, fill: VISITORS, stroke: '#161618', strokeWidth: 2 }}
+                isAnimationActive={false}
+                connectNulls={false}
+              />
+
+              <Line
+                yAxisId="orders"
+                type="monotone"
+                dataKey="orders"
+                stroke={ORDERS}
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 4, fill: ORDERS, stroke: '#161618', strokeWidth: 2 }}
+                isAnimationActive={false}
+                connectNulls={false}
+              />
+
+              <Line
+                yAxisId="rate"
+                type="monotone"
+                dataKey="ratePoints"
+                stroke={RATE}
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 4, fill: RATE, stroke: '#161618', strokeWidth: 2 }}
+                isAnimationActive={false}
+                connectNulls={false}
+              />
+
+              {/* Last, so revenue draws over the rest — it is the line the card
+                  is named for. */}
+              <Line
+                yAxisId="money"
+                type="monotone"
+                dataKey="revenue"
+                stroke={REVENUE}
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 4, fill: REVENUE, stroke: '#161618', strokeWidth: 2 }}
+                isAnimationActive={false}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
         </div>
-      ) : unavailable ? (
-        <div className="flex h-[200px] items-center justify-center text-[13px] text-muted">
-          {unavailable}
+
+        {/* Names every series and says which axis reads it, so identity never
+            rests on telling two hues apart. */}
+        <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-1 pt-2 text-[12px] text-muted">
+          <Key color={REVENUE}>Revenue</Key>
+          <Key color={REFUND}>Refunded</Key>
+          <Key color={VISITORS}>Visitors</Key>
+          <Key color={ORDERS}>Orders</Key>
+          <Key color={RATE}>Conversion rate</Key>
         </div>
-      ) : (
-        <div className="mt-4 flex flex-col">
-          {/* The headline, and the only panel carrying two series — both are
-              money on one scale, which is the comparison it exists to make. */}
-          <Panel
-            label="Revenue and refunds"
-            note={refunded > 0 ? formatCurrency(refunded) + ' refunded' : 'no refunds'}
-            height={168}
-            data={data}
-            axisFormat={formatAxisCurrency}
-            axisWidth={AXIS}
-          >
-            <defs>
-              <linearGradient id={FILL} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={REFUND} stopOpacity={0.3} />
-                <stop offset="100%" stopColor={REFUND} stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
-
-            {/* Refunds first, so the fill sits behind the revenue line rather
-                than washing over it. Both on one scale: a second axis made a
-                $173 refund draw taller than $1,070 of revenue, which is the
-                one comparison this pair exists to make. */}
-            <Area
-              type="monotone"
-              dataKey="refunds"
-              stroke={REFUND}
-              strokeWidth={2}
-              fill={`url(#${FILL})`}
-              dot={(props: { cx?: number; cy?: number; payload?: Point }) => {
-                const { cx, cy, payload } = props
-                if (
-                  !payload ||
-                  payload.refunds <= 0 ||
-                  cx === undefined ||
-                  cy === undefined
-                ) {
-                  return <g key={payload?.date ?? 'none'} />
-                }
-                return <circle key={payload.date} cx={cx} cy={cy} r={2.5} fill={REFUND} />
-              }}
-              activeDot={{ r: 4, fill: REFUND, stroke: '#161618', strokeWidth: 2 }}
-              isAnimationActive={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="revenue"
-              stroke={REVENUE}
-              strokeWidth={2}
-              dot={false}
-              activeDot={{ r: 4, fill: REVENUE, stroke: '#161618', strokeWidth: 2 }}
-              isAnimationActive={false}
-            />
-          </Panel>
-
-          <Panel
-            label="Visitors"
-            note={visitors > 0 ? formatInteger(visitors) + ' over the period' : ''}
-            height={104}
-            data={data}
-            axisFormat={formatCompactInteger}
-            axisWidth={AXIS}
-          >
-            <Bar
-              dataKey="visitors"
-              fill={VISITORS}
-              radius={[2, 2, 0, 0]}
-              isAnimationActive={false}
-            />
-          </Panel>
-
-          <Panel
-            label="Orders"
-            note={orders > 0 ? formatInteger(orders) + ' over the period' : ''}
-            height={104}
-            data={data}
-            axisFormat={formatCompactInteger}
-            axisWidth={AXIS}
-          >
-            <Bar
-              dataKey="orders"
-              fill={ORDERS}
-              radius={[2, 2, 0, 0]}
-              isAnimationActive={false}
-            />
-          </Panel>
-
-          {/* Last, and the only one showing its dates — the panels share a
-              domain, so one set of labels serves all four. */}
-          <Panel
-            label="Conversion rate"
-            note="orders as a share of visitors"
-            height={128}
-            data={data}
-            axisFormat={(value: number) => `${value.toFixed(1)}%`}
-            axisWidth={AXIS}
-            showDates
-          >
-            <Line
-              type="monotone"
-              dataKey="ratePoints"
-              stroke={RATE}
-              strokeWidth={2}
-              dot={false}
-              activeDot={{ r: 4, fill: RATE, stroke: '#161618', strokeWidth: 2 }}
-              isAnimationActive={false}
-              connectNulls={false}
-            />
-          </Panel>
-        </div>
-      )}
-    </div>
+        <p className="shrink-0 pt-1 text-center text-[11px] text-label">
+          Left: revenue and refunds, then visitors. Right: orders, then
+          conversion. Each axis is printed in its line&apos;s colour.
+        </p>
+      </div>
+    </ChartCard>
   )
 }
 
-/** One width for every panel's axis, which is what keeps the plots aligned. */
-const AXIS = 64
-
-interface PanelProps {
-  label: string
-  note: string
-  height: number
-  data: Point[]
-  axisFormat: (value: number) => string
-  axisWidth: number
-  /** Only the bottom panel prints the dates; the rest share its domain. */
-  showDates?: boolean
-  children: ReactNode
-}
-
-function Panel({
-  label,
-  note,
-  height,
-  data,
-  axisFormat,
-  axisWidth,
-  showDates = false,
-  children,
-}: PanelProps) {
+/** A line sample and its name, drawn in the series' own colour. */
+function Key({ color, children }: { color: string; children: React.ReactNode }) {
   return (
-    <div>
-      <div
-        className="flex items-baseline gap-2 pb-1 text-[11px] uppercase tracking-[0.06em]"
-        style={{ paddingLeft: axisWidth }}
-      >
-        <span className="text-label">{label}</span>
-        {note && <span className="text-[11px] normal-case tracking-normal text-muted">{note}</span>}
-      </div>
-
-      <div style={{ height }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
-            <CartesianGrid stroke="#232327" strokeWidth={1} vertical={false} />
-
-            <XAxis
-              dataKey="date"
-              tickFormatter={formatDay}
-              interval="preserveStartEnd"
-              tick={showDates ? { fill: '#8a8a92', fontSize: 11 } : false}
-              tickLine={false}
-              axisLine={{ stroke: '#262629' }}
-              minTickGap={16}
-              height={showDates ? 28 : 4}
-            />
-
-            <YAxis
-              tickFormatter={axisFormat}
-              tick={{ fill: '#8a8a92', fontSize: 11 }}
-              tickLine={false}
-              axisLine={false}
-              width={axisWidth}
-            />
-
-            {/* Every panel names the whole day, not just its own series — the
-                panels share a timeline, so hovering anywhere should answer
-                what that day did rather than a quarter of it. */}
-            <Tooltip
-              content={<DayTooltip />}
-              cursor={{ stroke: '#4a4a52', strokeWidth: 1 }}
-            />
-
-            {children}
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
+    <span className="flex items-center gap-1.5">
+      <svg width="22" height="10" aria-hidden>
+        <line x1="0" y1="5" x2="22" y2="5" stroke={color} strokeWidth="2" />
+        <circle cx="11" cy="5" r="3" fill="#161618" stroke={color} strokeWidth="2" />
+      </svg>
+      {children}
+    </span>
   )
 }
 
@@ -352,14 +341,18 @@ function DayTooltip({
         {label && <span className="font-medium">{formatDay(label)}</span>}
         <span>Revenue : {formatCurrency(point.revenue)}</span>
         <span style={{ color: '#b3261e' }}>
-          {point.refunds > 0 ? `Refunded : −${formatCurrency(point.refunds)}` : 'No refunds'}
+          {point.refunds > 0
+            ? `Refunded : −${formatCurrency(point.refunds)}`
+            : 'No refunds'}
         </span>
         {/* A dash rather than a nought: the provider not reporting a day and
             nobody arriving on it are different claims. */}
-        <span>
+        <span style={{ color: '#1b5fa8' }}>
           Visitors : {point.visitors === null ? '—' : formatInteger(point.visitors)}
         </span>
-        <span>Orders : {point.orders === null ? '—' : formatInteger(point.orders)}</span>
+        <span style={{ color: '#8a6100' }}>
+          Orders : {point.orders === null ? '—' : formatInteger(point.orders)}
+        </span>
         <span style={{ color: '#12694b' }}>
           Conversion :{' '}
           {point.conversionRate === null ? '—' : formatPercent(point.conversionRate)}
