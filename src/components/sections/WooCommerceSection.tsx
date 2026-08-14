@@ -47,6 +47,15 @@ interface WooCommerceSectionProps {
    */
   beforeStats?: React.ReactNode
   /**
+   * Directly under the store figures.
+   *
+   * For the rates those figures imply. Counts first and rates after, the same
+   * order the breakdown table puts its columns in: a reader meets both the
+   * numerator and the denominator before meeting the division, and a rate that
+   * looks wrong has the rows it came from immediately above it.
+   */
+  afterStats?: React.ReactNode
+  /**
    * Closes the section, below the store figures.
    *
    * Its own slot rather than a second child of `summary`, so the order the
@@ -77,6 +86,7 @@ export function WooCommerceSection({
   analysis,
   summary,
   beforeStats,
+  afterStats,
   footer,
 }: WooCommerceSectionProps) {
   return (
@@ -106,6 +116,7 @@ export function WooCommerceSection({
           loading={loading}
           failed={failed}
         />
+        {afterStats}
         {footer}
       </div>
     </section>

@@ -713,31 +713,39 @@ export default function App() {
                 />
               }
               beforeStats={
-                <>
-                  <AdsStatsCard
-                    metrics={adsData.combined ?? undefined}
-                    platforms={adsData.reportedAds}
-                    blended={adsData.blended}
-                    subtitle={scopeOf(adsData.reportedAds)}
-                    loading={adsData.adsLoading}
-                    analysis={analysisFor('ads')}
-                    rangeControl={<SectionRangeControl {...adsScope.control} />}
-                  />
-
-                  {/* Directly under the spend, because these are what it
-                      bought. On the page's own window rather than the ad
-                      card's: leads and traffic are page-level queries, and the
-                      range control above moves only the figures Metorik
-                      serves to that card. */}
-                  <FunnelStatsCard
-                    woo={woo.data}
-                    traffic={traffic.data}
-                    leads={leadData.data}
-                    range={range}
-                    against={against}
-                    loading={woo.isLoading || traffic.isLoading}
-                  />
-                </>
+                <AdsStatsCard
+                  metrics={adsData.combined ?? undefined}
+                  platforms={adsData.reportedAds}
+                  blended={adsData.blended}
+                  subtitle={scopeOf(adsData.reportedAds)}
+                  loading={adsData.adsLoading}
+                  analysis={analysisFor('ads')}
+                  rangeControl={<SectionRangeControl {...adsScope.control} />}
+                />
+              }
+              afterStats={
+                /*
+                 * Under the order counts rather than under the ad spend.
+                 *
+                 * These are the rates those counts imply — orders over days,
+                 * orders over visitors, leads over visitors — so they read
+                 * after the rows they are struck from rather than above them.
+                 * Beneath the spend they invited the reading that advertising
+                 * alone produced them, which the lead rate in particular does
+                 * not claim.
+                 *
+                 * On the page's own window: leads and traffic are page-level
+                 * queries, and the range control on the ad card moves only the
+                 * figures Metorik serves to it.
+                 */
+                <FunnelStatsCard
+                  woo={woo.data}
+                  traffic={traffic.data}
+                  leads={leadData.data}
+                  range={range}
+                  against={against}
+                  loading={woo.isLoading || traffic.isLoading}
+                />
               }
               footer={
                 // The statement names coupons as one line — a single figure
@@ -797,6 +805,8 @@ export default function App() {
               // flight or has failed, so the lead columns show a dash rather
               // than claiming nobody signed up.
               leads={leadData.data?.series}
+              uniqueContacts={leadData.data?.uniqueContactBuckets}
+              uniqueContactTotal={leadData.data?.uniqueContacts.count.value}
               trafficAvailable={!traffic.error && (traffic.data?.available ?? false)}
               loading={woo.isLoading}
               unavailable={woo.error ? 'Revenue breakdown unavailable' : undefined}
