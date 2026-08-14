@@ -1,12 +1,7 @@
 import { useMemo } from 'react'
 import { Mail, MailX, Users } from 'lucide-react'
 import type { DateRange, FlodeskReport, MailchimpReport } from '../../lib/types'
-import {
-  formatCtr,
-  formatDay,
-  formatInteger,
-  formatPercent,
-} from '../../lib/format'
+import { formatDay, formatInteger } from '../../lib/format'
 import { RowsCard } from '../RowsCard'
 import { SectionLabel } from '../SectionLabel'
 import type { StatRowData } from '../StatRows'
@@ -173,7 +168,7 @@ export function EmailSection({
             <AutomationsCard
               automations={report.automations}
               journeys={report.journeys}
-              benchmark={report.benchmark}
+              totals={report.automationTotals}
             />
           )}
 
@@ -198,32 +193,9 @@ export function EmailSection({
                 polarity: 'down-good' as const,
               }))}
               subtitle="Mailchimp's own monthly averages: people leaving set against people joining."
-              footnote={
-                <p className="mt-3 border-t border-row-line pt-3 text-[12px] text-muted">
-                  A subscriber count says how large a list is; these say which
-                  way it is heading. Both are Mailchimp&apos;s rolling averages
-                  rather than counts for the period on screen, so they do not
-                  move with the date picker.
-                </p>
-              }
             />
           )}
 
-          {/*
-            The benchmark is Mailchimp's, not this dashboard's: a sector
-            average it attaches to each campaign. Worth stating plainly at the
-            foot of the section, because every rate above is marked against it.
-          */}
-          {report?.benchmark && !empty && (
-            <p className="text-[12px] text-muted">
-              Mailchimp puts the eCommerce averages at{' '}
-              <span className="text-ink">{formatPercent(report.benchmark.openRate)}</span>{' '}
-              opens and{' '}
-              <span className="text-ink">{formatCtr(report.benchmark.clickRate)}</span>{' '}
-              clicks. They are the sector, not this store&apos;s history — a rate
-              under them is worth asking about, not a fault on its own.
-            </p>
-          )}
         </>
       )}
 

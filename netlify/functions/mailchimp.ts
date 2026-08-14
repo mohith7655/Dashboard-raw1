@@ -21,9 +21,12 @@ import type {
   MailchimpAutomation,
   MailchimpBenchmark,
   MailchimpCampaign,
+  MailchimpAutomationTotals,
   MailchimpJourney,
   MailchimpReport,
+  MailchimpStage,
   MailchimpTotals,
+  StageKind,
 } from '../../src/lib/types'
 import { metric, deltaPct } from '../../src/lib/derive'
 import {
@@ -138,6 +141,7 @@ export default async function handler(request: Request): Promise<Response> {
       audiences: toAudiences(lists),
       automations,
       journeys,
+      automationTotals: automationTotalsOf(automations, journeys),
       // From the newest send in the window, falling back to the newest on the
       // account. Without the fallback a month with no campaigns in it would
       // have nothing to set its automations against — which is the month the
@@ -256,7 +260,7 @@ async function fetchAutomations(
     fields: AUTOMATION_FIELDS,
   })
 
-  return asArray(payload.automations)
+  const rows = asArray(payload.automations)
     .filter(isRecord)
     .map((row): MailchimpAutomation => {
       const settings = isRecord(row.settings) ? row.settings : {}
@@ -272,6 +276,7 @@ async function fetchAutomations(
         emailsSent: num(row.emails_sent),
         openRate: num(summary.open_rate),
         clickRate: num(summary.click_rate),
+        stages: [],
       }
     })
     .filter((a) => a.emailsSent > 0)
@@ -279,6 +284,131 @@ async function fetchAutomations(
       const live = (s: string) => (s === 'sending' ? 0 : 1)
       return live(a.status) - live(b.status) || b.emailsSent - a.emailsSent
     })
+
+  await fillStages(rows, (a) => a.status === 'sending', (a) =>
+    automationStages(prefix, key, a.id),
+  )
+  return rows
+}
+
+/**
+ * How many running flows get their stages read.
+ *
+ * A cap rather than no cap: the stage detail is one call per flow and another
+ * per email inside it, and an account that switched twenty automations on at
+ * once would turn one dashboard load into sixty requests. Two live journeys
+ * and two live classic series is what this account has; the ceiling leaves
+ * headroom without leaving the door open.
+ */
+const STAGED_LIMIT = 6
+
+/**
+ * Reads the stages for the flows that pass `live`, and hangs them on in place.
+ *
+ * Failures are swallowed per flow rather than failing the whole card. The
+ * stage endpoints are secondary — one of them is undocumented — and a card
+ * that showed nothing because a step listing 404'd would be worse than one
+ * that shows the totals and no breakdown.
+ */
+async function fillStages<T extends { stages: MailchimpStage[] }>(
+  rows: T[],
+  live: (row: T) => boolean,
+  read: (row: T) => Promise<MailchimpStage[]>,
+): Promise<void> {
+  const wanted = rows.filter(live).slice(0, STAGED_LIMIT)
+  await Promise.all(
+    wanted.map(async (row) => {
+      try {
+        row.stages = await read(row)
+      } catch {
+        row.stages = []
+      }
+    }),
+  )
+}
+
+/**
+ * A classic automation as the emails it sends, in position order.
+ *
+ * The `delay` object is what makes this a flow rather than a list: Mailchimp
+ * writes the timing as a sentence — "6 hours after subscribers are sent
+ * previous email" — and that sentence is the stage's own description of when
+ * it fires. Better than anything reconstructed from the amount and unit.
+ *
+ * People waiting come from a second call each. The queue endpoint returns the
+ * subscribers themselves, which is not wanted here — `count=1` asks for one
+ * row and reads `total_items` off the envelope.
+ */
+async function automationStages(
+  prefix: string,
+  key: string,
+  id: string,
+): Promise<MailchimpStage[]> {
+  const payload = await call<{ emails?: unknown }>(
+    prefix,
+    key,
+    `/automations/${id}/emails`,
+    {},
+  )
+
+  const emails = asArray(payload.emails).filter(isRecord).slice(0, STAGED_LIMIT)
+
+  return Promise.all(
+    emails.map(async (row): Promise<MailchimpStage> => {
+      const settings = isRecord(row.settings) ? row.settings : {}
+      const summary = isRecord(row.report_summary) ? row.report_summary : {}
+      const delay = isRecord(row.delay) ? row.delay : {}
+      const emailId = typeof row.id === 'string' ? row.id : ''
+
+      return {
+        id: emailId,
+        kind: 'email',
+        label:
+          typeof settings.subject_line === 'string' && settings.subject_line
+            ? settings.subject_line
+            : typeof settings.title === 'string' && settings.title
+              ? settings.title
+              : '(untitled email)',
+        detail:
+          typeof delay.full_description === 'string' ? delay.full_description : '',
+        waiting: await queueCount(prefix, key, id, emailId),
+        // Everyone sent this email has, by definition, passed the stage. The
+        // classic API reports no separate through-count, and inventing one
+        // from the next email's sends would break on a series whose steps
+        // filter differently.
+        completed: null,
+        email: {
+          subject:
+            typeof settings.subject_line === 'string' ? settings.subject_line : '',
+          sent: num(row.emails_sent),
+          openRate: num(summary.open_rate),
+          clickRate: num(summary.click_rate),
+          lastSendAt: typeof row.send_time === 'string' ? row.send_time : null,
+        },
+      }
+    }),
+  )
+}
+
+/** Subscribers queued for one automation email, or nought where it cannot be read. */
+async function queueCount(
+  prefix: string,
+  key: string,
+  workflow: string,
+  email: string,
+): Promise<number> {
+  if (!email) return 0
+  try {
+    const payload = await call<{ total_items?: unknown }>(
+      prefix,
+      key,
+      `/automations/${workflow}/emails/${email}/queue`,
+      { count: '1' },
+    )
+    return num(payload.total_items)
+  } catch {
+    return 0
+  }
 }
 
 /**
@@ -304,7 +434,7 @@ async function fetchJourneys(
     { count: '100' },
   )
 
-  return asArray(payload.journeys)
+  const rows = asArray(payload.journeys)
     .filter(isRecord)
     .map((row): MailchimpJourney => {
       const stats = isRecord(row.stats) ? row.stats : {}
@@ -321,6 +451,7 @@ async function fetchJourneys(
         inProgress: num(stats.in_progress),
         completed: num(stats.completed),
         startedAt: typeof started === 'string' ? started : null,
+        stages: [],
       }
     })
     .filter((j) => j.started > 0)
@@ -328,6 +459,159 @@ async function fetchJourneys(
       const live = (s: string) => (s === 'sending' ? 0 : 1)
       return live(a.status) - live(b.status) || b.started - a.started
     })
+
+  await fillStages(rows, (j) => j.status === 'sending', (j) =>
+    journeyStages(prefix, key, j.id),
+  )
+  return rows
+}
+
+/**
+ * A journey as its steps, in the order Mailchimp lays them out.
+ *
+ * Everything the stage view needs comes back in one call: the step's own
+ * words for itself, how many are queued at it, how many have passed, and for
+ * a send step the whole email with its report attached. No second request per
+ * stage, unlike the classic side.
+ *
+ * Triggers are dropped. A journey's entry condition is not a place contacts
+ * wait — its queue is always nought — and two of them at the top of the list
+ * push the first real stage below the fold for no reading.
+ */
+async function journeyStages(
+  prefix: string,
+  key: string,
+  id: number,
+): Promise<MailchimpStage[]> {
+  const payload = await call<{ steps?: unknown }>(
+    prefix,
+    key,
+    `/customer-journeys/journeys/${id}/steps`,
+    {},
+  )
+
+  return asArray(payload.steps)
+    .filter(isRecord)
+    .map((row): MailchimpStage => {
+      const stats = isRecord(row.stats) ? row.stats : {}
+      const type = typeof row.step_type === 'string' ? row.step_type : ''
+      const details = isRecord(row.action_details) ? row.action_details : {}
+      const mail = isRecord(details.email) ? details.email : null
+      const settings = mail && isRecord(mail.settings) ? mail.settings : {}
+      const summary = mail && isRecord(mail.report_summary) ? mail.report_summary : {}
+
+      const text = typeof row.display_text === 'string' ? row.display_text.trim() : ''
+      const subtext =
+        typeof row.display_subtext === 'string' ? row.display_subtext.trim() : ''
+      const subject =
+        typeof settings.subject_line === 'string' ? settings.subject_line.trim() : ''
+
+      /*
+       * A send stage is named by its subject line, not by "Send email".
+       *
+       * Mailchimp's own `display_text` for these is the verb — three stages of
+       * a welcome series all read "Send email" and the campaign is pushed into
+       * the subtext, which makes a column of identical labels. The subject is
+       * what the contact actually received and what the reader is looking for,
+       * and it matches how the classic series beside it are named.
+       */
+      const named = mail && subject ? subject : text || type || 'Step'
+      // Internal title under the subject, where Mailchimp gave one and it is
+      // not just the subject again.
+      const under = mail && subject && subtext !== subject ? subtext : mail ? '' : subtext
+
+      return {
+        id: String(num(row.id)),
+        kind: stageKind(type),
+        label: named,
+        detail: under,
+        waiting: num(stats.queue_count),
+        completed: num(stats.completed),
+        email: mail
+          ? {
+              subject:
+                typeof settings.subject_line === 'string'
+                  ? settings.subject_line
+                  : '',
+              sent: num(mail.emails_sent),
+              openRate: num(summary.open_rate),
+              clickRate: num(summary.click_rate),
+              lastSendAt:
+                typeof mail.send_time === 'string' ? mail.send_time : null,
+            }
+          : null,
+      }
+    })
+    .filter((s) => s.kind !== 'trigger')
+}
+
+/**
+ * The email line above the automations: what they have sent between them.
+ *
+ * Rates are struck from summed sends rather than averaged across series. The
+ * two are not the same figure and the difference is large here — a paused
+ * series that sent 241,000 and a live one that sent 19,000 carry very
+ * different weight, and averaging their rates would hand them equal say.
+ *
+ * A journey's sends are counted off its own email stages rather than from the
+ * journey record, which reports contacts and not email. A journey with no
+ * stages read therefore contributes nothing to the send total: it is paused,
+ * and its email sits in the classic figures or nowhere.
+ *
+ * `waiting` counts only live flows. A paused journey's queue is where people
+ * stopped rather than where they are heading, and folding those into a figure
+ * headed "in a flow now" would claim a thousand contacts are moving through
+ * something switched off eight months ago.
+ */
+function automationTotalsOf(
+  automations: MailchimpAutomation[],
+  journeys: MailchimpJourney[],
+): MailchimpAutomationTotals {
+  let sent = 0
+  let opens = 0
+  let clicks = 0
+  let waiting = 0
+
+  const add = (n: number, open: number, click: number) => {
+    sent += n
+    opens += open * n
+    clicks += click * n
+  }
+
+  for (const a of automations) {
+    add(a.emailsSent, a.openRate, a.clickRate)
+    if (a.status === 'sending') {
+      for (const stage of a.stages) waiting += stage.waiting
+    }
+  }
+
+  for (const j of journeys) {
+    for (const stage of j.stages) {
+      if (stage.email) add(stage.email.sent, stage.email.openRate, stage.email.clickRate)
+      if (j.status === 'sending') waiting += stage.waiting
+    }
+  }
+
+  const live =
+    automations.filter((a) => a.status === 'sending').length +
+    journeys.filter((j) => j.status === 'sending').length
+
+  return {
+    emailsSent: sent,
+    openRate: sent === 0 ? 0 : opens / sent,
+    clickRate: sent === 0 ? 0 : clicks / sent,
+    waiting,
+    live,
+  }
+}
+
+/** Mailchimp's step type, reduced to the five shapes the card draws. */
+function stageKind(type: string): StageKind {
+  if (type.startsWith('trigger')) return 'trigger'
+  if (type === 'action-send_email') return 'email'
+  if (type === 'delay') return 'delay'
+  if (type.startsWith('condition')) return 'condition'
+  return 'other'
 }
 
 /**

@@ -151,6 +151,12 @@ export interface RevenueBreakdownViewRow extends RevenueBreakdownRow {
    */
   leads: number | null
   /**
+   * Mailchimp and Flodesk signups, with matching emails counted only once.
+   * Unlike `leads`, Facebook lead ads are not included: this is a list-contact
+   * measure rather than every capture source added together.
+   */
+  contacts: number | null
+  /**
    * Leads ÷ visitors for this bucket, as a ratio in 0..1.
    *
    * The step conversion misses: a visitor who leaves without buying has not
@@ -948,6 +954,17 @@ export interface LeadDayPoint {
   facebook: number
 }
 
+/**
+ * Email contacts who joined either list in one table bucket, deduplicated by
+ * email across Mailchimp and Flodesk. Facebook lead ads are deliberately
+ * outside this figure: they are lead captures, but not subscribers to either
+ * email list.
+ */
+export interface UniqueContactPoint {
+  date: string
+  contacts: number
+}
+
 export interface LeadCampaign {
   name: string
   leads: number
@@ -955,6 +972,11 @@ export interface LeadCampaign {
 
 export interface LeadReport {
   sources: Record<LeadSourceKey, LeadSourceStats>
+  /**
+   * People who joined Mailchimp or Flodesk in the window, once per email even
+   * if the same person is present in both lists.
+   */
+  uniqueContacts: LeadSourceStats
   /** Orders placed by list members, counted on the order's own date. */
   orders: Record<'mailchimp' | 'flodesk', LeadSourceStats>
   /**
@@ -964,6 +986,12 @@ export interface LeadReport {
    */
   converted: { signups: number; ordered: number }
   series: LeadDayPoint[]
+  /**
+   * Exact unique email contacts at each Revenue Breakdown grain. Each is
+   * aggregated from raw addresses before they leave the function, so a contact
+   * is not counted twice when the table is switched to week or month.
+   */
+  uniqueContactBuckets: Record<BreakdownGrain, UniqueContactPoint[]>
   campaigns: LeadCampaign[]
   /**
    * The most recent day each source wrote a row, across all time.
@@ -1089,6 +1117,77 @@ export interface MailchimpAutomation {
   /** Ratios, 0–1, lifetime. */
   openRate: number
   clickRate: number
+  /**
+   * The series broken into the emails it sends, in the order a contact meets
+   * them. Empty for a paused or draft series — the stage detail costs a call
+   * per automation and another per email, and is only read for the ones still
+   * running.
+   */
+  stages: MailchimpStage[]
+}
+
+/**
+ * What a stage of a flow is, normalised across the two APIs.
+ *
+ * Mailchimp names these differently on either side — a journey has
+ * `step_type: "action-send_email"`, a classic automation has a positioned
+ * email with a `delay` object — and the card draws them the same way, so the
+ * difference is flattened here rather than in the component.
+ */
+export type StageKind = 'trigger' | 'email' | 'delay' | 'condition' | 'other'
+
+/** The email a send stage puts out, and how it was received. */
+export interface MailchimpStageEmail {
+  subject: string
+  /** Lifetime sends of this one email. */
+  sent: number
+  /** Ratios, 0–1, against this email's own sends. */
+  openRate: number
+  clickRate: number
+  lastSendAt: string | null
+}
+
+/**
+ * One stage of a running flow, in the order contacts meet it.
+ *
+ * `waiting` is the figure the stage view exists for: how many people are
+ * sitting at this point right now, which no total anywhere else on the card
+ * reports. Mailchimp calls it `queue_count` on a journey step and answers it
+ * as `total_items` on a classic automation's queue.
+ */
+export interface MailchimpStage {
+  id: string
+  kind: StageKind
+  /** What the stage does, in Mailchimp's own words where it gives them. */
+  label: string
+  /** The condition, tag or delay under the label. Empty where there is none. */
+  detail: string
+  /** Contacts sitting at this stage right now. */
+  waiting: number
+  /**
+   * Contacts who have passed through it, lifetime. Null where the API reports
+   * no through-count for the stage, which is not the same as nobody passing.
+   */
+  completed: number | null
+  email: MailchimpStageEmail | null
+}
+
+/**
+ * The one line above the automations, which is about email rather than flows.
+ *
+ * Struck from every automation and journey email together: rates over summed
+ * sends, never an average of per-series rates, so a series that sent forty
+ * cannot pull the figure as hard as one that sent forty thousand.
+ */
+export interface MailchimpAutomationTotals {
+  /** Lifetime sends across every automation and journey email. */
+  emailsSent: number
+  openRate: number
+  clickRate: number
+  /** Contacts inside a running flow right now, across every live stage. */
+  waiting: number
+  /** Flows still running, journeys and classic series together. */
+  live: number
 }
 
 /**
@@ -1119,6 +1218,14 @@ export interface MailchimpJourney {
   inProgress: number
   completed: number
   startedAt: string | null
+  /**
+   * The journey broken into its steps, in the order contacts meet them.
+   *
+   * Empty for a paused journey. The steps cost a call each and are only worth
+   * having for a flow people are still moving through — a paused one's queue
+   * counts are a snapshot of where everybody stopped.
+   */
+  stages: MailchimpStage[]
 }
 
 export interface MailchimpReport {
@@ -1137,6 +1244,8 @@ export interface MailchimpReport {
    * `MailchimpJourney`. Never window-scoped, as the automations are not.
    */
   journeys: MailchimpJourney[]
+  /** Email sent by all of the above, summed — see `MailchimpAutomationTotals`. */
+  automationTotals: MailchimpAutomationTotals
   benchmark: MailchimpBenchmark | null
   /**
    * The most recent send on the account at any date.
