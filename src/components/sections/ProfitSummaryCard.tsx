@@ -79,53 +79,39 @@ interface Line {
 }
 
 /**
- * Ad spend as a share of what the period sold — a headline box of its own.
+ * Ad spend's share of sales, as a line inside the spend box.
  *
- * Beside the two figures it is struck from rather than inside either of them.
- * It belongs to neither: revenue does not own it, and printing it under the
- * spend would make it read as a property of the spend rather than the relation
- * between the two. It is also the figure a reader was going to work out from
- * the pair in their head, which is what earns it the same size as them.
+ * A box of its own gave one ratio the same weight as the two sums it is struck
+ * from, and spread four figures — the share, its relative move, the previous
+ * share, the move in points — across a third of the row to say one thing. It
+ * belongs to the spend: it is that figure expressed against sales, so it reads
+ * under it, and only the two numbers worth carrying come with it.
  *
- * Null where there is nothing to divide by. A period with no revenue has no
- * meaningful ratio, and an infinity — or a 0% struck from a zero denominator —
- * would state something about the spend that is not true.
+ * The movement is in points. This figure is already a percentage, and a
+ * relative change beside it invites reading a fall from 56.0 to 44.3 as
+ * twenty-one per cent of something rather than eleven and a half points.
+ *
+ * Null where there is nothing to divide by — a period with no revenue has no
+ * ratio, and a zero denominator would state something untrue about the spend.
  */
 function shareOfSales(
   spend: number | null,
   revenue: number | null,
   prevSpend: number | null | undefined,
   prevRevenue: number | null | undefined,
-) {
-  if (spend === null || !revenue) return null
+): string | undefined {
+  if (spend === null || !revenue) return undefined
 
   const now = spend / revenue
-  // Both halves of the comparison or neither. Half of one — a previous spend
-  // against a period whose revenue never loaded — would print a movement that
-  // is an artefact of the missing figure.
-  const comparable =
-    prevSpend !== null && prevSpend !== undefined && !!prevRevenue
-  const before = comparable ? prevSpend / prevRevenue : null
+  const share = `${formatPercent(now)} of sales`
 
-  return {
-    label: 'Ad spend % of sales',
-    value: formatPercent(now),
-    change: before === null ? null : deltaPct(now, before),
-    previous: before === null ? undefined : formatPercent(before),
-    // In points, not per cent. This figure is already a percentage, and "down
-    // 0.2%" against a share that fell from 56.0 to 55.9 invites the reading
-    // that it fell by 0.2 of a point when it fell by 0.1.
-    difference:
-      before === null
-        ? undefined
-        : formatDifference((now - before) * 100, (n) => `${n.toFixed(1)}pp`),
-    // A smaller share of sales spent on ads is the better direction.
-    polarity: 'down-good' as Polarity,
-    // Marks the one box that is a rate rather than a sum, so the layout can
-    // give it the full line at the width where three money figures will not
-    // fit and a third of a line where they will.
-    ratio: true,
-  }
+  // Both halves of the comparison or neither: a previous spend against a
+  // period whose revenue never loaded would print a movement that is an
+  // artefact of the missing figure.
+  if (prevSpend === null || prevSpend === undefined || !prevRevenue) return share
+
+  const before = prevSpend / prevRevenue
+  return `${share} · ${formatDifference((now - before) * 100, (n) => `${n.toFixed(1)}pp`)}`
 }
 
 /** One column of the strip under the headline. */
@@ -724,6 +710,8 @@ export function ProfitSummaryCard({
       amount: number | null,
       before: number | null | undefined,
       polarity: Polarity,
+      /** A third line under the figure, where it is worth one. */
+      note?: string,
     ) => {
       if (amount === null) return null
       const has = before !== null && before !== undefined
@@ -736,7 +724,7 @@ export function ProfitSummaryCard({
           ? formatDifference(amount - (before as number), formatCurrency)
           : undefined,
         polarity,
-        ratio: false,
+        note,
       }
     }
 
@@ -745,8 +733,13 @@ export function ProfitSummaryCard({
 
     return [
       build(top?.label ?? 'Revenue', revenue, prevRevenue, 'up-good'),
-      build('Ad spend total', adSpend, prevAdSpend, 'down-good'),
-      shareOfSales(adSpend, revenue, prevAdSpend, prevRevenue),
+      build(
+        'Ad spend total',
+        adSpend,
+        prevAdSpend,
+        'down-good',
+        shareOfSales(adSpend, revenue, prevAdSpend, prevRevenue),
+      ),
     ].filter((figure): figure is NonNullable<typeof figure> => figure !== null)
   }, [top, previousByLabel, adSpend, prevAdSpend])
 
@@ -764,10 +757,9 @@ export function ProfitSummaryCard({
               strip does — figure, change, baseline, move. */}
           <div className="mt-2">
             {loading ? (
-              <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
+              <div className="grid grid-cols-2 gap-2">
                 <Skeleton className="h-[68px] w-full" />
                 <Skeleton className="h-[68px] w-full" />
-                <Skeleton className="col-span-2 h-[68px] w-full lg:col-span-1" />
               </div>
             ) : failed || headline.length === 0 ? (
               <div className="rounded-lg border border-btn-border px-3 py-2.5 text-[24px] font-semibold leading-tight tabular-nums text-ink">
@@ -777,17 +769,13 @@ export function ProfitSummaryCard({
               /* Boxed and gridded like the strip below, at twice the type size:
                  the same grammar at the scale that says these lead the card.
 
-                 Two money figures to a line, because one in the thousands
-                 needs the width — the share is a rate, needs none of it, and
-                 takes the whole line beneath them until there is room for all
-                 three across. */
-              <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
+                 Two to a line rather than three, because a figure in the
+                 thousands needs the width. */
+              <div className="grid grid-cols-2 gap-2">
                 {headline.map((figure) => (
                   <div
                     key={figure.label}
-                    className={`min-w-0 rounded-lg border border-btn-border px-3 py-2.5 ${
-                      figure.ratio ? 'col-span-2 lg:col-span-1' : ''
-                    }`}
+                    className="min-w-0 rounded-lg border border-btn-border px-3 py-2.5"
                   >
                     {/* Named inside the box, both of them. The card's own title
                         names the card; a box that relied on it would be the one
@@ -829,6 +817,14 @@ export function ProfitSummaryCard({
                         {figure.difference !== undefined && (
                           <span className={MOVE_INK}>{figure.difference}</span>
                         )}
+                      </div>
+                    )}
+                    {/* Under the comparison: derived from both boxes rather
+                        than a property of this one, so it sits below the
+                        figures this box actually recorded. */}
+                    {figure.note && (
+                      <div className="mt-0.5 truncate text-[11px] tabular-nums text-label">
+                        {figure.note}
                       </div>
                     )}
                   </div>
