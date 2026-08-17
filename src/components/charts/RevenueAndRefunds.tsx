@@ -4,6 +4,7 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -19,6 +20,7 @@ import {
   formatPercent,
 } from '../../lib/format'
 import { ChartCard, TooltipCard } from './ChartCard'
+import { AVERAGE_DASH, summarise } from '../../lib/chartSummary'
 
 /*
  * Five series, five colours, chosen with the palette validator rather than by
@@ -42,6 +44,13 @@ const REVENUE = '#f4f4f5'
 const REFUND = '#e66767'
 const ORDERS = '#eda100'
 const RATE = '#3987e5'
+
+/*
+ * The two averages take REVENUE and RATE unchanged, dotted — see
+ * `AVERAGE_DASH`. Giving either a hue of its own put this palette to seven and
+ * broke the separation the comment above claims; the dots carry the
+ * distinction instead, and the set stays at five.
+ */
 
 /**
  * The visitors bar, set only just above the card it sits on.
@@ -190,6 +199,31 @@ export function RevenueAndRefunds({
   }, [revenue, refunds, traffic])
 
   /*
+   * The two averages the dotted rules mark.
+   *
+   * Revenue counts every day the merged series plots, zeroes included — a day
+   * that took nothing took nothing. The rate counts only days that had a
+   * visitor: a day nobody came to has no conversion rate, and folding those in
+   * as zeroes would drag the rule below anything the blue line ever touched.
+   *
+   * The rate average is struck from `ratePoints`, not `conversionRate`, so it
+   * is in the units its own axis is drawn in.
+   */
+  const revenueAverage = useMemo(
+    () => summarise(data, (point) => point.revenue),
+    [data],
+  )
+  const rateAverage = useMemo(
+    () =>
+      summarise(
+        data,
+        (point) => point.ratePoints ?? Number.NaN,
+        (point) => point.ratePoints !== null && (point.visitors ?? 0) > 0,
+      ),
+    [data],
+  )
+
+  /*
    * One ceiling for money and for people, so a dollar and a visitor are the
    * same height.
    *
@@ -313,6 +347,30 @@ export function RevenueAndRefunds({
                 isAnimationActive={false}
               />
 
+              {/* Both averages here, above the bars but under every line, so
+                  the data reads over its own reference rather than beneath it.
+                  Each is bound to the axis of the series it averages. */}
+              {revenueAverage && (
+                <ReferenceLine
+                  yAxisId="money"
+                  y={revenueAverage.average}
+                  stroke={REVENUE}
+                  strokeDasharray={AVERAGE_DASH}
+                  strokeLinecap="round"
+                  strokeWidth={2.5}
+                />
+              )}
+              {rateAverage && (
+                <ReferenceLine
+                  yAxisId="rate"
+                  y={rateAverage.average}
+                  stroke={RATE}
+                  strokeDasharray={AVERAGE_DASH}
+                  strokeLinecap="round"
+                  strokeWidth={2.5}
+                />
+              )}
+
               {/* Refunds share the money axis with revenue and sit low on it,
                   so the dots are what make a refund day findable — the line
                   between them runs along the axis on every day without one. */}
@@ -378,6 +436,16 @@ export function RevenueAndRefunds({
             Orders
           </Key>
           <Key color={RATE}>Conversion rate</Key>
+          {revenueAverage && (
+            <Key color={REVENUE} dots>
+              Avg revenue
+            </Key>
+          )}
+          {rateAverage && (
+            <Key color={RATE} dots>
+              Avg rate
+            </Key>
+          )}
         </div>
       </div>
     </ChartCard>
@@ -487,6 +555,7 @@ function Key({
   bar = false,
   hatch = false,
   dash = false,
+  dots = false,
   children,
 }: {
   color: string
@@ -495,11 +564,26 @@ function Key({
   hatch?: boolean
   /** A bare rule with no dot, as the orders mark is drawn across each bar. */
   dash?: boolean
+  /** A row of dots, as the average rules are drawn. */
+  dots?: boolean
   children: React.ReactNode
 }) {
   return (
     <span className="flex items-center gap-1.5">
-      {dash ? (
+      {dots ? (
+        <svg width="18" height="10" aria-hidden>
+          <line
+            x1="1"
+            y1="5"
+            x2="17"
+            y2="5"
+            stroke={color}
+            strokeWidth="2.5"
+            strokeDasharray={AVERAGE_DASH}
+            strokeLinecap="round"
+          />
+        </svg>
+      ) : dash ? (
         <svg width="16" height="10" aria-hidden>
           <line x1="0" y1="5" x2="16" y2="5" stroke={color} strokeWidth="2.5" />
         </svg>

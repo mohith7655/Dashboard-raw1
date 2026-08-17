@@ -2,6 +2,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -15,6 +16,8 @@ import {
   formatPercent,
 } from '../../lib/format'
 import { ChartCard, TooltipCard } from './ChartCard'
+import { AVERAGE_DASH, summarise } from '../../lib/chartSummary'
+import { ChartSummaryPanel } from './ChartSummary'
 
 /**
  * Visitors and conversion rate are deliberately two charts rather than one with
@@ -50,6 +53,10 @@ interface SeriesSpec {
   /** Full-precision wording for the tooltip. */
   readout: (point: TrafficPoint) => string
   axisWidth: number
+  /** How the side panel prints a figure, where the axis is too terse for it. */
+  summaryFormat: (n: number) => string
+  /** Which points the average is struck from; see `summarise`. */
+  counts?: (point: TrafficPoint) => boolean
 }
 
 function TrafficChart({
@@ -74,6 +81,8 @@ function TrafficChart({
     )
   }
 
+  const summary = summarise(data, (point) => point[spec.dataKey], spec.counts)
+
   return (
     <ChartCard
       title={spec.title}
@@ -83,7 +92,8 @@ function TrafficChart({
       unavailable={unavailable}
     >
       <div className="flex h-full flex-col">
-        <div className="min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 gap-3">
+        <div className="min-w-0 flex-1">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data} margin={{ top: 8, right: 16, bottom: 4, left: 8 }}>
               <CartesianGrid stroke="#232327" strokeWidth={1} vertical={false} />
@@ -107,6 +117,18 @@ function TrafficChart({
                 content={<SeriesTooltip />}
                 cursor={{ stroke: '#4a4a52', strokeWidth: 1 }}
               />
+              {/* Under the series, so the data crosses over the reference
+                  rather than the reference over the data. */}
+              {summary && (
+                <ReferenceLine
+                  y={summary.average}
+                  stroke={spec.color}
+                  strokeDasharray={AVERAGE_DASH}
+                  strokeLinecap="round"
+                  strokeWidth={2.5}
+                  ifOverflow="extendDomain"
+                />
+              )}
               <Line
                 type="monotone"
                 dataKey={spec.dataKey}
@@ -120,12 +142,34 @@ function TrafficChart({
           </ResponsiveContainer>
         </div>
 
-        <div className="flex shrink-0 items-center justify-center gap-2 pt-2 text-[12px] text-muted">
-          <svg width="26" height="10" aria-hidden>
-            <line x1="0" y1="5" x2="26" y2="5" stroke={spec.color} strokeWidth="2" />
-            <circle cx="13" cy="5" r="3.5" fill="#161618" stroke={spec.color} strokeWidth="2" />
-          </svg>
-          {spec.legend}
+        <ChartSummaryPanel summary={summary} format={spec.summaryFormat} />
+        </div>
+
+        <div className="flex shrink-0 items-center justify-center gap-4 pt-2 text-[12px] text-muted">
+          <span className="flex items-center gap-2">
+            <svg width="26" height="10" aria-hidden>
+              <line x1="0" y1="5" x2="26" y2="5" stroke={spec.color} strokeWidth="2" />
+              <circle cx="13" cy="5" r="3.5" fill="#161618" stroke={spec.color} strokeWidth="2" />
+            </svg>
+            {spec.legend}
+          </span>
+          {summary && (
+            <span className="flex items-center gap-2">
+              <svg width="26" height="10" aria-hidden>
+                <line
+                  x1="1"
+                  y1="5"
+                  x2="25"
+                  y2="5"
+                  stroke={spec.color}
+                  strokeWidth="2.5"
+                  strokeDasharray={AVERAGE_DASH}
+                  strokeLinecap="round"
+                />
+              </svg>
+              Average
+            </span>
+          )}
         </div>
       </div>
     </ChartCard>
@@ -144,6 +188,8 @@ export function VisitorsOverTime(props: TrafficChartProps) {
         legend: 'Visitors',
         axisFormat: formatCompactInteger,
         axisWidth: 48,
+        // The axis abbreviates to fit; the panel has room for the whole figure.
+        summaryFormat: formatInteger,
         readout: (p) => `Visitors : ${formatInteger(p.visitors)}`,
       }}
     />
@@ -162,6 +208,12 @@ export function ConversionRateOverTime(props: TrafficChartProps) {
         legend: 'Conversion rate',
         axisFormat: formatPercent,
         axisWidth: 56,
+        summaryFormat: formatPercent,
+        // A day nobody visited has no conversion rate — not a rate of zero.
+        // Counting those days as zeroes would pull the average toward a figure
+        // no day on the chart recorded, and would hand the "low" to a day that
+        // never had the chance to convert anyone.
+        counts: (p) => p.visitors > 0,
         readout: (p) =>
           `${formatPercent(p.conversionRate)} — ${formatInteger(p.orders)} of ${formatInteger(p.visitors)}`,
       }}
