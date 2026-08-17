@@ -270,6 +270,49 @@ function buildStatement({
   return lines
 }
 
+/** A line with the position it holds in the whole statement, not in its column. */
+interface PlacedLine {
+  line: Line
+  index: number
+}
+
+/**
+ * The statement in two columns for a wide screen, cut at a landmark.
+ *
+ * Cut at the `total` line nearest the middle rather than at the middle row.
+ * The statement reads as headings with their parts beneath them — cost of
+ * goods sold over the three costs it sums, gross profit over what comes off it
+ * — and slicing at the halfway row would strand a heading at the foot of the
+ * left column with its own contents at the head of the right one. Cutting on a
+ * landmark means each column opens on a figure that introduces what follows it.
+ *
+ * The original index travels with each line because two things downstream are
+ * measured against the statement as a whole rather than the column: the lead
+ * row, which is only ever the first line of all, and the React key.
+ */
+function splitStatement(lines: Line[]): PlacedLine[][] {
+  const placed: PlacedLine[] = lines.map((line, index) => ({ line, index }))
+
+  // Short statements stay whole. A period with no coupons, shipping, tax or
+  // refunds drops those rows, and splitting what is left would produce two
+  // stubs with a rule between them rather than two columns.
+  if (placed.length < 10) return [placed]
+
+  const middle = placed.length / 2
+  let cut = -1
+  for (const { line, index } of placed) {
+    // Never the opening line: cutting there leaves an empty left column.
+    if (index === 0 || line.kind !== 'total') continue
+    if (cut === -1 || Math.abs(index - middle) < Math.abs(cut - middle)) {
+      cut = index
+    }
+  }
+
+  // No landmark to cut on — one column, rather than an arbitrary break.
+  if (cut === -1) return [placed]
+  return [placed.slice(0, cut), placed.slice(cut)]
+}
+
 /* The statement's landmarks now live in `pnl.ts`, so the Targets section can
    measure a goal against the same net profit this card prints rather than
    deriving its own a second time. */
@@ -794,27 +837,45 @@ export function ProfitSummaryCard({
         // fit; the rows scroll sideways rather than wrapping a statement into
         // unreadable shapes or truncating the figures themselves.
         <div className="mt-1 overflow-x-auto">
-          <dl
-            className={`flex flex-col ${
-              anyChange ? 'min-w-[20rem]' : 'min-w-[14.5rem]'
-            }`}
-          >
-            {lines.map((line, index) => (
-              <StatementRow
-                key={`${line.label}-${index}`}
-                line={line}
-                share={share(line)}
-                change={changeOf(line)}
-                previous={previousOf(line)}
-                showChange={anyChange}
-                showPrevious={anyPrevious}
-                // The line the statement opens on, and the one every share is
-                // measured against. It carries a little more weight than the
-                // headings below it for both reasons.
-                lead={index === 0}
-              />
+          {/* One column until there is room for two. The statement is fifteen
+              rows deep, which on a desktop left the card running far below the
+              panel beside it and half the width empty; from `lg` it carries on
+              into a second column instead of further down. */}
+          // Flex rather than a grid: grid cells split the card in half whatever
+          // the columns need, which on a wide screen left each statement
+          // stranded at the left of its own half with a chasm between them.
+          // Here the two size themselves and sit together.
+          <div className="flex flex-col lg:flex-row lg:gap-x-12">
+            {splitStatement(lines).map((column, columnIndex) => (
+              <dl
+                key={columnIndex}
+                className={`flex w-full flex-col content-start ${
+                  anyChange ? 'min-w-[20rem]' : 'min-w-[14.5rem]'
+                } lg:flex-1 lg:max-w-[24rem] ${
+                  // The rule only exists once the columns are side by side.
+                  // Stacked, they are one continuous statement and a line
+                  // across the middle would invent a break in it.
+                  columnIndex > 0 ? 'lg:border-l lg:border-row-line lg:pl-12' : ''
+                }`}
+              >
+                {column.map(({ line, index }) => (
+                  <StatementRow
+                    key={`${line.label}-${index}`}
+                    line={line}
+                    share={share(line)}
+                    change={changeOf(line)}
+                    previous={previousOf(line)}
+                    showChange={anyChange}
+                    showPrevious={anyPrevious}
+                    // The line the statement opens on, and the one every share
+                    // is measured against. It carries a little more weight than
+                    // the headings below it for both reasons.
+                    lead={index === 0}
+                  />
+                ))}
+              </dl>
             ))}
-          </dl>
+          </div>
         </div>
       )}
       </div>
@@ -943,18 +1004,23 @@ function StatementRow({
   const strongSize = lead ? 'text-[13.5px]' : 'text-[12px]'
 
   return (
-    // Columns are packed to the left rather than pushed to both edges. Spread
-    // across the card, a line's figure ended up an inch or more from the label
-    // that names it, and the eye had to cross an empty gap that grew with the
-    // width of the card. The slack now sits at the end of the row instead.
+    // Label left, figures right — but inside a row the column caps at ~23rem
+    // rather than across the whole card.
+    //
+    // Pushing these to both edges of the card was tried and undone: a line's
+    // figure ended up an inch or more from the label naming it, across a gap
+    // that grew with every pixel of card width. The cap is what makes the
+    // spread safe. It is a bound on that gap, so the row breathes on a wide
+    // screen and the eye still crosses a short distance to read a label
+    // against its number.
     <div
-      className={`flex items-baseline gap-1.5 py-1 ${
+      className={`flex items-baseline justify-between gap-3 py-1 lg:gap-4 ${
         total ? 'border-t border-row-line first:border-0' : ''
       }`}
     >
       <dt
         title={line.label}
-        className={`w-[7.5rem] shrink-0 truncate ${total ? '' : 'pl-2.5'} ${
+        className={`min-w-0 flex-1 truncate ${total ? '' : 'pl-2.5'} ${
           strong ? `${strongSize} font-medium text-ink` : 'text-[11px] text-muted'
         }`}
       >
