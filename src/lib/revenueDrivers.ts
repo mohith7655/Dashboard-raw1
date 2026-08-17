@@ -146,3 +146,56 @@ export function driverVerdict(report: DriverReport | null): string | null {
     ? `Revenue held up despite ${label} — the other drivers covered it.`
     : `${DRIVER_LABELS[laggard.key]} is dragging revenue down.`
 }
+
+/* ------------------------- What the goal requires ------------------------ */
+
+/** What one driver has to reach for the goal to be met, all else held. */
+export interface RequiredDriver {
+  key: DriverKey
+  /** Where the driver stands now, over the same window the goal covers. */
+  current: number
+  /** Where it would have to stand — null where the others leave no solution. */
+  required: number | null
+  /** `required / current - 1`: the lift needed, as a ratio. Null with no target. */
+  lift: number | null
+}
+
+/**
+ * Each driver on its own, against what the goal needs.
+ *
+ * Read one line at a time, never all three together. "Visitors must reach
+ * 24,000" is true only while conversion and order value hold where they are —
+ * as is each of the others — so the three are alternatives, not a plan to
+ * carry out at once. Meeting any one of them meets the goal; meeting all three
+ * would overshoot it many times over.
+ *
+ * That framing is the point. A goal is missed for a reason, and the useful
+ * question is which of the three is the cheapest to move — not what an
+ * unattributed shortfall says about the store in general.
+ *
+ * Null against a driver at zero: with no visitors there is no conversion rate
+ * that reaches any goal, and dividing would answer with an infinity dressed up
+ * as a target.
+ */
+export function requiredDrivers(
+  goal: number,
+  now: DriverInputs,
+): RequiredDriver[] {
+  const { visitors, conversionRate, avgOrderValue } = now
+
+  const solve = (a: number, b: number): number | null =>
+    a > 0 && b > 0 && Number.isFinite(goal) ? goal / (a * b) : null
+
+  const rows: [DriverKey, number, number | null][] = [
+    ['traffic', visitors, solve(conversionRate, avgOrderValue)],
+    ['conversion', conversionRate, solve(visitors, avgOrderValue)],
+    ['aov', avgOrderValue, solve(visitors, conversionRate)],
+  ]
+
+  return rows.map(([key, current, required]) => ({
+    key,
+    current,
+    required,
+    lift: required !== null && current > 0 ? required / current - 1 : null,
+  }))
+}
