@@ -1,10 +1,9 @@
-import { CircleDot, History } from 'lucide-react'
+import { CalendarDays, ClockArrowLeft } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Comparison, DateRange, PresetId } from '../lib/types'
 import { rangeFromPreset } from '../lib/dateRange'
 import { DateRangePicker } from './DateRangePicker'
-import { TodayToggle } from './TodayToggle'
 
 interface HeaderProps {
   range: DateRange
@@ -49,15 +48,9 @@ export function Header({
               earn the bar; every longer period stays in the panel. */}
           <QuickDays range={range} onRangeChange={onRangeChange} />
 
-          {/* Out on the bar beside the picker rather than only inside it. It
-              changes what every figure on the page covers, and a control with
-              that reach should be readable without opening a panel — on at a
-              glance, and one click to turn off. */}
-          <TodayToggle
-            range={range}
-            excludeToday={excludeToday}
-            onChange={onExcludeTodayChange}
-          />
+          {/* The today toggle used to sit here, on the bar. It now lives only
+              in the picker's own panel, which still carries it — taking it off
+              the bar removes the control from view, not from the page. */}
           <DateRangePicker
             value={range}
             onChange={onRangeChange}
@@ -123,7 +116,7 @@ function QuickDays({
         preset="yesterday"
         label="Yesterday"
         short="Y"
-        icon={<History size={13} aria-hidden />}
+        icon={<ClockArrowLeft size={13} aria-hidden />}
         range={range}
         onPress={press}
         canReturn={!!previous}
@@ -133,7 +126,7 @@ function QuickDays({
         preset="today"
         label="Today"
         short="T"
-        icon={<CircleDot size={13} aria-hidden />}
+        icon={<CalendarDays size={13} aria-hidden />}
         range={range}
         onPress={press}
         canReturn={!!previous}
@@ -154,10 +147,15 @@ function keyOf(range: DateRange): string {
  * and "Yesterday" spelled out costs more width than it earns beside a control
  * whose two options are only ever these.
  *
- * The icons say past and present rather than picturing a calendar, because the
- * toggle immediately to the right already uses calendar glyphs for a different
- * question — whether today is counted. Two calendars side by side, meaning two
- * unrelated things, would be worse than none.
+ * A clock wound back for yesterday, a calendar for today. The pair reads as
+ * "a day behind" against "the day itself", which is the distinction the two
+ * buttons actually draw.
+ *
+ * The calendar was unavailable until the today toggle came off this bar: it
+ * used calendar glyphs for an unrelated question — whether today is counted in
+ * the figures — and two calendars side by side meaning two different things
+ * would have been worse than none. With it gone the glyph is free, and the
+ * plain one is the clearest thing today can wear.
  */
 function QuickDay({
   preset,
