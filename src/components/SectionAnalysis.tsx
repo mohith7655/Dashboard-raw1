@@ -238,6 +238,8 @@ export function AnalyseButton({
   panelId,
   label,
   onToggle,
+  onRun,
+  hasResult = false,
   running,
   disabled,
 }: {
@@ -245,13 +247,35 @@ export function AnalyseButton({
   panelId: string
   label: string
   onToggle: () => void
+  /** Starts a run with the saved prompt, so opening and asking are one click. */
+  onRun?: () => void
+  /** Whether an answer is already on screen, so opening again does not re-ask. */
+  hasResult?: boolean
   running: boolean
   disabled?: boolean
 }) {
+  /*
+   * Opening asks the question.
+   *
+   * The button is called Analyse and did not analyse — it revealed a form with
+   * a second Analyse in it, so the obvious click produced a textarea and the
+   * answer took two. The prompt is a standing instruction that is set once and
+   * changed rarely, and it stays in the panel for when it needs changing.
+   *
+   * Only on the way open, and only with nothing already answered: closing a
+   * panel must never spend an API call, and reopening one to reread its answer
+   * must not silently buy another. Re-asking stays deliberate, on the panel's
+   * own button, which says "Analyse again" once there is something to redo.
+   */
+  const press = () => {
+    if (!open && !hasResult && !running) onRun?.()
+    onToggle()
+  }
+
   return (
     <button
       type="button"
-      onClick={onToggle}
+      onClick={press}
       disabled={disabled}
       aria-expanded={open}
       aria-controls={panelId}

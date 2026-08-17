@@ -238,6 +238,8 @@ export function AdsStatsCard({
           {rangeControl}
           <AnalyseButton
             open={analysisOpen}
+            onRun={() => analysis.onAnalyse(analysis.prompt ?? '', snapshotOf())}
+            hasResult={!!analysis.result}
             panelId={analysisId}
             label="all ads"
             onToggle={() => setAnalysisOpen((current) => !current)}

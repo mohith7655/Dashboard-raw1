@@ -642,6 +642,8 @@ export default function App() {
                       it, and under the standing prompt written for it. */}
                   <AnalyseButton
                     open={ceoAnalysisOpen}
+                    onRun={() => ceoAnalysis.onAnalyse(ceoAnalysis.prompt ?? '', snapshotOf())}
+                    hasResult={!!ceoAnalysis.result}
                     panelId={ceoAnalysisId}
                     label="this period"
                     onToggle={() => setCeoAnalysisOpen((current) => !current)}

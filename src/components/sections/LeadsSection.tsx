@@ -251,6 +251,8 @@ export function LeadsSection({
         <div className="mb-3 flex shrink-0 items-center gap-1">
           <AnalyseButton
             open={analysisOpen}
+            onRun={() => analysis.onAnalyse(analysis.prompt ?? '', snapshotOf())}
+            hasResult={!!analysis.result}
             panelId={analysisId}
             label="leads"
             onToggle={() => setAnalysisOpen((current) => !current)}
