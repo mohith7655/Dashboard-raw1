@@ -1342,6 +1342,23 @@ export type TargetGoal = 'revenue' | 'sales' | 'profit' | 'roas'
  */
 export const TARGET_GOALS: TargetGoal[] = ['revenue', 'sales', 'profit', 'roas']
 
+/**
+ * The goals the editor offers, against the four it can still read.
+ *
+ * A target is set on what the store is run to — what it keeps, and what is
+ * left at the end — and the other two were noise on the form. Sales is revenue
+ * before the refunds come off, which is a distinction to report and not one to
+ * aim at; return on ad spend is a rate to hold rather than a figure to reach,
+ * and it brought a whole second arithmetic with it for a goal nobody set.
+ *
+ * Narrowed here rather than by cutting the type, deliberately. A target
+ * already saved against either still loads, still plans and still renders with
+ * its own label — dropping them from `TargetGoal` would have made saved data
+ * unreadable to satisfy a change to a form. They simply cannot be chosen
+ * again, and the last one edited away is the last one seen.
+ */
+export const TARGET_GOALS_OFFERED: TargetGoal[] = ['revenue', 'profit']
+
 export const TARGET_GOAL_LABELS: Record<TargetGoal, string> = {
   revenue: 'Revenue',
   sales: 'Sales',
@@ -1388,6 +1405,21 @@ export interface Target {
    * drift apart. Zero means unfunded.
    */
   budgetPct: number
+  /**
+   * A flat sum to spend instead, where one was set. Overrides `budgetPct`.
+   *
+   * The percentage remains the better way to write most budgets, for the
+   * reason above — it cannot drift from the goal. But not every budget is a
+   * share of anything: a fixed quarterly allowance, or money already committed
+   * to a campaign, is a sum, and expressing it as a percentage means
+   * recomputing that percentage by hand every time the goal is edited.
+   *
+   * Optional rather than a mode flag, so every target saved before this reads
+   * back unchanged: absent means the percentage governs, which is what those
+   * targets have always meant. Zero and absent are the same thing — unfunded —
+   * so a cleared field cannot strand a target on a budget of nothing.
+   */
+  budgetAmount?: number
   /**
    * `yyyy-MM-dd` the target runs from.
    *

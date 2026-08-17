@@ -76,6 +76,16 @@ function readTargets(raw: unknown): Target[] {
       // A share of sales, so it is bounded at both ends. Over 100% is not a
       // budget, it is a typo that would recommend spending more than the goal.
       budgetPct: Math.min(100, Math.max(0, num(row.budgetPct))),
+      // The flat alternative, floored at zero and otherwise unbounded — a sum
+      // has no natural ceiling the way a share of sales does, and clamping one
+      // would silently rewrite a large budget rather than refuse it.
+      //
+      // Absent stays absent. Writing a zero onto every row that never carried
+      // this would be indistinguishable from a budget deliberately cleared,
+      // and both read the same to the plan, but only one of them is a fact.
+      ...(num(row.budgetAmount) > 0
+        ? { budgetAmount: Math.max(0, num(row.budgetAmount)) }
+        : {}),
       // Rows written before targets had a window get today, which makes them
       // exactly what they were: a target running from now to its date.
       //

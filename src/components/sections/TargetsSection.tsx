@@ -24,7 +24,23 @@ import type {
   TargetPlan,
   WooMetrics,
 } from '../../lib/types'
-import { TARGET_GOALS, TARGET_GOAL_LABELS, isMoneyGoal } from '../../lib/types'
+import {
+  TARGET_GOALS,
+  TARGET_GOALS_OFFERED,
+  TARGET_GOAL_LABELS,
+  isMoneyGoal,
+} from '../../lib/types'
+import {
+  QUARTERS,
+  TARGET_PERIODS,
+  TARGET_PERIOD_LABELS,
+  endOfPeriod,
+  periodOf,
+  quarterOf,
+  quarterStart,
+  type Quarter,
+  type TargetPeriod,
+} from '../../lib/targetPeriod'
 import { effectiveStart, planTarget } from '../../lib/targets'
 import { baselineProgress, useTargetProgress } from '../../lib/targetProgress'
 import { monthStart } from '../../lib/dateRange'
@@ -361,6 +377,35 @@ function PlanCard({
             ? `To reach it — ${formatCurrency(plan.budgetBasis)} across the window, ${formatCurrency(plan.budgetRemaining)} left over ${plan.daysLeft} days`
             : `Your budget — ${formatCurrency(plan.budgetBasis)} across the window, ${formatCurrency(plan.budgetRemaining)} left over ${plan.daysLeft} days`}
         </div>
+        {/* The two figures the whole card turns on, boxed out of the strip
+            below: what is being spent, and what reaching the goal costs. They
+            were two entries in a row of seven, read at the same weight as
+            "per week" — and the gap between them is the decision the target
+            exists to inform. Side by side, with the shortfall named, it can be
+            read without arithmetic.
+
+            Only where they are two different figures. With no budget set the
+            plan already splits the implied one, so the heading above is
+            quoting the same number and a box comparing it with itself would
+            invent a gap of zero. */}
+        {plan.impliedBudget !== null && !plan.basisIsImplied && (
+          <div className="mt-2 flex flex-wrap items-stretch gap-2">
+            <BudgetBox label="Budget set" value={formatCurrency(plan.budgetBasis)} />
+            <BudgetBox
+              label="Budget needed"
+              value={formatCurrency(plan.impliedBudget)}
+              // Short of what the goal needs is the case worth colouring. Over
+              // it is not a warning — it is headroom.
+              tone={plan.impliedBudget > plan.budgetBasis ? 'short' : 'ok'}
+              note={
+                plan.impliedBudget > plan.budgetBasis
+                  ? `${formatCurrency(plan.impliedBudget - plan.budgetBasis)} short`
+                  : `${formatCurrency(plan.budgetBasis - plan.impliedBudget)} spare`
+              }
+            />
+          </div>
+        )}
+
         <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
           {plan.progress && (
             <Figure label="Spent so far" value={formatCurrency(plan.progress.spend)} />
@@ -374,11 +419,6 @@ function PlanCard({
               plan.pacingPerDay === null ? '—' : `${formatCurrency(plan.pacingPerDay)} / day`
             }
           />
-          {/* Redundant beside the heading above when the split is already the
-              implied budget; shown only where it is a second figure. */}
-          {plan.impliedBudget !== null && !plan.basisIsImplied && (
-            <Figure label="Budget needed" value={formatCurrency(plan.impliedBudget)} />
-          )}
           {plan.attainment !== null && !plan.basisIsImplied && (
             <Figure
               label="On target"
@@ -527,6 +567,45 @@ function AimBlock({ aim }: { aim: AimPlan }) {
   )
 }
 
+/**
+ * One of the two budget figures, at the weight the comparison deserves.
+ *
+ * A box rather than another entry in the strip: these two are read against
+ * each other, and the shortfall between them is the number the operator acts
+ * on. The strip's job is to list rates; this one's is to pose a question.
+ */
+function BudgetBox({
+  label,
+  value,
+  tone = 'plain',
+  note,
+}: {
+  label: string
+  value: string
+  tone?: 'plain' | 'short' | 'ok'
+  note?: string
+}) {
+  return (
+    <div className="min-w-[9rem] flex-1 rounded-lg border border-btn-border bg-btn px-3 py-2">
+      <div className="truncate text-[10px] uppercase tracking-wide text-label">
+        {label}
+      </div>
+      <div className="mt-0.5 truncate text-[16px] font-semibold tabular-nums text-ink">
+        {value}
+      </div>
+      {note && (
+        <div
+          className={`mt-0.5 truncate text-[11px] tabular-nums ${
+            tone === 'short' ? 'text-neg' : tone === 'ok' ? 'text-pos' : 'text-muted'
+          }`}
+        >
+          {note}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Figure({
   label,
   value,
@@ -550,6 +629,11 @@ function Figure({
  * Held in local state until saved, so a half-typed figure never reaches the
  * store — and never briefly redraws every plan on the page as it is typed.
  */
+/** Whether a target already aims at a goal. Module level so the form can ask
+    it while building its own list of choices, before `chosen` is bound. */
+const chosenGoal = (target: Target, goal: TargetGoal): boolean =>
+  target.aims.some((aim) => aim.goal === goal)
+
 function TargetEditor({
   target,
   saving,
@@ -562,10 +646,70 @@ function TargetEditor({
   onSave: (target: Target) => void
 }) {
   const [draft, setDraft] = useState<Target>(target)
+  /*
+   * Read off the window rather than stored on the target.
+   *
+   * A length is a way of writing two dates down, not a third fact about the
+   * target — keeping it in the record would let it disagree with the dates it
+   * describes. Derived, an old target opens on the button that matches it and
+   * every other one opens on Custom, which is what it is.
+   */
+  const [period, setPeriod] = useState<TargetPeriod>(() =>
+    periodOf(target.start, target.deadline),
+  )
+
+  /*
+   * Which of the two budget fields is in play, read off the target rather than
+   * stored — a sum above zero is what makes a target one budgeted by sum, and
+   * that is exactly the test the plan itself applies.
+   */
+  const [budgetMode, setBudgetModeState] = useState<'percent' | 'amount'>(() =>
+    target.budgetAmount && target.budgetAmount > 0 ? 'amount' : 'percent',
+  )
+
+  /*
+   * Switching clears the field being left behind. Both kept, the record would
+   * carry a share and a sum that disagree, and only one of them would be used
+   * — the plan prefers the sum, so a stale sum would quietly outrank the
+   * percentage the operator had just typed.
+   */
+  const setBudgetMode = (mode: 'percent' | 'amount') => {
+    setBudgetModeState(mode)
+    setDraft((d) =>
+      mode === 'percent' ? { ...d, budgetAmount: 0 } : { ...d, budgetPct: 0 },
+    )
+  }
+
   const set = <K extends keyof Target>(key: K, value: Target[K]) =>
     setDraft((d) => ({ ...d, [key]: value }))
 
-  const chosen = (goal: TargetGoal) => draft.aims.some((aim) => aim.goal === goal)
+  /** Moves the window's start, carrying its end where the length fixes one. */
+  const setStart = (start: string, next: TargetPeriod = period) => {
+    const end = endOfPeriod(start, next)
+    setDraft((d) => ({
+      ...d,
+      start,
+      // Custom keeps whatever is there, only refusing to invert.
+      deadline: end ?? (start > d.deadline ? start : d.deadline),
+    }))
+  }
+
+  const choosePeriod = (next: TargetPeriod) => {
+    setPeriod(next)
+    setStart(draft.start, next)
+  }
+
+  /**
+   * The goals on the form: the two still offered, plus any the target already
+   * carries. A target saved against sales or return on ad spend keeps its box
+   * so it can be switched off — dropping it silently would leave an aim on the
+   * record with no way to reach it.
+   */
+  const goalChoices = TARGET_GOALS.filter(
+    (goal) => TARGET_GOALS_OFFERED.includes(goal) || chosenGoal(draft, goal),
+  )
+
+  const chosen = (goal: TargetGoal) => chosenGoal(draft, goal)
 
   /**
    * Adds or removes a goal, keeping the aims in the canonical order.
@@ -600,9 +744,13 @@ function TargetEditor({
   // shown so the operator is never typing a number they cannot see the size of.
   const anchor = draft.aims.find((aim) => isMoneyGoal(aim.goal) && aim.amount > 0)
   const budgetPreview =
-    anchor && draft.budgetPct > 0
-      ? formatCurrency((anchor.amount * draft.budgetPct) / 100)
-      : null
+    budgetMode === 'amount'
+      ? draft.budgetAmount && draft.budgetAmount > 0
+        ? formatCurrency(draft.budgetAmount)
+        : null
+      : anchor && draft.budgetPct > 0
+        ? formatCurrency((anchor.amount * draft.budgetPct) / 100)
+        : null
 
   return (
     <form
@@ -622,19 +770,110 @@ function TargetEditor({
           />
         </Field>
 
-        <Field label="Ad budget (% of sales)">
-          <input
-            type="number"
-            min={0}
-            max={100}
-            step="any"
-            value={draft.budgetPct || ''}
-            onChange={(e) =>
-              set('budgetPct', clamp(Number(e.target.value) || 0, 0, 100))
-            }
-            className="input-base tabular-nums"
-          />
+        {/* Two ways to say the same thing, and only one on screen at a time.
+            Both inputs at once would leave the operator to work out which of
+            the two the plan actually used. */}
+        <Field label="Ad budget">
+          <div className="flex items-center gap-1.5">
+            <div className="flex overflow-hidden rounded-lg border border-btn-border">
+              {(['percent', 'amount'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setBudgetMode(mode)}
+                  aria-pressed={budgetMode === mode}
+                  className={`px-2.5 py-2 text-[12.5px] transition-colors ${
+                    budgetMode === mode
+                      ? 'bg-[#5b9bd8]/12 text-ink'
+                      : 'bg-btn text-muted hover:text-ink'
+                  }`}
+                >
+                  {mode === 'percent' ? '% of sales' : 'Amount'}
+                </button>
+              ))}
+            </div>
+            {budgetMode === 'percent' ? (
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="any"
+                value={draft.budgetPct || ''}
+                onChange={(e) =>
+                  set('budgetPct', clamp(Number(e.target.value) || 0, 0, 100))
+                }
+                className="input-base w-[6rem] tabular-nums"
+              />
+            ) : (
+              <input
+                type="number"
+                min={0}
+                step="any"
+                value={draft.budgetAmount || ''}
+                onChange={(e) =>
+                  set('budgetAmount', Math.max(0, Number(e.target.value) || 0))
+                }
+                className="input-base w-[8rem] tabular-nums"
+              />
+            )}
+          </div>
         </Field>
+
+        {/* How long the target runs, which decides where it ends. Chosen
+            before the dates because it governs them: pick Monthly and the end
+            follows the start for good, so the only date to think about is the
+            one it opens on. */}
+        <Field label="Length" className="min-w-[14rem] flex-1">
+          <div className="flex flex-wrap gap-1.5">
+            {TARGET_PERIODS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => choosePeriod(option)}
+                aria-pressed={period === option}
+                className={`rounded-lg border px-2.5 py-1.5 text-[12.5px] transition-colors ${
+                  period === option
+                    ? 'border-[#3a3a40] bg-btn text-ink'
+                    : 'border-btn-border text-muted hover:border-[#3a3a40] hover:text-ink'
+                }`}
+              >
+                {TARGET_PERIOD_LABELS[option]}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        {/* The four calendar quarters, offered only once the target is one.
+            A quarter is named rather than dated in every conversation it comes
+            up in, and Q3 is a click where 1 July is a date to look up. The
+            year comes from the start already set, so choosing Q1 in a target
+            opened in 2027 does not jump back to this year. */}
+        {period === 'quarterly' && (
+          <Field label="Quarter" className="min-w-[12rem]">
+            <div className="flex flex-wrap gap-1.5">
+              {QUARTERS.map((quarter) => {
+                const at = quarterOf(draft.start)
+                const year = at?.year ?? new Date().getFullYear()
+                const on = at?.quarter === quarter
+                return (
+                  <button
+                    key={quarter}
+                    type="button"
+                    onClick={() => setStart(quarterStart(year, quarter as Quarter))}
+                    aria-pressed={on}
+                    className={`rounded-lg border px-2.5 py-1.5 text-[12.5px] tabular-nums transition-colors ${
+                      on
+                        ? 'border-[#3a3a40] bg-btn text-ink'
+                        : 'border-btn-border text-muted hover:border-[#3a3a40] hover:text-ink'
+                    }`}
+                  >
+                    Q{quarter}
+                  </button>
+                )
+              })}
+            </div>
+          </Field>
+        )}
 
         {/* Both ends of the window. Each keeps the other in order rather than
             validating on save: the start can never be set past the end, and
@@ -648,24 +887,21 @@ function TargetEditor({
           <input
             type="date"
             value={draft.start}
-            max={draft.deadline}
-            onChange={(e) => {
-              const start = e.target.value || draft.start
-              setDraft((d) => ({
-                ...d,
-                start,
-                deadline: start > d.deadline ? start : d.deadline,
-              }))
-            }}
+            onChange={(e) => setStart(e.target.value || draft.start)}
             className="input-base tabular-nums"
           />
         </Field>
 
-        <Field label="End date">
+        <Field label={period === 'custom' ? 'End date' : 'End date (set by the length)'}>
           <input
             type="date"
             value={draft.deadline}
             min={draft.start}
+            /* Fixed by the length, so it is shown rather than asked for. An
+               editable end beside a length that decides it is two controls for
+               one fact, and the loser is whichever the operator touched last. */
+            readOnly={period !== 'custom'}
+            aria-readonly={period !== 'custom'}
             onChange={(e) => {
               const deadline = e.target.value || draft.deadline
               setDraft((d) => ({
@@ -689,7 +925,7 @@ function TargetEditor({
           Goals — pick one or more
         </legend>
         <div className="flex flex-wrap gap-2">
-          {TARGET_GOALS.map((goal) => {
+          {goalChoices.map((goal) => {
             const on = chosen(goal)
             // The last one standing cannot be switched off; the target would
             // have nothing left to aim at.

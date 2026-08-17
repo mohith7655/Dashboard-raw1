@@ -209,7 +209,17 @@ export function planTarget({
       ? (rates.revenue / rates.days) * windowDays
       : 0
 
-  const budget = (salesBasis * target.budgetPct) / 100
+  /*
+   * A sum set outright wins over the share.
+   *
+   * Only when it is above zero: an empty or cleared field is not a budget of
+   * nothing, it is no answer, and letting it read as zero would silently
+   * defund a target whose percentage is still sitting right there.
+   */
+  const budget =
+    target.budgetAmount && target.budgetAmount > 0
+      ? target.budgetAmount
+      : (salesBasis * target.budgetPct) / 100
 
   // A money aim divides into the budget it needs; a return aim is already a
   // rate and implies no budget of its own.
