@@ -897,11 +897,12 @@ export function ProfitSummaryCard({
           {/* One column until there is room for two. The statement is fifteen
               rows deep, which on a desktop left the card running far below the
               panel beside it and half the width empty; from `lg` it carries on
-              into a second column instead of further down. */}
-          // Flex rather than a grid: grid cells split the card in half whatever
-          // the columns need, which on a wide screen left each statement
-          // stranded at the left of its own half with a chasm between them.
-          // Here the two size themselves and sit together.
+              into a second column instead of further down.
+
+              Flex rather than a grid: grid cells split the card in half
+              whatever the columns need, which on a wide screen left each
+              statement stranded at the left of its own half with a chasm
+              between them. Here the two size themselves and sit together. */}
           <div className="flex flex-col lg:flex-row lg:gap-x-12">
             {splitStatement(lines).map((column, columnIndex) => (
               <dl
