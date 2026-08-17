@@ -1,5 +1,5 @@
 import type { Comparison, CompareMode, DateRange, PresetId } from './types'
-import { formatDate } from './format'
+import { formatDate, formatDay } from './format'
 import { storeTimeZone, todayIn } from './timeZone'
 
 export const PRESETS: { id: PresetId; label: string }[] = [
@@ -290,8 +290,44 @@ export function eachDay(range: DateRange): string[] {
   return out
 }
 
-/** `Jul 1, 2026 – Jul 31, 2026` */
+/**
+ * `Aug 1 – 17, 2026` — the range with whatever its two ends share said once.
+ *
+ * Both dates in full came to `Aug 1, 2026 – Aug 17, 2026`, which prints the
+ * month twice and the year twice to describe seventeen days inside one of
+ * them. On the picker that is two lines of chrome above every figure on the
+ * page, and the repetition is the part carrying no information.
+ *
+ * So each shared component drops out, leaving only what actually differs:
+ *
+ *   same day            Aug 17, 2026
+ *   same month & year   Aug 1 – 17, 2026
+ *   same year           Aug 1 – Sep 17, 2026
+ *   neither             Dec 1, 2026 – Jan 5, 2027
+ *
+ * The year is never dropped, even for the current one. These labels are read
+ * beside comparison windows that can fall in a different year, and a range
+ * whose year is implied is one a reader has to assume rather than see.
+ */
 export function formatRangeLabel(range: DateRange): string {
   if (range.start === range.end) return formatDate(range.start)
-  return `${formatDate(range.start)} – ${formatDate(range.end)}`
+
+  const [startYear, startMonth] = range.start.split('-')
+  const [endYear, endMonth] = range.end.split('-')
+
+  // Different years: nothing is shared, so both ends carry their own.
+  if (startYear !== endYear) {
+    return `${formatDate(range.start)} – ${formatDate(range.end)}`
+  }
+
+  // Same month as well as year — the month leads once and only the day
+  // changes: `Aug 1 – 17, 2026`.
+  if (startMonth === endMonth) {
+    return `${formatDay(range.start)} – ${dayOfMonth(range.end)}, ${endYear}`
+  }
+
+  return `${formatDay(range.start)} – ${formatDay(range.end)}, ${endYear}`
 }
+
+/** `2026-08-07` → `7`, so the closing day reads without a leading zero. */
+const dayOfMonth = (iso: string): string => String(Number(iso.slice(8, 10)))
