@@ -78,6 +78,56 @@ interface Line {
   polarity: Polarity
 }
 
+/**
+ * Ad spend as a share of what the period sold — a headline box of its own.
+ *
+ * Beside the two figures it is struck from rather than inside either of them.
+ * It belongs to neither: revenue does not own it, and printing it under the
+ * spend would make it read as a property of the spend rather than the relation
+ * between the two. It is also the figure a reader was going to work out from
+ * the pair in their head, which is what earns it the same size as them.
+ *
+ * Null where there is nothing to divide by. A period with no revenue has no
+ * meaningful ratio, and an infinity — or a 0% struck from a zero denominator —
+ * would state something about the spend that is not true.
+ */
+function shareOfSales(
+  spend: number | null,
+  revenue: number | null,
+  prevSpend: number | null | undefined,
+  prevRevenue: number | null | undefined,
+) {
+  if (spend === null || !revenue) return null
+
+  const now = spend / revenue
+  // Both halves of the comparison or neither. Half of one — a previous spend
+  // against a period whose revenue never loaded — would print a movement that
+  // is an artefact of the missing figure.
+  const comparable =
+    prevSpend !== null && prevSpend !== undefined && !!prevRevenue
+  const before = comparable ? prevSpend / prevRevenue : null
+
+  return {
+    label: 'Ad spend % of sales',
+    value: formatPercent(now),
+    change: before === null ? null : deltaPct(now, before),
+    previous: before === null ? undefined : formatPercent(before),
+    // In points, not per cent. This figure is already a percentage, and "down
+    // 0.2%" against a share that fell from 56.0 to 55.9 invites the reading
+    // that it fell by 0.2 of a point when it fell by 0.1.
+    difference:
+      before === null
+        ? undefined
+        : formatDifference((now - before) * 100, (n) => `${n.toFixed(1)}pp`),
+    // A smaller share of sales spent on ads is the better direction.
+    polarity: 'down-good' as Polarity,
+    // Marks the one box that is a rate rather than a sum, so the layout can
+    // give it the full line at the width where three money figures will not
+    // fit and a third of a line where they will.
+    ratio: true,
+  }
+}
+
 /** One column of the strip under the headline. */
 interface PerDayFigure {
   /** Stable across renders, so the open panel survives a refetch. */
@@ -686,12 +736,17 @@ export function ProfitSummaryCard({
           ? formatDifference(amount - (before as number), formatCurrency)
           : undefined,
         polarity,
+        ratio: false,
       }
     }
 
+    const revenue = top?.amount ?? null
+    const prevRevenue = previousByLabel?.get('Revenue')
+
     return [
-      build(top?.label ?? 'Revenue', top?.amount ?? null, previousByLabel?.get('Revenue'), 'up-good'),
+      build(top?.label ?? 'Revenue', revenue, prevRevenue, 'up-good'),
       build('Ad spend total', adSpend, prevAdSpend, 'down-good'),
+      shareOfSales(adSpend, revenue, prevAdSpend, prevRevenue),
     ].filter((figure): figure is NonNullable<typeof figure> => figure !== null)
   }, [top, previousByLabel, adSpend, prevAdSpend])
 
@@ -709,9 +764,10 @@ export function ProfitSummaryCard({
               strip does — figure, change, baseline, move. */}
           <div className="mt-2">
             {loading ? (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
                 <Skeleton className="h-[68px] w-full" />
                 <Skeleton className="h-[68px] w-full" />
+                <Skeleton className="col-span-2 h-[68px] w-full lg:col-span-1" />
               </div>
             ) : failed || headline.length === 0 ? (
               <div className="rounded-lg border border-btn-border px-3 py-2.5 text-[24px] font-semibold leading-tight tabular-nums text-ink">
@@ -719,14 +775,19 @@ export function ProfitSummaryCard({
               </div>
             ) : (
               /* Boxed and gridded like the strip below, at twice the type size:
-                 the same grammar at the scale that says these two lead the
-                 card. Two to a line rather than three, because a figure in the
-                 thousands needs the width. */
-              <div className="grid grid-cols-2 gap-2">
+                 the same grammar at the scale that says these lead the card.
+
+                 Two money figures to a line, because one in the thousands
+                 needs the width — the share is a rate, needs none of it, and
+                 takes the whole line beneath them until there is room for all
+                 three across. */
+              <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
                 {headline.map((figure) => (
                   <div
                     key={figure.label}
-                    className="min-w-0 rounded-lg border border-btn-border px-3 py-2.5"
+                    className={`min-w-0 rounded-lg border border-btn-border px-3 py-2.5 ${
+                      figure.ratio ? 'col-span-2 lg:col-span-1' : ''
+                    }`}
                   >
                     {/* Named inside the box, both of them. The card's own title
                         names the card; a box that relied on it would be the one
