@@ -438,9 +438,13 @@ function PlanCard({
           {plan.progress && (
             <Figure label="Spent so far" value={formatCurrency(plan.progress.spend)} />
           )}
+          {/* The daily rate alone. Per week and per month were the same
+              figure multiplied by seven and thirty — they carried no
+              information the day rate does not, and they crowded out the two
+              readings beside them that do: what is actually being spent a day,
+              and whether that is enough. Spending is decided and adjusted
+              daily, so the day is the rate to hold against. */}
           <Figure label="Per day" value={formatCurrency(plan.perDay)} />
-          <Figure label="Per week" value={formatCurrency(plan.perWeek)} />
-          <Figure label="Per month" value={formatCurrency(plan.perMonth)} />
           <Figure
             label="Spending now"
             value={
