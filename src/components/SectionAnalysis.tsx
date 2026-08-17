@@ -12,6 +12,28 @@ const TONE: Record<
   bad: { icon: XCircle, className: 'text-neg' },
 }
 
+/**
+ * What needs doing, before what is merely true.
+ *
+ * The model writes its notes in whatever order it reasoned in, which puts
+ * whatever it noticed first at the top — often a figure that is fine. A review
+ * is read to decide what to change this week, so the notes that name something
+ * wrong lead, the warnings follow, and the things going well come last: they
+ * are worth knowing and worth not acting on.
+ *
+ * Sorted rather than filtered. A section with nothing wrong should say so
+ * rather than come back empty, and a good note is the evidence that the bad
+ * ones are the exception.
+ *
+ * Stable within a tone — `sort` is stable in every engine this runs on — so
+ * the model's own ordering survives among notes of equal urgency, and a rerun
+ * that changes nothing reads the same way twice.
+ */
+const TONE_ORDER: Record<TargetNote['tone'], number> = { bad: 0, warn: 1, good: 2 }
+
+const actionFirst = (notes: TargetNote[]): TargetNote[] =>
+  [...notes].sort((a, b) => TONE_ORDER[a.tone] - TONE_ORDER[b.tone])
+
 /** Everything a section needs to render its own analysis panel. */
 export interface SectionAnalysisWiring {
   prompt: string | undefined
@@ -189,7 +211,7 @@ export function SectionAnalysis({
           <div className="border-t border-row-line pt-3">
             <p className="text-[13px] font-medium text-ink">{result.headline}</p>
             <ul className="mt-2.5 flex flex-col gap-2.5">
-              {result.notes.map((note, i) => {
+              {actionFirst(result.notes).map((note, i) => {
                 const { icon: Icon, className } = TONE[note.tone]
                 return (
                   <li key={i} className="flex gap-2">
