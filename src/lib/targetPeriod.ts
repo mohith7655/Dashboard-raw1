@@ -69,16 +69,33 @@ export function addMonths(iso: string, months: number): string {
   return format(y, m, Math.min(at.d, daysIn(y, m)))
 }
 
+/** The last day of the month `iso` falls in. */
+export function endOfMonth(iso: string): string {
+  const at = parse(iso)
+  if (!at) return iso
+  return format(at.y, at.m, daysIn(at.y, at.m))
+}
+
 /**
  * Where a window of this length, opened on `start`, closes.
  *
- * Null for `custom`, which is the caller's signal to leave the end alone. A
- * monthly target opened on the 2nd ends on the 2nd of the next month, which is
- * how the operator describes it — the arithmetic is deliberately the plain
- * reading rather than "the last day of the month".
+ * Null for `custom`, which is the caller's signal to leave the end alone.
+ *
+ * A monthly target ends on the last day of the month it opens in, not a month
+ * after the day it opens on. A month is the unit the store is actually run and
+ * reconciled in — advertising is bought against it, and the figures a target
+ * is judged by are closed off at its end — so a target opened on the 12th
+ * running to the 12th of the next month straddles two of them and is measured
+ * against neither.
+ *
+ * The degenerate case is left alone deliberately: opened on the last day of a
+ * month, a monthly target is one day long. That is visible on the card and
+ * corrected by moving the start, where quietly rolling it into the next month
+ * would give a target an end its own rule does not produce.
  */
 export function endOfPeriod(start: string, period: TargetPeriod): string | null {
   if (period === 'custom') return null
+  if (period === 'monthly') return endOfMonth(start)
   return addMonths(start, MONTHS[period])
 }
 
