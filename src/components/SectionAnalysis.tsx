@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Loader2, Sparkles, XCircle } from 'lucide-react'
+import { Skeleton } from './Skeleton'
 import type { SectionPromptKey, TargetAdvice, TargetNote } from '../lib/types'
 
 const TONE: Record<
@@ -157,6 +158,31 @@ export function SectionAnalysis({
 
         {analysisError && (
           <p className="text-[12px] leading-relaxed text-neg">{analysisError}</p>
+        )}
+
+        {/* The answer's place, held while it is being written.
+
+            Without this the only sign a run is under way is the word on the
+            button, and the space the answer will occupy stays empty — so
+            pressing Analyse reads as having done nothing, in exactly the part
+            of the card being watched. The block appears where the answer will,
+            at the size it will roughly be.
+
+            Shown only for the first run. Re-analysing already has its answer
+            on screen, and replacing it with bars would take away the thing
+            being compared against for as long as the new one takes. */}
+        {running && !result && (
+          <div className="border-t border-row-line pt-3">
+            <div className="flex items-center gap-2 text-[12.5px] text-muted">
+              <Loader2 size={13} className="animate-spin" />
+              Reading the period’s figures…
+            </div>
+            <div className="mt-3 flex flex-col gap-2">
+              <Skeleton className="h-3.5 w-2/3" />
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-5/6" />
+            </div>
+          </div>
         )}
 
         {result && (
