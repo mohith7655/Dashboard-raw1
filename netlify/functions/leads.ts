@@ -31,6 +31,7 @@ import {
   toErrorResponse,
 } from '../lib/http'
 import { googleAccessToken, googleJson } from '../lib/google'
+import { fetchMetaLeadDays, normaliseAccountId } from '../lib/metaLeads'
 
 const SOURCE = 'Leads'
 const SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly'
@@ -91,16 +92,23 @@ const ORDER_TABS: Record<'mailchimp' | 'flodesk', TabSpec> = {
   },
 }
 
-const FACEBOOK_TAB: TabSpec = {
-  tab: 'Facebook leads',
-  gid: '1215577569',
-  dateColumn: ['date created', 'date'],
-  // `Emai` in the sheet as written. Matched loosely below rather than corrected
-  // upstream: the automation writing that header is not this code's to change,
-  // and a connector that breaks on a typo being fixed is worse than one that
-  // accepts both.
-  keyColumn: ['email', 'emai'],
-}
+/**
+ * Facebook leads come from Meta directly, not from the sheet.
+ *
+ * There is a `Facebook leads` tab in the same spreadsheet, and it is what this
+ * source used to read. It stopped receiving rows on 2026-05-13 when the Make
+ * scenario behind it stopped, and every period after that date reported zero
+ * leads — which the dashboard could not tell from a period that genuinely had
+ * none. Meta had 949 leads over the same span.
+ *
+ * The tab is left in place and simply no longer read. Reading Meta removes the
+ * automation from the path entirely, so this source cannot go quiet again
+ * without the ads themselves having stopped, and it backfills the months the
+ * sheet did cover rather than leaving a seam at the date it died.
+ */
+
+/** How far back the Meta window always reaches, so `lastSeen` means something. */
+const LOOKBACK_DAYS = 90
 
 /**
  * Leads over the selected period, by source.
@@ -121,15 +129,16 @@ export default async function handler(request: Request): Promise<Response> {
 
     const read = await sheetReader(sheetId)
 
-    // Every tab in parallel. They are independent reads of one document, and
-    // fetching them in series would make the tab count the latency.
+    // Every tab in parallel, and Meta alongside them. They are independent
+    // reads, and fetching them in series would make the source count the
+    // latency.
     const [mailchimp, flodesk, mailchimpOrders, flodeskOrders, facebook] =
       await Promise.all([
         read(SIGNUP_TABS.mailchimp),
         read(SIGNUP_TABS.flodesk),
         read(ORDER_TABS.mailchimp),
         read(ORDER_TABS.flodesk),
-        read(FACEBOOK_TAB),
+        facebookRows(range, against),
       ])
 
     const sources: Record<LeadSourceKey, LeadSourceStats> = {
@@ -187,6 +196,85 @@ export default async function handler(request: Request): Promise<Response> {
     return json(report)
   } catch (err) {
     return toErrorResponse(err, HINT)
+  }
+}
+
+/* --------------------------- Facebook leads --------------------------- */
+
+/**
+ * Facebook leads as rows, so everything downstream stays one code path.
+ *
+ * Meta reports a count per campaign per day, not a list of people, so each
+ * lead becomes a row carrying a key that is unique by construction. That is
+ * honest about what is known — these cannot be de-duplicated against each
+ * other, and Meta has already done that — and it lets `statsFor`, `seriesOf`,
+ * `campaignsIn` and `latestDay` work on Facebook exactly as they work on the
+ * two email lists, with no branch anywhere for which source is which.
+ *
+ * A missing or broken Meta credential degrades this source to empty rather
+ * than failing the request. The other four tables on this endpoint have
+ * nothing to do with Meta, and taking Mailchimp and Flodesk down with it would
+ * be a worse answer than a Facebook count the card can already mark as stale.
+ */
+async function facebookRows(
+  range: DateRange,
+  against: DateRange | null,
+): Promise<Row[]> {
+  const token = process.env.META_ACCESS_TOKEN?.trim()
+  const account = process.env.META_AD_ACCOUNT_ID?.trim()
+  if (!token || !account) return []
+
+  try {
+    const days = await fetchMetaLeadDays(
+      normaliseAccountId(account),
+      token,
+      spanFor(range, against),
+    )
+
+    const rows: Row[] = []
+    for (const { day, campaign, count } of days) {
+      // Bounded against a malformed response turning one row into millions.
+      for (let i = 0; i < Math.min(count, 10_000); i += 1) {
+        rows.push({
+          day,
+          key: `meta:${day}:${campaign}:${i}`,
+          cells: { 'campaign name': campaign },
+        })
+      }
+    }
+    return rows
+  } catch {
+    return []
+  }
+}
+
+/**
+ * The widest window anything on this endpoint needs, asked for once.
+ *
+ * Both periods on screen, plus a fixed lookback — without that floor a reader
+ * who selects a single quiet day would get no rows at all, and `lastSeen`
+ * would report the source as silent since forever rather than since its last
+ * actual lead.
+ */
+function spanFor(
+  range: DateRange,
+  against: DateRange | null,
+): { start: string; end: string } {
+  const today = new Date().toISOString().slice(0, 10)
+  const floor = new Date(Date.now() - LOOKBACK_DAYS * 86_400_000)
+    .toISOString()
+    .slice(0, 10)
+
+  const starts = [range.start, floor]
+  const ends = [range.end, today]
+  if (against) {
+    starts.push(against.start)
+    ends.push(against.end)
+  }
+
+  return {
+    start: starts.reduce((a, b) => (a < b ? a : b)),
+    end: ends.reduce((a, b) => (a > b ? a : b)),
   }
 }
 

@@ -16,6 +16,11 @@ import {
   requireEnv,
   toErrorResponse,
 } from '../lib/http'
+import {
+  fetchAllPages,
+  normaliseAccountId,
+  readGraphError,
+} from '../lib/metaLeads'
 
 const GRAPH_VERSION = 'v21.0'
 const HINT = 'This is a session issue. Please refresh the page or click Retry.'
@@ -49,11 +54,6 @@ export default async function handler(request: Request): Promise<Response> {
   } catch (err) {
     return toErrorResponse(err, HINT)
   }
-}
-
-/** Meta expects `act_<id>`; accept either form in the env var. */
-function normaliseAccountId(raw: string): string {
-  return raw.startsWith('act_') ? raw : `act_${raw}`
 }
 
 async function fetchInsights(
@@ -158,26 +158,6 @@ async function fetchCampaignStatuses(
   }
 }
 
-/** Meta pages with a cursor; a busy account can exceed one page of campaigns. */
-async function fetchAllPages(first: string): Promise<Record<string, unknown>[]> {
-  const rows: Record<string, unknown>[] = []
-  let url: string | undefined = first
-
-  // Bounded so a malformed cursor can never spin the function until timeout.
-  for (let page = 0; url && page < 20; page++) {
-    const res = await fetch(url)
-    const body: unknown = await res.json()
-    if (!res.ok) throw new Error(readGraphError(body, res.status))
-    if (!isRecord(body)) break
-
-    rows.push(...asArray(body.data).filter(isRecord))
-    const paging = isRecord(body.paging) ? body.paging : null
-    url = paging && typeof paging.next === 'string' ? paging.next : undefined
-  }
-
-  return rows
-}
-
 /** Meta's enum → the wording the campaign table shares with Google. */
 function readStatus(status: unknown): string {
   if (typeof status !== 'string') return ''
@@ -210,14 +190,4 @@ function sumActions(raw: unknown): number {
     }
   }
   return 0
-}
-
-/** Preserves Facebook's own wording, e.g. `Facebook API error (190): …`. */
-function readGraphError(body: unknown, status: number): string {
-  if (isRecord(body) && isRecord(body.error)) {
-    const { message, code } = body.error
-    const text = typeof message === 'string' ? message : 'Unknown error'
-    return `Facebook API error (${num(code) || status}): ${text}`
-  }
-  return `Facebook API error (${status}): request failed`
 }
