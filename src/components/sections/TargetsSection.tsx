@@ -30,6 +30,7 @@ import {
   TARGET_GOAL_LABELS,
   isMoneyGoal,
 } from '../../lib/types'
+import { actionFirst } from '../../lib/noteOrder'
 import {
   QUARTERS,
   TARGET_PERIODS,
@@ -367,6 +368,33 @@ function PlanCard({
           Said outright when the split comes from the budget the goal implies
           rather than one that was entered — the same figures mean different
           things depending on who chose them. */}
+      {/* What to do about the target, above the figures it was worked out
+          from — and the ones that name a problem first.
+
+          These sat at the foot of the card, under every rate and every aim.
+          A target is looked at to find out whether it needs intervening in,
+          and the answer was the last thing on screen, below the arithmetic
+          that produced it. The figures are the evidence; this is the finding,
+          and the finding leads. */}
+      {plan.notes.length > 0 && (
+        <ul className="mt-3 flex flex-col gap-2.5 border-t border-row-line pt-3">
+          {actionFirst(plan.notes).map((note, i) => {
+            const { icon: Icon, className } = TONE[note.tone]
+            return (
+              <li key={i} className="flex gap-2">
+                <Icon size={14} className={`mt-0.5 shrink-0 ${className}`} />
+                <div className="min-w-0">
+                  <p className="text-[13px] font-medium text-ink">{note.title}</p>
+                  <p className="mt-0.5 max-w-prose text-[12px] leading-relaxed text-muted">
+                    {note.detail}
+                  </p>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
       <div className="mt-3 border-t border-row-line pt-3">
         {/* Named as budget-in-full and budget-left, not one figure standing
             for both. The window has usually spent some of it already, and a
@@ -470,24 +498,6 @@ function PlanCard({
         </div>
       )}
 
-      {plan.notes.length > 0 && (
-        <ul className="mt-3 flex flex-col gap-2.5 border-t border-row-line pt-3">
-          {plan.notes.map((note, i) => {
-            const { icon: Icon, className } = TONE[note.tone]
-            return (
-              <li key={i} className="flex gap-2">
-                <Icon size={14} className={`mt-0.5 shrink-0 ${className}`} />
-                <div className="min-w-0">
-                  <p className="text-[13px] font-medium text-ink">{note.title}</p>
-                  <p className="mt-0.5 max-w-prose text-[12px] leading-relaxed text-muted">
-                    {note.detail}
-                  </p>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-      )}
     </div>
   )
 }
