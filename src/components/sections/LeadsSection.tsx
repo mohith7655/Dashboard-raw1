@@ -263,6 +263,7 @@ export function LeadsSection({
       </div>
 
       <SectionAnalysis
+        onToggle={() => setAnalysisOpen((current) => !current)}
         section="leads"
         label="Leads"
         open={analysisOpen}

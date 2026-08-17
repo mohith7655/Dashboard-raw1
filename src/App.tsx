@@ -672,6 +672,7 @@ export default function App() {
               }
               analysis={
                 <SectionAnalysis
+                  onToggle={() => setCeoAnalysisOpen((current) => !current)}
                   section="ceo"
                   label="CEO Dashboard"
                   open={ceoAnalysisOpen}

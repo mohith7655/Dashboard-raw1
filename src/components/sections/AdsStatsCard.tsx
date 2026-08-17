@@ -263,6 +263,7 @@ export function AdsStatsCard({
       </div>
 
       <SectionAnalysis
+        onToggle={() => setAnalysisOpen((current) => !current)}
         section="ads"
         label="All ads"
         open={analysisOpen}

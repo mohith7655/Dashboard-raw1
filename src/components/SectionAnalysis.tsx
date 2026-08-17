@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Loader2, Sparkles, XCircle } from 'lucide-react'
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  Loader2,
+  Sparkles,
+  XCircle,
+} from 'lucide-react'
 import { Skeleton } from './Skeleton'
 import type { SectionPromptKey, TargetAdvice, TargetNote } from '../lib/types'
 import { actionFirst } from '../lib/noteOrder'
@@ -42,6 +49,8 @@ interface SectionAnalysisProps {
   running: boolean
   result: TargetAdvice | undefined
   analysisError: string | null
+  /** Folds the panel away from inside it. Omitted, no chevron is drawn. */
+  onToggle?: () => void
   /** Spacing for the panel, which sits in a different flow in each caller. */
   className?: string
 }
@@ -67,6 +76,7 @@ export function SectionAnalysis({
   running,
   result,
   analysisError,
+  onToggle,
   className = '',
 }: SectionAnalysisProps) {
   const [draft, setDraft] = useState(prompt ?? '')
@@ -92,12 +102,34 @@ export function SectionAnalysis({
     <div id={panelId} hidden={!open} className={className}>
       <div className="card flex flex-col gap-3">
         <div>
-          <label
-            htmlFor={`${panelId}-prompt`}
-            className="text-[10.5px] uppercase tracking-wide text-label"
-          >
-            What should the analysis pay attention to?
-          </label>
+          {/* The label row carries the fold.
+
+              The sparkle on the section's title row now runs the analysis, so
+              it can no longer be the way to put the panel away — a control
+              that spends an API call is the wrong one to reach for when the
+              intent is "hide this". The chevron does only that, and sits on
+              the panel it closes rather than on the row above it. */}
+          <div className="flex items-center justify-between gap-2">
+            <label
+              htmlFor={`${panelId}-prompt`}
+              className="text-[10.5px] uppercase tracking-wide text-label"
+            >
+              What should the analysis pay attention to?
+            </label>
+            {onToggle && (
+              <button
+                type="button"
+                onClick={onToggle}
+                aria-expanded
+                aria-controls={panelId}
+                aria-label="Hide the analysis"
+                title="Hide the analysis"
+                className="-mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-btn hover:text-ink"
+              >
+                <ChevronDown size={15} />
+              </button>
+            )}
+          </div>
           {/* No explainer under the label. What the prompt does is evident
               from the two buttons under it, and a paragraph of caveat above
               the box made the panel read as terms to accept rather than a
