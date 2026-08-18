@@ -1,5 +1,5 @@
 import { CalendarDays, ClockArrowLeft } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Comparison, DateRange, PresetId } from '../lib/types'
 import { rangeFromPreset } from '../lib/dateRange'
@@ -66,21 +66,29 @@ export function Header({
 }
 
 /**
- * Yesterday and today, as one segmented control that goes back.
+ * Yesterday and today, as two independent toggles.
  *
  * Set from the same presets the picker's own panel offers, so the two cannot
  * disagree about where a day starts — both run through `rangeFromPreset`, and
  * that reads the store's timezone rather than the reader's.
  *
- * Pressing a button jumps to that day and remembers what was on screen;
- * pressing the lit one returns to it. That makes a quick day a look rather
- * than a move — glance at today, then drop back into the month you were
- * reading — which is how these two get used and what the picker cannot do,
- * since going back through it means remembering the dates yourself.
+ * Each is a switch rather than a jump: pressing one moves to that day,
+ * pressing the lit one comes back. That makes a quick day a look rather than a
+ * move — glance at today, then drop back into the month you were reading —
+ * which is what the picker cannot do, since going back through it means
+ * remembering the dates yourself.
  *
- * The memory is dropped as soon as the period changes by any other route. A
- * button offering to return you to a month you left three controls ago would
- * be a worse surprise than not offering at all.
+ * What they come back to is one remembered period, not one per button, and it
+ * is only ever a period chosen by some other route. That is the whole point of
+ * the design and it is what the previous one got wrong: it remembered
+ * "whatever was on screen when you pressed", so pressing Yesterday and then
+ * Today recorded yesterday as the place to return to, and switching Today off
+ * landed on yesterday instead of the month the reader started from. Their
+ * calendar selection was destroyed by using the other button.
+ *
+ * Holding only non-quick-day periods makes the two genuinely independent:
+ * neither can overwrite what the other returns to, in any order, however many
+ * times they are pressed.
  */
 function QuickDays({
   range,
@@ -89,25 +97,39 @@ function QuickDays({
   range: DateRange
   onRangeChange: (range: DateRange) => void
 }) {
-  const [previous, setPrevious] = useState<DateRange | null>(null)
-  /** The range this control last set, so a change from elsewhere is visible. */
-  const applied = useRef<string | null>(null)
+  /** The last period chosen by anything other than these two buttons. */
+  const [base, setBase] = useState<DateRange | null>(() =>
+    quickPresetOf(range) ? null : range,
+  )
 
+  /*
+   * Any period that is not one of these two days is one the reader picked
+   * elsewhere — the calendar, a preset, a section control — so it becomes the
+   * thing to come back to.
+   *
+   * Depending on the dates rather than the object: the range is rebuilt on
+   * every render upstream, so depending on identity would run this on each
+   * one and overwrite the base with a quick day the moment React re-rendered.
+   */
   useEffect(() => {
-    if (applied.current === keyOf(range)) return
-    applied.current = null
-    setPrevious(null)
+    if (!quickPresetOf(range)) setBase(range)
   }, [range])
 
   const press = (preset: PresetId, active: boolean) => {
-    // The lit button goes back where it can, and is otherwise inert — the page
-    // always has some period selected, so there is nothing to toggle off to.
-    if (active && !previous) return
-
-    const next = active ? (previous as DateRange) : rangeFromPreset(preset)
-    setPrevious(active ? null : range)
-    applied.current = keyOf(next)
-    onRangeChange(next)
+    if (!active) {
+      onRangeChange(rangeFromPreset(preset))
+      return
+    }
+    /*
+     * Switching off returns to the period this control interrupted.
+     *
+     * The month stands in where nothing is remembered — the page was loaded
+     * already sitting on this day, so there is no interrupted period to
+     * restore. It is where the dashboard opens, and it means the lit button is
+     * never inert: a toggle that sometimes does nothing when pressed is worse
+     * than one that always goes somewhere predictable.
+     */
+    onRangeChange(base ?? rangeFromPreset('thisMonth'))
   }
 
   return (
@@ -119,7 +141,6 @@ function QuickDays({
         icon={<ClockArrowLeft size={13} aria-hidden />}
         range={range}
         onPress={press}
-        canReturn={!!previous}
       />
       <span aria-hidden className="w-px bg-btn-border" />
       <QuickDay
@@ -129,14 +150,24 @@ function QuickDays({
         icon={<CalendarDays size={13} aria-hidden />}
         range={range}
         onPress={press}
-        canReturn={!!previous}
       />
     </div>
   )
 }
 
-function keyOf(range: DateRange): string {
-  return `${range.start}:${range.end}`
+/**
+ * Which of the two quick days a range is, or null for anything else.
+ *
+ * Matched on the dates rather than on `range.preset`: a range picked by hand
+ * carries `custom` even where it happens to cover exactly today, and treating
+ * that as a period to return to would let the calendar overwrite itself.
+ */
+function quickPresetOf(range: DateRange): PresetId | null {
+  for (const preset of ['yesterday', 'today'] as const) {
+    const target = rangeFromPreset(preset)
+    if (range.start === target.start && range.end === target.end) return preset
+  }
+  return null
 }
 
 /**
@@ -164,7 +195,6 @@ function QuickDay({
   icon,
   range,
   onPress,
-  canReturn,
 }: {
   preset: PresetId
   label: string
@@ -173,8 +203,6 @@ function QuickDay({
   icon: ReactNode
   range: DateRange
   onPress: (preset: PresetId, active: boolean) => void
-  /** Whether pressing the lit button has somewhere to go back to. */
-  canReturn: boolean
 }) {
   /*
    * Matched on the dates rather than on `range.preset`.
@@ -194,9 +222,9 @@ function QuickDay({
       aria-pressed={active}
       // The face is an initial, so the full word has to live here.
       aria-label={label}
-      // Names the day, and says what the second press does — neither of which
-      // a single letter can.
-      title={active && canReturn ? `${label} — back to the previous period` : label}
+      // Names the day, and says what a second press does — neither of which a
+      // single letter can.
+      title={active ? `${label} — press again to go back` : label}
       className={`flex items-center gap-1.5 px-2.5 py-2 text-[13px] font-medium transition-colors ${
         active
           ? 'bg-[#5b9bd8]/12 text-ink'

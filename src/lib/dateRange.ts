@@ -14,6 +14,22 @@ export const PRESETS: { id: PresetId; label: string }[] = [
   { id: 'custom', label: 'Custom Range' },
 ]
 
+/**
+ * The presets the picker's own panel offers.
+ *
+ * Today and yesterday are absent. They are the two buttons on the header bar,
+ * where each is one click and a second click back — listing them here as well
+ * gave the same two days two homes with different behaviour: the bar's toggle
+ * off, and a panel entry that only ever set them. Two controls for one period
+ * that do not agree about what a second press means is worse than one.
+ *
+ * Derived from `PRESETS` rather than written out, so a preset added there
+ * appears here without anyone remembering to.
+ */
+export const PICKER_PRESETS = PRESETS.filter(
+  (preset) => preset.id !== 'today' && preset.id !== 'yesterday',
+)
+
 /** `yyyy-MM-dd` in UTC. */
 export function toIso(d: Date): string {
   return d.toISOString().slice(0, 10)

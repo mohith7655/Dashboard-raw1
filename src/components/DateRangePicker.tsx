@@ -3,7 +3,7 @@ import { Calendar, Check, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import type { CompareMode, Comparison, DateRange, PresetId } from '../lib/types'
 import {
   COMPARE_MODES,
-  PRESETS,
+  PICKER_PRESETS,
   canDropToday,
   includesToday,
   formatRangeLabel,
@@ -193,24 +193,76 @@ export function DateRangePicker({
           // the fold could not be reached at all.
           className="absolute right-0 z-50 mt-2 max-h-[80vh] w-[46rem] max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-lg border border-[#3b3b40] bg-[#242426] shadow-2xl shadow-black/50"
         >
-          {/* A way out, for the viewport that has neither of the other two: a
-              phone has no Escape key, and the panel covers nearly the whole
-              screen, so there is barely anything left outside it to tap. It
-              stays put while the panel scrolls under it. */}
-          <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-[#3b3b40] bg-[#242426] px-4 py-2.5 md:hidden">
+          {/* The title row, on every viewport rather than only the narrow ones
+              it was added for.
+
+              Apply sits here because it is the one control that finishes the
+              job. At the foot of a column of presets it was below the fold on a
+              phone and easy to miss on a desktop, and a panel whose confirm
+              button has to be hunted for reads as though the presets were the
+              only way to choose anything. Sticky, so it stays reachable while
+              the months scroll under it.
+
+              The close button stays for the viewport with neither of the other
+              two ways out: a phone has no Escape key, and the panel covers
+              nearly the whole screen, so there is little left outside to tap. */}
+          <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-[#3b3b40] bg-[#242426] px-4 py-2.5">
             <span className="text-[12px] font-medium text-ink">Select date range</span>
-            <button
-              type="button"
-              aria-label="Close date picker"
-              onClick={() => setOpen(false)}
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-btn-border bg-btn text-muted transition-colors hover:text-ink"
-            >
-              <X size={14} />
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={applyCustom}
+                className="rounded-md border border-btn-border bg-btn px-3 py-1.5 text-[12px] font-medium text-ink transition-colors hover:border-[#4a4a50]"
+              >
+                Apply range
+              </button>
+              <button
+                type="button"
+                aria-label="Close date picker"
+                onClick={() => setOpen(false)}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-btn-border bg-btn text-muted transition-colors hover:text-ink"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
 
-          <div className="flex flex-col md:flex-row">
-            <div className="min-w-0 flex-1 p-4">
+          {/* The presets as one row that scrolls sideways.
+
+              A column down the right edge spent a fixed strip of width on every
+              screen to hold seven short words, and on a phone it stacked into a
+              two-up grid below the calendar — the quickest way to choose a
+              period was the last thing reachable. Across the top they are the
+              first thing read, and the row gives up horizontal space instead of
+              taking vertical.
+
+              Scrolled rather than wrapped: a wrapping row changes height with
+              the width of the panel, which moves the calendar underneath it. */}
+          <div
+            className="flex gap-1 overflow-x-auto overscroll-x-contain border-b border-[#3b3b40] px-3 py-2"
+            // Thin where the platform offers it, so the bar does not eat the
+            // row it is scrolling.
+            style={{ scrollbarWidth: 'thin' }}
+          >
+            {PICKER_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => choosePreset(preset.id)}
+                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[13px] font-medium text-[#5b9bd8] transition-colors hover:bg-[#303035] hover:text-[#7ab3e8]"
+              >
+                <span>{preset.label}</span>
+                {value.preset === preset.id && preset.id !== 'custom' && (
+                  <Check size={14} className="text-muted" />
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* No row any more: the presets that used to sit beside this are
+              across the top, so there is nothing to lay out against. */}
+          <div>
+            <div className="min-w-0 p-4">
               <div className="mb-4 flex flex-col gap-2 sm:flex-row">
                 <DateInput
                   label="Start date"
@@ -281,30 +333,6 @@ export function DateRangePicker({
               />
             </div>
 
-            <div className="border-t border-[#3b3b40] p-3 md:w-[9.25rem] md:border-l md:border-t-0">
-              <div className="grid grid-cols-2 gap-1 md:block">
-                {PRESETS.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => choosePreset(preset.id)}
-                    className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-[13px] font-medium text-[#5b9bd8] transition-colors hover:bg-[#303035] hover:text-[#7ab3e8]"
-                  >
-                    <span>{preset.label}</span>
-                    {value.preset === preset.id && preset.id !== 'custom' && (
-                      <Check size={14} className="text-muted" />
-                    )}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={applyCustom}
-                className="mt-2 w-full rounded-md border border-btn-border bg-btn px-3 py-2 text-[12px] font-medium text-ink transition-colors hover:border-[#4a4a50]"
-              >
-                Apply range
-              </button>
-            </div>
           </div>
         </div>
       )}
