@@ -6,7 +6,6 @@ import type {
   TrafficMetrics,
   WooMetrics,
 } from '../../lib/types'
-import { SectionLabel } from '../SectionLabel'
 import { FunnelStatsCard } from './FunnelStatsCard'
 import { StoreStatsCard } from './StoreStatsCard'
 
@@ -64,7 +63,15 @@ export function OrdersCustomersSection({
         aria-controls={bodyId}
         className="group flex w-full items-center justify-between gap-3 text-left"
       >
-        <SectionLabel size="lg">Orders &amp; Customers</SectionLabel>
+        {/* Set to match the All ads title rather than the heading that leads
+            the page: both name a foldable section of the dashboard, and two
+            rows that behave identically should not be two different sizes.
+
+            Still an h2, which the shared label component gave it — matching a
+            style is no reason to stop being a heading. */}
+        <h2 className="mb-3 min-w-0 flex-1 truncate text-[13px] font-semibold uppercase tracking-[0.07em] text-muted transition-colors group-hover:text-ink">
+          Orders &amp; Customers
+        </h2>
         <span className="mb-3 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted transition-colors group-hover:bg-btn group-hover:text-ink">
           <ChevronDown
             size={15}
