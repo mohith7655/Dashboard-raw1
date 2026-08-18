@@ -219,7 +219,11 @@ export function AdsStatsCard({
           aria-controls={bodyId}
           className="group min-w-0 flex-1 text-left"
         >
-          <span className="kpi-label block truncate transition-colors group-hover:text-ink">
+          {/* A step above the card labels around it, a step below the heading
+              that leads the page. This names a section of the dashboard, not a
+              figure on one, and at the strip's own 11px it read as another
+              caption in the column beneath it. */}
+          <span className="block truncate text-[13px] font-semibold uppercase tracking-[0.07em] text-muted transition-colors group-hover:text-ink">
             All ads
           </span>
         </button>
