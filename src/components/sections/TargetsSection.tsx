@@ -311,9 +311,11 @@ function PlanCard({
             <span className={plan.daysLeft === 0 ? 'text-neg' : 'text-label'}>
               ({due})
             </span>
-            {target.budgetPct > 0
-              ? ` · ad budget ${formatPercent(target.budgetPct / 100)} of sales`
-              : ' · no budget set'}
+            {target.budgetAmount && target.budgetAmount > 0
+              ? ` · ad budget ${formatCurrency(target.budgetAmount)} set`
+              : target.budgetPct > 0
+                ? ` · ad budget ${formatPercent(target.budgetPct / 100)} of the goal`
+                : ' · no budget set'}
             {/* An estimate and a measurement must not look alike. Where the
                 window has traded nothing, every rate below comes from the
                 store's recent performance instead. */}
@@ -395,80 +397,11 @@ function PlanCard({
         </ul>
       )}
 
-      <div className="mt-3 border-t border-row-line pt-3">
-        {/* Named as budget-in-full and budget-left, not one figure standing
-            for both. The window has usually spent some of it already, and a
-            daily rate struck from the whole would hand the same money out
-            twice. */}
-        <div className="text-[10.5px] uppercase tracking-wide text-label">
-          {plan.basisIsImplied
-            ? `To reach it — ${formatCurrency(plan.budgetBasis)} across the window, ${formatCurrency(plan.budgetRemaining)} left over ${plan.daysLeft} days`
-            : `Your budget — ${formatCurrency(plan.budgetBasis)} across the window, ${formatCurrency(plan.budgetRemaining)} left over ${plan.daysLeft} days`}
-        </div>
-        {/* The two figures the whole card turns on, boxed out of the strip
-            below: what is being spent, and what reaching the goal costs. They
-            were two entries in a row of seven, read at the same weight as
-            "per week" — and the gap between them is the decision the target
-            exists to inform. Side by side, with the shortfall named, it can be
-            read without arithmetic.
-
-            Only where they are two different figures. With no budget set the
-            plan already splits the implied one, so the heading above is
-            quoting the same number and a box comparing it with itself would
-            invent a gap of zero. */}
-        {plan.impliedBudget !== null && !plan.basisIsImplied && (
-          <div className="mt-2 flex flex-wrap items-stretch gap-2">
-            <BudgetBox label="Budget set" value={formatCurrency(plan.budgetBasis)} />
-            <BudgetBox
-              label="Budget needed"
-              value={formatCurrency(plan.impliedBudget)}
-              // Short of what the goal needs is the case worth colouring. Over
-              // it is not a warning — it is headroom.
-              tone={plan.impliedBudget > plan.budgetBasis ? 'short' : 'ok'}
-              note={
-                plan.impliedBudget > plan.budgetBasis
-                  ? `${formatCurrency(plan.impliedBudget - plan.budgetBasis)} short`
-                  : `${formatCurrency(plan.budgetBasis - plan.impliedBudget)} spare`
-              }
-            />
-          </div>
-        )}
-
-        <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
-          {plan.progress && (
-            <Figure label="Spent so far" value={formatCurrency(plan.progress.spend)} />
-          )}
-          {/* The daily rate alone. Per week and per month were the same
-              figure multiplied by seven and thirty — they carried no
-              information the day rate does not, and they crowded out the two
-              readings beside them that do: what is actually being spent a day,
-              and whether that is enough. Spending is decided and adjusted
-              daily, so the day is the rate to hold against. */}
-          <Figure label="Per day" value={formatCurrency(plan.perDay)} />
-          <Figure
-            label="Spending now"
-            value={
-              plan.pacingPerDay === null ? '—' : `${formatCurrency(plan.pacingPerDay)} / day`
-            }
-          />
-          {plan.attainment !== null && !plan.basisIsImplied && (
-            <Figure
-              label="On target"
-              value={formatPercent(plan.attainment)}
-              className={plan.attainment >= 1 ? 'text-pos' : 'text-neg'}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* One block per aim: the goal itself at the rate it has to be met, and
-          the rate the store is actually running at against it. A figure by a
-          date is not something anybody can trade against; a week's worth of it
-          is. Kept apart rather than merged because revenue and profit are
-          reached at different rates and are rarely both on pace. */}
       {plan.aims.map((aim) => (
         <AimBlock key={aim.goal} aim={aim} />
       ))}
+
+      <BudgetProgress plan={plan} />
 
       {adviceError && (
         <p className="mt-3 text-[12px] leading-relaxed text-neg">{adviceError}</p>
@@ -518,62 +451,161 @@ function AimBlock({ aim }: { aim: AimPlan }) {
   const name = TARGET_GOAL_LABELS[aim.goal]
   const reached = aim.paceAttainment !== null && aim.paceAttainment >= 1
   const pacing = reached ? 'text-pos' : 'text-neg'
+  const achievedRatio =
+    aim.achieved === null || aim.amount <= 0 ? null : Math.max(0, aim.achieved / aim.amount)
+  const remainingRatio =
+    aim.remaining === null || aim.amount <= 0 ? null : Math.max(0, aim.remaining / aim.amount)
+  const rateRatio =
+    aim.runRate === null || aim.perDay === null || aim.perDay <= 0
+      ? null
+      : aim.runRate / aim.perDay
 
   return (
     <div className="mt-3 border-t border-row-line pt-3">
       <div className="text-[10.5px] uppercase tracking-wide text-label">
         {aim.goal === 'roas'
-          ? `Return of ${formatRoas(aim.amount)} to hold`
-          : `${name} — ${formatCurrency(aim.amount)} by the deadline`}
+          ? `${name} goal — ${formatRoas(aim.amount)} by the deadline`
+          : `${name} goal — ${formatCurrency(aim.amount)} by the deadline`}
+      </div>
+      {aim.goal === 'roas' ? (
+        <div className="mt-2 flex flex-wrap items-stretch gap-2">
+          <BudgetBox label="Goal" value={formatRoas(aim.amount)} />
+          <BudgetBox
+            label="Current return"
+            value={aim.runRate === null ? '—' : formatRoas(aim.runRate)}
+            tone={reached ? 'ok' : 'short'}
+            note={
+              aim.paceAttainment === null
+                ? 'No return reported yet'
+                : `${formatPercent(aim.paceAttainment)} of goal rate`
+            }
+          />
+        </div>
+      ) : (
+        <>
+          <div className="mt-2 flex flex-wrap items-stretch gap-2">
+            <BudgetBox label="Goal" value={formatCurrency(aim.amount)} />
+            <BudgetBox
+              label="Already got"
+              value={aim.achieved === null ? '—' : formatCurrency(aim.achieved)}
+              tone={achievedRatio !== null && achievedRatio >= 1 ? 'ok' : 'plain'}
+              note={
+                achievedRatio === null
+                  ? 'Progress is loading'
+                  : `${formatPercent(achievedRatio)} of goal`
+              }
+            />
+            <BudgetBox
+              label="Still to go"
+              value={aim.remaining === null ? '—' : formatCurrency(aim.remaining)}
+              tone={remainingRatio === 0 ? 'ok' : 'plain'}
+              note={
+                remainingRatio === null
+                  ? 'Progress is loading'
+                  : `${formatPercent(remainingRatio)} to go`
+              }
+            />
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+            <Figure
+              label="Current per day"
+              value={aim.runRate === null ? '—' : `${formatCurrency(aim.runRate)} / day`}
+              note={rateRatio === null ? undefined : `${formatPercent(rateRatio)} of goal rate`}
+            />
+            <Figure
+              label="Goal rate"
+              value={aim.perDay === null ? '—' : `${formatCurrency(aim.perDay)} / day`}
+              note={aim.perDay === null ? undefined : '100% of goal rate'}
+            />
+            {aim.pace !== null && (
+              <Figure
+                label="On pace for"
+                value={formatCurrency(aim.pace)}
+                className={pacing}
+              />
+            )}
+            {aim.paceAttainment !== null && (
+              <Figure
+                label="Pace vs goal"
+                value={formatPercent(aim.paceAttainment)}
+                className={pacing}
+              />
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function BudgetProgress({ plan }: { plan: TargetPlan }) {
+  const hasProgress = plan.progress !== null
+  const spent = plan.progress?.spend ?? 0
+  const spentRatio = hasProgress && plan.budgetBasis > 0 ? spent / plan.budgetBasis : null
+  const leftRatio = hasProgress && plan.budgetBasis > 0 ? plan.budgetRemaining / plan.budgetBasis : null
+  const dailyRatio =
+    plan.pacingPerDay === null || plan.recommendedPerDay === null || plan.recommendedPerDay <= 0
+      ? null
+      : plan.pacingPerDay / plan.recommendedPerDay
+
+  return (
+    <div className="mt-3 border-t border-row-line pt-3">
+      <div className="text-[10.5px] uppercase tracking-wide text-label">
+        {plan.basisIsImplied ? 'Recommended ad budget' : 'Ad budget'}
+      </div>
+      <div className="mt-2 flex flex-wrap items-stretch gap-2">
+        <BudgetBox
+          label={plan.basisIsImplied ? 'Recommended budget' : 'Budget set'}
+          value={formatCurrency(plan.budgetBasis)}
+          note={plan.basisIsImplied ? 'Based on the current return' : '100% of budget'}
+        />
+        <BudgetBox
+          label="Spent"
+          value={hasProgress ? formatCurrency(spent) : '—'}
+          tone={spentRatio !== null && spentRatio >= 1 ? 'short' : 'plain'}
+          note={
+            hasProgress
+              ? spentRatio === null
+                ? 'No budget set'
+                : `${formatPercent(spentRatio)} spent`
+              : 'Progress is loading'
+          }
+        />
+        <BudgetBox
+          label="Left"
+          value={hasProgress ? formatCurrency(plan.budgetRemaining) : '—'}
+          tone={leftRatio === 0 ? 'short' : 'plain'}
+          note={
+            hasProgress
+              ? leftRatio === null
+                ? 'No budget set'
+                : `${formatPercent(leftRatio)} left`
+              : 'Progress is loading'
+          }
+        />
       </div>
       <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
-        {/* Banked first, then what is left, then the rate that finds it. The
-            order the question is actually asked in: how far along am I, how
-            much more, how fast. */}
-        {aim.goal !== 'roas' && aim.achieved !== null && (
-          <Figure label="Banked so far" value={formatCurrency(aim.achieved)} />
-        )}
-        {aim.remaining !== null && (
+        <Figure
+          label="Currently per day"
+          value={
+            plan.pacingPerDay === null ? '—' : `${formatCurrency(plan.pacingPerDay)} / day`
+          }
+          note={dailyRatio === null ? undefined : `${formatPercent(dailyRatio)} of goal rate`}
+        />
+        <Figure
+          label="Needed per day"
+          value={
+            plan.recommendedPerDay === null
+              ? '—'
+              : `${formatCurrency(plan.recommendedPerDay)} / day`
+          }
+          note={plan.recommendedPerDay === null ? undefined : '100% goal rate · recommendation'}
+        />
+        {!plan.basisIsImplied && (
           <Figure
-            label="Still to find"
-            value={formatCurrency(aim.remaining)}
-            className={aim.remaining === 0 ? 'text-pos' : 'text-ink'}
-          />
-        )}
-        {aim.perDay !== null && (
-          <Figure label="Per day" value={formatCurrency(aim.perDay)} />
-        )}
-        {aim.perWeek !== null && (
-          <Figure label="Per week" value={formatCurrency(aim.perWeek)} />
-        )}
-        {aim.perMonth !== null && (
-          <Figure label="Per month" value={formatCurrency(aim.perMonth)} />
-        )}
-        {/* What the store is doing now, in the same units as the rates beside
-            it — so the gap is read across the row rather than worked out. */}
-        {aim.runRate !== null && (
-          <Figure
-            label="Running at"
-            value={
-              aim.goal === 'roas'
-                ? formatRoas(aim.runRate)
-                : `${formatCurrency(aim.runRate)} / day`
-            }
-            className={aim.goal === 'roas' ? pacing : 'text-ink'}
-          />
-        )}
-        {aim.goal !== 'roas' && aim.pace !== null && (
-          <Figure
-            label="On pace for"
-            value={formatCurrency(aim.pace)}
-            className={pacing}
-          />
-        )}
-        {aim.paceAttainment !== null && (
-          <Figure
-            label="Pace vs goal"
-            value={formatPercent(aim.paceAttainment)}
-            className={pacing}
+            label="Budget rate"
+            value={`${formatCurrency(plan.perDay)} / day`}
+            note="Your remaining budget per day"
           />
         )}
       </div>
@@ -624,10 +656,12 @@ function Figure({
   label,
   value,
   className = 'text-ink',
+  note,
 }: {
   label: string
   value: string
   className?: string
+  note?: string
 }) {
   return (
     <div className="min-w-0">
@@ -635,6 +669,7 @@ function Figure({
       <div className={`mt-0.5 text-[13.5px] font-semibold tabular-nums ${className}`}>
         {value}
       </div>
+      {note && <div className="mt-0.5 text-[11px] tabular-nums text-muted">{note}</div>}
     </div>
   )
 }

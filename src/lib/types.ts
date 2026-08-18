@@ -1542,6 +1542,12 @@ export interface TargetPlan {
   perWeek: number
   perMonth: number
   /**
+   * What must be spent per remaining day to fund the goal at the return now
+   * being achieved. Unlike `perDay`, this is a recommendation rather than a
+   * split of the budget the user entered.
+   */
+  recommendedPerDay: number | null
+  /**
    * Each aim worked out on its own, in the order it was set.
    *
    * One block per aim rather than one set of figures for the target: revenue

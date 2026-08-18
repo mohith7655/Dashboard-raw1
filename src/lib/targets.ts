@@ -255,6 +255,10 @@ export function planTarget({
   // about the past.
   const budgetRemaining = Math.max(0, budgetBasis - spentSoFar)
   const perDay = daysLeft > 0 ? budgetRemaining / daysLeft : 0
+  const recommendedPerDay =
+    impliedBudget === null || daysLeft === 0
+      ? null
+      : Math.max(0, impliedBudget - spentSoFar) / daysLeft
 
   const aimPlans = aims.map((aim): AimPlan => {
     const achieved = achievedFor(aim.goal, progress)
@@ -329,6 +333,7 @@ export function planTarget({
     perDay,
     perWeek: perDay * 7,
     perMonth: perDay * 30,
+    recommendedPerDay,
     aims: aimPlans,
     pacingPerDay,
     impliedBudget,
