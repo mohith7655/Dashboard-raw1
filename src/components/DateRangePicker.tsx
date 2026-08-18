@@ -259,6 +259,19 @@ export function DateRangePicker({
             ))}
           </div>
 
+          {/* Directly under the presets, because it is about them.
+
+              At the foot of the panel it was below two months of calendar, so
+              the sentence naming what every figure on the dashboard is measured
+              against — the thing a preset silently changes — was the last thing
+              anyone scrolled to. A period and what it is compared with are one
+              decision, and they now read as one. */}
+          <ComparePanel
+            range={value}
+            comparison={comparison}
+            onChange={onComparisonChange}
+          />
+
           {/* No row any more: the presets that used to sit beside this are
               across the top, so there is nothing to lay out against. */}
           <div>
@@ -326,11 +339,6 @@ export function DateRangePicker({
                 onChange={onExcludeTodayChange}
               />
 
-              <ComparePanel
-                range={value}
-                comparison={comparison}
-                onChange={onComparisonChange}
-              />
             </div>
 
           </div>
@@ -376,7 +384,7 @@ function TodayToggle({
   const onlyToday = includesToday(range) && !canDropToday(range)
 
   return (
-    <div className="mt-4 border-t border-[#3b3b40] pt-3">
+    <div className="border-b border-[#3b3b40] px-4 py-3">
       <label
         className={`flex items-start gap-2.5 ${
           available ? 'cursor-pointer' : 'cursor-default opacity-45'
