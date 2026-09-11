@@ -1,8 +1,9 @@
-import { CalendarDays, ClockArrowLeft } from 'lucide-react'
+import { CalendarDays, ClockArrowLeft, LogOut } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Comparison, DateRange, PresetId } from '../lib/types'
 import { rangeFromPreset } from '../lib/dateRange'
+import { useSession, useSignOut } from '../lib/session'
 import { DateRangePicker } from './DateRangePicker'
 
 interface HeaderProps {
@@ -59,9 +60,36 @@ export function Header({
             excludeToday={excludeToday}
             onExcludeTodayChange={onExcludeTodayChange}
           />
+
+          <SignOutButton />
         </div>
       </div>
     </header>
+  )
+}
+
+/**
+ * Sign out, down to an icon at the end of the bar.
+ *
+ * Who is signed in lives in the tooltip rather than on the bar: it is worth
+ * checking now and then, and not worth the width beside the date controls.
+ * Stretched to the row so it stands as tall as the picker beside it.
+ */
+function SignOutButton() {
+  const session = useSession()
+  const { signOut, signingOut } = useSignOut()
+
+  return (
+    <button
+      type="button"
+      onClick={signOut}
+      disabled={signingOut}
+      aria-label="Sign out"
+      title={session.data ? `Signed in as ${session.data} — sign out` : 'Sign out'}
+      className="flex items-center self-stretch rounded-lg border border-btn-border bg-btn px-2.5 text-muted transition-colors hover:text-ink disabled:opacity-50"
+    >
+      <LogOut size={14} aria-hidden />
+    </button>
   )
 }
 

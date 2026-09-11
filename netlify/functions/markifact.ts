@@ -6,6 +6,7 @@ import type {
   MarkifactOperationRollup,
 } from '../../src/lib/types'
 import { asArray, isRecord, json, num, requireEnv, toErrorResponse } from '../lib/http'
+import { denyWithoutSession } from '../lib/auth'
 
 const API = 'https://api.markifact.com/v1'
 const SOURCE = 'Markifact'
@@ -30,7 +31,10 @@ const LOG_LIMIT = 100
  * authorised, how much of the credit allowance is left, and which operations
  * are burning it or failing.
  */
-export default async function handler(): Promise<Response> {
+export default async function handler(request: Request): Promise<Response> {
+  const denied = denyWithoutSession(request)
+  if (denied) return denied
+
   try {
     const key = requireEnv('MARKIFACT_API_KEY')
 

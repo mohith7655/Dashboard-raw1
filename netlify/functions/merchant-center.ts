@@ -5,6 +5,7 @@ import type {
   MerchantFeed,
 } from '../../src/lib/types'
 import { asArray, isRecord, json, num, requireEnv, toErrorResponse } from '../lib/http'
+import { denyWithoutSession } from '../lib/auth'
 import { googleAccessToken, googleJson } from '../lib/google'
 
 const API = 'https://shoppingcontent.googleapis.com/content/v2.1'
@@ -27,7 +28,10 @@ const HINT =
  * and every item-level issue with the number of products it affects, so there
  * is no reason to walk the catalogue product by product.
  */
-export default async function handler(): Promise<Response> {
+export default async function handler(request: Request): Promise<Response> {
+  const denied = denyWithoutSession(request)
+  if (denied) return denied
+
   try {
     const merchantId = requireEnv('GMC_MERCHANT_ID').replace(/\D/g, '')
     if (!merchantId) throw new Error('GMC_MERCHANT_ID must be numeric')

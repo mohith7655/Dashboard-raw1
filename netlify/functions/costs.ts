@@ -2,6 +2,7 @@ import { getStore } from '@netlify/blobs'
 import type { CostCadence, CostCategory, OperatingCost } from '../../src/lib/types'
 import { COST_CADENCES, COST_CATEGORIES } from '../../src/lib/types'
 import { BadRequest, isRecord, jsonNoStore, num, toErrorResponse } from '../lib/http'
+import { denyWithoutSession } from '../lib/auth'
 
 const STORE = 'dashboard'
 const KEY = 'operating-costs'
@@ -15,6 +16,9 @@ const HINT =
  * it entirely avoids a per-row API and the merge conflicts that come with one.
  */
 export default async function handler(request: Request): Promise<Response> {
+  const denied = denyWithoutSession(request)
+  if (denied) return denied
+
   try {
     const store = getStore(STORE)
 

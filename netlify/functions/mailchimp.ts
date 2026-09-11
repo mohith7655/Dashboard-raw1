@@ -39,6 +39,7 @@ import {
   requireEnv,
   toErrorResponse,
 } from '../lib/http'
+import { denyWithoutSession } from '../lib/auth'
 
 const SOURCE = 'Mailchimp'
 const HINT =
@@ -98,6 +99,9 @@ const LIST_FIELDS = [
 ].join(',')
 
 export default async function handler(request: Request): Promise<Response> {
+  const denied = denyWithoutSession(request)
+  if (denied) return denied
+
   try {
     const url = new URL(request.url)
     const range = readRange(url)

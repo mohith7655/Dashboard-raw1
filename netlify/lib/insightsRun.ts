@@ -25,6 +25,7 @@ import { previousRange, rangeFromPreset } from '../../src/lib/dateRange'
 import { buildSnapshot } from '../../src/lib/insightsSnapshot'
 import { costLines } from '../../src/lib/operatingCosts'
 import { resolveTimeZone, setStoreTimeZone } from '../../src/lib/timeZone'
+import { serviceHeaders } from './auth'
 import { isRecord } from './http'
 
 /**
@@ -63,9 +64,13 @@ async function readBody(res: Response): Promise<unknown> {
  * is worth having as long as it says Google Ads is missing, which is exactly
  * what the snapshot does with a populated `error`.
  */
-async function load<T>(url: string, source: string): Promise<Source<T>> {
+async function load<T>(
+  url: string,
+  source: string,
+  headers: Record<string, string>,
+): Promise<Source<T>> {
   try {
-    const res = await fetch(url)
+    const res = await fetch(url, { headers })
     const body = await readBody(res)
     if (!res.ok) {
       const error = isRecord(body) && isRecord(body.error) ? body.error : {}
@@ -91,10 +96,14 @@ const params = (range: DateRange, against: DateRange, extra: Record<string, stri
   }).toString()
 
 /** The stored overhead list; an unreachable store costs the overheads, not the report. */
-async function loadCosts(base: string): Promise<OperatingCost[]> {
+async function loadCosts(
+  base: string,
+  headers: Record<string, string>,
+): Promise<OperatingCost[]> {
   const res = await load<{ costs?: OperatingCost[] }>(
     `${base}/.netlify/functions/costs`,
     'Operating costs',
+    headers,
   )
   return res.data?.costs ?? []
 }
@@ -119,22 +128,39 @@ export async function runScheduledReport(
   const range = rangeFromPreset(period)
   const against = previousRange(range)
 
+  // Every function sits behind the sign-in and nobody is signed in here, so
+  // the run carries a pass of its own. Minted once up front: without
+  // AUTH_SECRET this throws, and the run fails naming the variable rather than
+  // as six connectors that all said 401.
+  const headers = serviceHeaders()
+
   const [woo, meta, google, traffic, ga4, costs] = await Promise.all([
-    load<WooMetrics>(`${base}/.netlify/functions/metorik?${params(range, against)}`, 'Metorik'),
-    load<AdsMetrics>(`${base}/.netlify/functions/meta?${params(range, against)}`, 'Facebook Ads'),
+    load<WooMetrics>(
+      `${base}/.netlify/functions/metorik?${params(range, against)}`,
+      'Metorik',
+      headers,
+    ),
+    load<AdsMetrics>(
+      `${base}/.netlify/functions/meta?${params(range, against)}`,
+      'Facebook Ads',
+      headers,
+    ),
     load<AdsMetrics>(
       `${base}/.netlify/functions/google-ads?${params(range, against)}`,
       'Google Ads',
+      headers,
     ),
     load<TrafficMetrics>(
       `${base}/.netlify/functions/metorik?${params(range, against, { resource: 'traffic' })}`,
       'Metorik',
+      headers,
     ),
     load<Ga4Report>(
       `${base}/.netlify/functions/ga4?${params(range, against, { dimension: 'country' })}`,
       'Google Analytics',
+      headers,
     ),
-    loadCosts(base),
+    loadCosts(base, headers),
   ])
 
   // Nothing answered at all — a report written from six errors would say only
@@ -157,7 +183,7 @@ export async function runScheduledReport(
 
   const res = await fetch(`${base}/.netlify/functions/insights`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(snapshot),
   })
   const body = await readBody(res)

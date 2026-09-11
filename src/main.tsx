@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
 import App from './App.tsx'
+import { AuthGate } from './components/AuthGate.tsx'
 import { setStoreTimeZone } from './lib/timeZone.ts'
 
 // Before anything renders: the date picker decides its bounds on first paint,
@@ -27,7 +28,11 @@ const queryClient = new QueryClient({
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      {/* Outside App rather than inside it, so none of App's queries are
+          mounted — let alone sent — until somebody is signed in. */}
+      <AuthGate>
+        <App />
+      </AuthGate>
     </QueryClientProvider>
   </StrictMode>,
 )

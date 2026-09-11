@@ -14,6 +14,39 @@ npx netlify dev
 The dashboard does not use fixture or mock data. If a connector is unavailable,
 the affected section shows its API error instead of invented values.
 
+## Sign-in
+
+The dashboard opens on an email and password form, and every function refuses a
+request that carries no session — the form is the door, the functions are the
+lock. There is no sign-up: accounts are an environment variable.
+
+1. Make an entry for each person:
+
+   ```bash
+   npm run auth:user -- you@example.com
+   ```
+
+   It asks for a password (leave it blank to have a strong one generated) and
+   prints an `email:hash` line. Only the hash is kept; the password is stored
+   nowhere.
+
+2. Set both variables in `.env` and in Netlify (scoped to Functions), then
+   redeploy:
+
+| Variable | Notes |
+| --- | --- |
+| `AUTH_USERS` | `email:hash` entries, separated by commas. Delete an entry to revoke that account. |
+| `AUTH_SECRET` | 32+ random characters that sign the session cookie. The script prints one when `.env` has none. Changing it signs everybody out. |
+
+A sign-in lasts 30 days. Changing an account's password, or removing it, ends
+its sessions at the next deploy. Until both variables are set nothing loads:
+the functions fail closed and say which variable is missing.
+
+The scheduled Insights report calls the functions with a short-lived pass
+signed by `AUTH_SECRET`, so it needs no account of its own. Function responses
+are marked `private` and are no longer cached by the CDN — a shared copy would
+be served without the session check ever running.
+
 ## Environment variables
 
 Add these as Netlify Function environment variables, then redeploy:
@@ -31,6 +64,8 @@ Add these as Netlify Function environment variables, then redeploy:
 | `GOOGLE_ADS_LOGIN_CUSTOMER_ID` | Google Ads — optional, only for manager (MCC) accounts |
 | `OPENAI_API_KEY` | Insights |
 | `OPENAI_MODEL` | Insights — optional, defaults to `gpt-5.4` |
+| `AUTH_USERS` | Sign-in — the accounts; see [Sign-in](#sign-in) |
+| `AUTH_SECRET` | Sign-in — signs the session cookie |
 
 Use `.env.example` as the local template. Never prefix secrets with `VITE_`.
 
@@ -320,9 +355,8 @@ via `netlify/functions/costs.ts`, so it is shared across every browser and
 device rather than living in one machine's local storage. No environment
 variable is needed; Blobs is configured automatically for the site.
 
-> **Note:** the dashboard has no authentication, so anyone who can reach the
-> site URL can read and edit this list. Put the site behind Netlify's password
-> protection or Identity before entering real payroll figures.
+> **Note:** anyone with a dashboard account can read and edit this list. See
+> [Sign-in](#sign-in) for who that is.
 
 ## Scripts
 

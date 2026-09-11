@@ -13,6 +13,7 @@ import {
   requireEnv,
   toErrorResponse,
 } from '../lib/http'
+import { denyWithoutSession } from '../lib/auth'
 
 const API = 'https://api.openai.com/v1/chat/completions'
 const HINT =
@@ -42,6 +43,9 @@ const MAX_TOKENS = 4000
  * and breakdowns only. See `buildSnapshot` on the client.
  */
 export default async function handler(request: Request): Promise<Response> {
+  const denied = denyWithoutSession(request)
+  if (denied) return denied
+
   try {
     if (request.method !== 'POST') {
       throw new BadRequest('This endpoint accepts POST only')

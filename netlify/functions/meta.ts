@@ -16,6 +16,7 @@ import {
   requireEnv,
   toErrorResponse,
 } from '../lib/http'
+import { denyWithoutSession } from '../lib/auth'
 import {
   fetchAllPages,
   normaliseAccountId,
@@ -30,6 +31,9 @@ const HINT = 'This is a session issue. Please refresh the page or click Retry.'
  * leaves this function.
  */
 export default async function handler(request: Request): Promise<Response> {
+  const denied = denyWithoutSession(request)
+  if (denied) return denied
+
   try {
     const url = new URL(request.url)
     const range = readRange(url)

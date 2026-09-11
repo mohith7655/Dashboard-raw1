@@ -47,6 +47,7 @@ import {
   requireEnv,
   toErrorResponse,
 } from '../lib/http'
+import { denyWithoutSession } from '../lib/auth'
 
 const API_BASE = 'https://app.metorik.com/api/v1/store'
 const HINT =
@@ -79,6 +80,9 @@ const AGGREGATE_PAGE_SIZE = 100
  *   ?start=&end=&resource=orders&…    → one page of orders (server-side)
  */
 export default async function handler(request: Request): Promise<Response> {
+  const denied = denyWithoutSession(request)
+  if (denied) return denied
+
   try {
     const url = new URL(request.url)
     const apiKey = requireEnv('METORIK_API_KEY')

@@ -30,6 +30,7 @@ import {
   readRange,
   toErrorResponse,
 } from '../lib/http'
+import { denyWithoutSession } from '../lib/auth'
 import { googleAccessToken, googleJson } from '../lib/google'
 import { fetchMetaLeadDays, normaliseAccountId } from '../lib/metaLeads'
 
@@ -116,6 +117,9 @@ const LOOKBACK_DAYS = 90
  *   ?start=&end=[&compareStart=&compareEnd=|&compare=none]
  */
 export default async function handler(request: Request): Promise<Response> {
+  const denied = denyWithoutSession(request)
+  if (denied) return denied
+
   try {
     const url = new URL(request.url)
     const range = readRange(url)

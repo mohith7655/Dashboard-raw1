@@ -10,6 +10,7 @@
     "lint": "oxlint",
     "google:auth": "node scripts/ga4-auth.mjs",
     "ga4:auth": "node scripts/ga4-auth.mjs",
+    "auth:user": "node scripts/auth-user.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

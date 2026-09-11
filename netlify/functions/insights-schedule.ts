@@ -1,6 +1,7 @@
 import type { InsightsAutomation } from '../../src/lib/types'
 import { normaliseSchedule } from '../../src/lib/insightsSchedule'
 import { BadRequest, isRecord, jsonNoStore, toErrorResponse } from '../lib/http'
+import { denyWithoutSession } from '../lib/auth'
 import {
   AUTOMATION_HINT,
   readAutomation,
@@ -17,6 +18,9 @@ import {
  * same breath, and splitting them would mean two round trips to draw one card.
  */
 export default async function handler(request: Request): Promise<Response> {
+  const denied = denyWithoutSession(request)
+  if (denied) return denied
+
   try {
     if (request.method === 'GET') {
       return jsonNoStore({ automation: await readAutomation() })

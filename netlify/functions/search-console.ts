@@ -18,6 +18,7 @@ import {
   requireEnv,
   toErrorResponse,
 } from '../lib/http'
+import { denyWithoutSession } from '../lib/auth'
 import { googleAccessToken, googleJson } from '../lib/google'
 
 const API = 'https://www.googleapis.com/webmasters/v3'
@@ -41,6 +42,9 @@ const ROW_LIMIT = 250
  *   ?start=&end=&dimension=query[&compareStart=&compareEnd=|&compare=none]
  */
 export default async function handler(request: Request): Promise<Response> {
+  const denied = denyWithoutSession(request)
+  if (denied) return denied
+
   try {
     const url = new URL(request.url)
     const range = readRange(url)

@@ -2,6 +2,7 @@ import { getStore } from '@netlify/blobs'
 import type { CountryShippingCost, ShippingCostBasis } from '../../src/lib/types'
 import { SHIPPING_COST_BASES } from '../../src/lib/types'
 import { BadRequest, isRecord, jsonNoStore, num, toErrorResponse } from '../lib/http'
+import { denyWithoutSession } from '../lib/auth'
 
 const STORE = 'dashboard'
 const KEY = 'shipping-costs'
@@ -16,6 +17,9 @@ const HINT =
  * per-row API and the merge conflicts that come with one.
  */
 export default async function handler(request: Request): Promise<Response> {
+  const denied = denyWithoutSession(request)
+  if (denied) return denied
+
   try {
     const store = getStore(STORE)
 

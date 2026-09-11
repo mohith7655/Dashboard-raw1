@@ -2,6 +2,7 @@ import { getStore } from '@netlify/blobs'
 import type { Target, TargetAim, TargetGoal } from '../../src/lib/types'
 import { TARGET_GOALS } from '../../src/lib/types'
 import { BadRequest, isRecord, jsonNoStore, num, toErrorResponse } from '../lib/http'
+import { denyWithoutSession } from '../lib/auth'
 
 const STORE = 'dashboard'
 const KEY = 'targets'
@@ -20,6 +21,9 @@ const MAX_TARGETS = 12
  * store from.
  */
 export default async function handler(request: Request): Promise<Response> {
+  const denied = denyWithoutSession(request)
+  if (denied) return denied
+
   try {
     const store = getStore(STORE)
 

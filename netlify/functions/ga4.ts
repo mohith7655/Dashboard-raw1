@@ -17,6 +17,7 @@ import {
   requireEnv,
   toErrorResponse,
 } from '../lib/http'
+import { denyWithoutSession } from '../lib/auth'
 
 const API = 'https://analyticsdata.googleapis.com/v1beta'
 const HINT =
@@ -35,6 +36,9 @@ const ROW_LIMIT = 250
  *   ?start=&end=&dimension=country → totals plus one row per dimension value
  */
 export default async function handler(request: Request): Promise<Response> {
+  const denied = denyWithoutSession(request)
+  if (denied) return denied
+
   try {
     const url = new URL(request.url)
     const range = readRange(url)

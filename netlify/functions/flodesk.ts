@@ -30,6 +30,7 @@ import {
   requireEnv,
   toErrorResponse,
 } from '../lib/http'
+import { denyWithoutSession } from '../lib/auth'
 
 const API = 'https://api.flodesk.com/v1'
 const SOURCE = 'Flodesk'
@@ -43,6 +44,9 @@ const HINT =
 const USER_AGENT = 'Rawwgear Dashboard (netlify-functions)'
 
 export default async function handler(request: Request): Promise<Response> {
+  const denied = denyWithoutSession(request)
+  if (denied) return denied
+
   try {
     const url = new URL(request.url)
     const range = readRange(url)

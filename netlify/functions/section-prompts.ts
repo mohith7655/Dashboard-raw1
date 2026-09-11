@@ -2,6 +2,7 @@ import { getStore } from '@netlify/blobs'
 import type { SectionPromptKey, SectionPrompts } from '../../src/lib/types'
 import { SECTION_PROMPT_KEYS } from '../../src/lib/types'
 import { BadRequest, isRecord, jsonNoStore, toErrorResponse } from '../lib/http'
+import { denyWithoutSession } from '../lib/auth'
 
 const STORE = 'dashboard'
 const KEY = 'sectionPrompts'
@@ -26,6 +27,9 @@ const MAX_CHARS = 2000
  * anywhere else.
  */
 export default async function handler(request: Request): Promise<Response> {
+  const denied = denyWithoutSession(request)
+  if (denied) return denied
+
   try {
     const store = getStore(STORE)
 

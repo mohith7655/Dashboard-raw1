@@ -8,8 +8,12 @@ export interface ErrorBody {
 
 const JSON_HEADERS = {
   'content-type': 'application/json',
-  // Metrics change slowly; let the CDN absorb repeat loads of the same range.
-  'cache-control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
+  // Private now that every response is behind a sign-in. A shared CDN copy is
+  // keyed on the URL alone, so it would hand a signed-in reader's figures to
+  // anyone who asked for the same range within the minute — without the
+  // function, and its session check, ever running. The browser's own query
+  // cache already absorbs repeat loads within a visit.
+  'cache-control': 'private, no-store',
 }
 
 export function json(body: unknown, status = 200): Response {

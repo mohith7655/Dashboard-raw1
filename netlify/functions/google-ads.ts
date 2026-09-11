@@ -17,6 +17,7 @@ import {
   requireEnv,
   toErrorResponse,
 } from '../lib/http'
+import { denyWithoutSession } from '../lib/auth'
 
 /**
  * Google sunsets each major version roughly a year after release, and a request
@@ -29,6 +30,9 @@ const HINT =
 
 /** Google Ads API. All OAuth material stays server-side. */
 export default async function handler(request: Request): Promise<Response> {
+  const denied = denyWithoutSession(request)
+  if (denied) return denied
+
   try {
     const url = new URL(request.url)
     const range = readRange(url)
