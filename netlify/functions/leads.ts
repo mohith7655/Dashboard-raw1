@@ -161,8 +161,8 @@ export default async function handler(request: Request): Promise<Response> {
     }
 
     /**
-     * Of the people who signed up inside the period, how many have since
-     * ordered — matched on email, against orders of any date.
+     * Of the people who signed up inside the period, how many placed their
+     * first recorded order on or after joining — matched on email.
      *
      * A cohort figure, not a ratio of two totals. Dividing this period's
      * orders by this period's signups would set one group of people against a
@@ -547,32 +547,48 @@ function deltaOf(current: number, previous: number | null): number | null {
 }
 
 /**
- * Signups inside the window who have an order against their email, at any date.
+ * Signups inside the window whose first order is on or after their signup.
  *
- * Deliberately not date-bounded on the order side: a lead who joined on the
+ * Orders remain unbounded at the end: a lead who joined on the
  * last day of the period and ordered the next morning converted, and a window
  * that cut them out would report the most recent cohort as the worst one.
+ * An order before the signup does not count: that email already belonged to
+ * an existing customer, not a new-order conversion.
  */
 function convertedFrom(
   signups: Row[],
   orders: Row[],
   range: DateRange,
 ): { signups: number; ordered: number } {
-  const buyers = new Set<string>()
+  const firstOrderByEmail = new Map<string, string>()
   for (const order of orders) {
     const email = order.cells['email id'] ?? order.cells.email ?? ''
-    if (email) buyers.add(email.trim().toLowerCase())
+    const key = email.trim().toLowerCase()
+    if (!key) continue
+
+    const firstOrder = firstOrderByEmail.get(key)
+    if (!firstOrder || order.day < firstOrder) {
+      firstOrderByEmail.set(key, order.day)
+    }
   }
 
-  const joined = new Set<string>()
+  const firstSignupByEmail = new Map<string, string>()
   for (const row of signups) {
-    if (within(row.day, range) && row.key) joined.add(row.key)
+    if (!within(row.day, range) || !row.key) continue
+
+    const firstSignup = firstSignupByEmail.get(row.key)
+    if (!firstSignup || row.day < firstSignup) {
+      firstSignupByEmail.set(row.key, row.day)
+    }
   }
 
   let ordered = 0
-  for (const email of joined) if (buyers.has(email)) ordered += 1
+  for (const [email, signupDay] of firstSignupByEmail) {
+    const firstOrder = firstOrderByEmail.get(email)
+    if (firstOrder && firstOrder >= signupDay) ordered += 1
+  }
 
-  return { signups: joined.size, ordered }
+  return { signups: firstSignupByEmail.size, ordered }
 }
 
 /** A row per day of the period, so a chart never has to infer a gap. */

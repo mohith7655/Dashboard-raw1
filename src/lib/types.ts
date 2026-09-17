@@ -980,9 +980,10 @@ export interface LeadReport {
   /** Orders placed by list members, counted on the order's own date. */
   orders: Record<'mailchimp' | 'flodesk', LeadSourceStats>
   /**
-   * The cohort that joined inside the period, and how many of them have
-   * ordered since — at any date, so a lead who joined on the last day and
-   * bought the next morning still counts.
+   * The cohort that joined inside the period, and how many of them made their
+   * first recorded order on or after joining. Orders after the period still
+   * count, so a lead who joined on the last day and bought the next morning is
+   * included; an existing customer who joins later is not.
    */
   converted: { signups: number; ordered: number }
   series: LeadDayPoint[]
