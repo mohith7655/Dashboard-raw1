@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Header } from './components/Header'
 import { ErrorBanner } from './components/ErrorBanner'
@@ -44,6 +44,11 @@ import {
   rangeFromPreset,
   resolveComparison,
 } from './lib/dateRange'
+import {
+  loadDateFilter,
+  saveDateFilter,
+  type DateFilterState,
+} from './lib/dateFilterStorage'
 import { buildSnapshot } from './lib/insightsSnapshot'
 import { blendedAds, combinedAds } from './lib/pnl'
 import { failedOrderCount } from './lib/derive'
@@ -152,10 +157,21 @@ function useScopedMetrics(scope: SectionRange) {
 }
 
 export default function App() {
-  const [pickedRange, setPickedRange] = useState<DateRange>(() =>
-    rangeFromPreset('thisMonth'),
+  const [dateFilter, setDateFilter] = useState<DateFilterState>(() =>
+    loadDateFilter() ?? {
+      pickedRange: rangeFromPreset('thisMonth'),
+      comparison: DEFAULT_COMPARISON,
+      excludeToday: false,
+    },
   )
-  const [excludeToday, setExcludeToday] = useState(false)
+  const { pickedRange, comparison, excludeToday } = dateFilter
+
+  // Keep the exact dates, comparison choice and today setting together. A
+  // preset is intentionally saved as its resolved dates: reopening later must
+  // show the period the reader chose, rather than silently move it forward.
+  useEffect(() => {
+    saveDateFilter(dateFilter)
+  }, [dateFilter])
 
   /**
    * The range everything is actually measured over.
@@ -169,7 +185,6 @@ export default function App() {
     () => (excludeToday ? withoutToday(pickedRange) : pickedRange),
     [pickedRange, excludeToday],
   )
-  const [comparison, setComparison] = useState<Comparison>(DEFAULT_COMPARISON)
   // Read from and written to the URL hash, so a refresh or a bookmark comes
   // back to the tab that was open rather than to the Overview.
   const [view, setView] = useDashboardView()
@@ -332,7 +347,10 @@ export default function App() {
     // Clamped on the way in rather than at each reader, so nothing derived
     // from the range — prorated costs above all — is measured against days
     // that have not happened yet.
-    setPickedRange(clampRangeToAvailable(next))
+    setDateFilter((current) => ({
+      ...current,
+      pickedRange: clampRangeToAvailable(next),
+    }))
     setPage(1)
     setDismissed([])
     setOpenCustomer(null)
@@ -354,6 +372,14 @@ export default function App() {
      * different period rather than for a tour of the old one.
      */
     window.scrollTo({ top: 0, behavior: 'auto' })
+  }
+
+  const onComparisonChange = (next: Comparison) => {
+    setDateFilter((current) => ({ ...current, comparison: next }))
+  }
+
+  const onExcludeTodayChange = (next: boolean) => {
+    setDateFilter((current) => ({ ...current, excludeToday: next }))
   }
 
   const onSortChange = (field: OrderSortField) => {
@@ -458,9 +484,9 @@ export default function App() {
         range={range}
         onRangeChange={onRangeChange}
         comparison={comparison}
-        onComparisonChange={setComparison}
+        onComparisonChange={onComparisonChange}
         excludeToday={excludeToday}
-        onExcludeTodayChange={setExcludeToday}
+        onExcludeTodayChange={onExcludeTodayChange}
       />
 
       <main className="mx-auto max-w-[1280px] px-4 py-6">

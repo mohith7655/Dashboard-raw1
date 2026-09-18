@@ -191,7 +191,7 @@ export function DateRangePicker({
           // Capped and scrollable: two months, the presets and the comparison
           // run past the bottom of a phone screen, and the rows stranded below
           // the fold could not be reached at all.
-          className="absolute right-0 z-50 mt-2 max-h-[80vh] w-[46rem] max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-lg border border-[#3b3b40] bg-[#242426] shadow-2xl shadow-black/50"
+          className="fixed inset-x-2 top-2 z-50 max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain rounded-lg border border-[#3b3b40] bg-[#242426] shadow-2xl shadow-black/50 sm:absolute sm:inset-x-auto sm:top-auto sm:right-0 sm:mt-2 sm:max-h-[80vh] sm:w-[46rem] sm:max-w-[calc(100vw-2rem)]"
         >
           {/* The title row, on every viewport rather than only the narrow ones
               it was added for.
