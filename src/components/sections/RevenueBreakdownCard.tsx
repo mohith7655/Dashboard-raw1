@@ -26,19 +26,11 @@ interface RevenueBreakdownCardProps {
   rows: RevenueBreakdownRow[]
   /** The analytics provider's daily visitors, folded onto the table's grain. */
   traffic: TrafficPoint[]
-  /**
-   * Daily lead captures from the Make.com sheet, every source summed. Undefined
-   * where that sheet has not been read, which prints as a dash rather than a
-   * nought — see `withTraffic`.
-   */
+  /** Daily Meta instant-form submissions; website leads are excluded. */
   leads?: LeadDayPoint[]
-  /**
-   * Mailchimp/Flodesk contacts by day, week and month, deduplicated by email
-   * within each bucket. Kept separate from leads because Facebook lead ads are
-   * a capture source, not an email-list contact.
-   */
+  /** Meta contacts with zero WooCommerce orders, deduplicated by email per bucket. */
   uniqueContacts?: Record<BreakdownGrain, UniqueContactPoint[]>
-  /** Exact, whole-period unique contact count for the table's totals row. */
+  /** Whole-period Meta contacts with zero orders for the totals row. */
   uniqueContactTotal?: number
   /**
    * False when no analytics provider is connected. Distinct from an empty
@@ -86,8 +78,8 @@ interface ColumnSpec {
  */
 const COLUMNS: ColumnSpec[] = [
   { key: 'visitors', header: 'Visitors', count: true },
-  { key: 'leads', header: 'Leads', count: true },
-  { key: 'contacts', header: 'Unique contacts', count: true },
+  { key: 'leads', header: 'Meta leads', count: true },
+  { key: 'contacts', header: 'Meta contacts · 0 orders', count: true },
   { key: 'orders', header: 'Orders', count: true },
   { key: 'totalSales', header: 'Total Sales', lead: true },
   { key: 'refunds', header: 'Refunds', negative: true },
@@ -304,8 +296,8 @@ export function RevenueBreakdownCard({
             </table>
           </div>
           <p className="px-5 pb-5 pt-3 text-[12px] text-muted">
-            Unique contacts deduplicate Mailchimp and Flodesk signups by email in each
-            day, week or month. Facebook lead ads remain in Leads.
+            Meta contacts are deduplicated by email after excluding anyone with a
+            WooCommerce order. Website leads are not included.
           </p>
         </>
       )}

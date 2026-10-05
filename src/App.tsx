@@ -262,7 +262,7 @@ export default function App() {
   // have been read before that tab is ever opened. Both readers share the one
   // cache entry rather than fetching twice.
   const leadData = useLeads(range, against, true)
-  // Not gated on its tab, unlike the leads sheet beside it: the Overview
+  // Not gated on its tab, unlike the Meta leads source beside it: the Overview
   // carries a strip of the same figures, so this has to have run before the
   // Email tab is ever opened. Both readers share the one cache entry.
   const mailchimp = useMailchimp(range, against)

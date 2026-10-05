@@ -143,17 +143,11 @@ export type BreakdownGrain = (typeof BREAKDOWN_GRAINS)[number]
 export interface RevenueBreakdownViewRow extends RevenueBreakdownRow {
   visitors: number | null
   /**
-   * People who left an address on this day, every source added together.
-   *
-   * Null where the leads sheet has not been read, for the same reason the
-   * visitors are: a day with no row in it is a day the automation did not
-   * report, which is not a day nobody signed up.
+   * Meta instant-form submissions on this day.
    */
   leads: number | null
   /**
-   * Mailchimp and Flodesk signups, with matching emails counted only once.
-   * Unlike `leads`, Facebook lead ads are not included: this is a list-contact
-   * measure rather than every capture source added together.
+   * Meta contacts whose email has no WooCommerce order, counted once.
    */
   contacts: number | null
   /**
@@ -931,34 +925,28 @@ export type SectionPrompts = Partial<Record<SectionPromptKey, string>>
  * confirmations — "I just placed an order" — which is the opposite end of the
  * funnel and would inflate the count with people who had already bought.
  */
-export type LeadSourceKey = 'mailchimp' | 'flodesk' | 'facebook'
+export type LeadSourceKey = 'facebook'
 
-export const LEAD_SOURCES: LeadSourceKey[] = ['mailchimp', 'flodesk', 'facebook']
+export const LEAD_SOURCES: LeadSourceKey[] = ['facebook']
 
 export const LEAD_SOURCE_LABELS: Record<LeadSourceKey, string> = {
-  mailchimp: 'Mailchimp',
-  flodesk: 'Flodesk',
-  facebook: 'Facebook lead ads',
+  facebook: 'Meta lead forms',
 }
 
 export interface LeadSourceStats {
-  /** Distinct people in the window, compared against the previous one. */
+  /** Distinct Meta form entry IDs in the window, compared against the previous one. */
   count: Metric
 }
 
-/** One day of the period, each source counted separately. */
+/** One day of Meta instant-form submissions. */
 export interface LeadDayPoint {
   date: string
-  mailchimp: number
-  flodesk: number
   facebook: number
 }
 
 /**
- * Email contacts who joined either list in one table bucket, deduplicated by
- * email across Mailchimp and Flodesk. Facebook lead ads are deliberately
- * outside this figure: they are lead captures, but not subscribers to either
- * email list.
+ * Meta contacts with no WooCommerce orders in one table bucket, deduplicated
+ * by normalized email.
  */
 export interface UniqueContactPoint {
   date: string
@@ -972,30 +960,17 @@ export interface LeadCampaign {
 
 export interface LeadReport {
   sources: Record<LeadSourceKey, LeadSourceStats>
-  /**
-   * People who joined Mailchimp or Flodesk in the window, once per email even
-   * if the same person is present in both lists.
-   */
+  /** Meta form contacts in the period with zero recorded WooCommerce orders. */
   uniqueContacts: LeadSourceStats
-  /** Orders placed by list members, counted on the order's own date. */
-  orders: Record<'mailchimp' | 'flodesk', LeadSourceStats>
-  /**
-   * The cohort that joined inside the period, and how many of them made their
-   * first recorded order on or after joining. Orders after the period still
-   * count, so a lead who joined on the last day and bought the next morning is
-   * included; an existing customer who joins later is not.
-   */
-  converted: { signups: number; ordered: number }
   series: LeadDayPoint[]
   /**
-   * Exact unique email contacts at each Revenue Breakdown grain. Each is
-   * aggregated from raw addresses before they leave the function, so a contact
-   * is not counted twice when the table is switched to week or month.
+   * Exact unique nonbuyer contacts at each Revenue Breakdown grain, deduped
+   * before the email addresses leave the function.
    */
   uniqueContactBuckets: Record<BreakdownGrain, UniqueContactPoint[]>
   campaigns: LeadCampaign[]
   /**
-   * The most recent day each source wrote a row, across all time.
+   * The most recent Meta form entry day available to this report.
    *
    * A stale automation and a quiet week look identical in a count of zero.
    * This is what tells them apart, and the card says so outright rather than

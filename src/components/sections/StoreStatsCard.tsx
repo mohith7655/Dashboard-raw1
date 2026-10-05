@@ -5,7 +5,6 @@ import type {
   TrafficMetrics,
   WooMetrics,
 } from '../../lib/types'
-import { LEAD_SOURCES, LEAD_SOURCE_LABELS } from '../../lib/types'
 import { daysInRange } from '../../lib/dateRange'
 import { deltaPct, failedOrderCount } from '../../lib/derive'
 import {
@@ -23,11 +22,7 @@ interface StoreStatsCardProps {
   range: DateRange
   /** The window those are compared against, or null when comparison is off. */
   against: DateRange | null
-  /**
-   * Leads captured in the period, from the sheet the Make.com automations
-   * write into. Undefined while loading or where that source failed — the
-   * lead rows are simply left off rather than shown as zero.
-   */
+  /** Meta instant-form entries and Meta contacts with no WooCommerce orders. */
   leads: LeadReport | undefined
   /**
    * Traffic for the same period, needed for the one figure a lead count cannot
@@ -221,7 +216,7 @@ function otherStatuses(metrics: WooMetrics, placed: number): StatRowData[] {
 }
 
 /**
- * Leads, and the share of arrivals that became one.
+ * Meta instant-form leads, and the share of arrivals that became one.
  *
  * The card counted customers and orders — the two ends of the funnel — with
  * nothing about the step between them, where somebody gives an address without
@@ -229,9 +224,8 @@ function otherStatuses(metrics: WooMetrics, placed: number): StatRowData[] {
  * because that is the order the funnel runs in from the store's point of view:
  * what it earned, then what it captured to earn from later.
  *
- * Left off entirely when the sheet has not answered. A zero here would read as
- * a period that captured nobody, which is a much stronger claim than "the
- * automation behind this has not reported".
+ * Left off entirely when Meta has not answered, so a failed source is never
+ * presented as a true zero.
  */
 function leadRows(
   leads: LeadReport | undefined,
@@ -239,10 +233,8 @@ function leadRows(
 ): StatRowData[] {
   if (!leads) return []
 
-  const total = LEAD_SOURCES.reduce(
-    (sum, key) => sum + leads.sources[key].count.value,
-    0,
-  )
+  const leadCount = leads.sources.facebook.count
+  const total = leadCount.value
 
   // Only where the provider is actually connected and reported somebody. A
   // rate struck against zero visitors is not a rate.
@@ -253,7 +245,7 @@ function leadRows(
 
   const rows: StatRowData[] = [
     {
-      label: 'Unique contacts',
+      label: 'Meta contacts · 0 orders',
       value: formatInteger(leads.uniqueContacts.count.value),
       kind: 'total',
       share: null,
@@ -262,38 +254,19 @@ function leadRows(
       polarity: 'up-good',
     },
     {
-      label: 'Leads',
+      label: 'Meta leads',
       value: formatInteger(total),
       kind: 'total',
       share: null,
-      // The sources it sums carry their own baselines and one of them can be
-      // missing, which would make a combined delta compare a two-source total
-      // against a three-source one.
-      change: null,
+      change: leadCount.deltaPct,
+      ...formatComparison(leadCount, formatInteger),
       polarity: 'up-good',
     },
   ]
 
-  for (const key of LEAD_SOURCES) {
-    const { count } = leads.sources[key]
-    rows.push({
-      label: LEAD_SOURCE_LABELS[key],
-      value: formatInteger(count.value),
-      kind: 'part',
-      share: total ? count.value / total : 0,
-      change: count.deltaPct,
-      ...formatComparison(count, formatInteger),
-      polarity: 'up-good',
-    })
-  }
-
-  // The contact row has a narrower scope than the source breakdown: it is the
-  // unique union of the two email lists, whereas Leads also includes Facebook
-  // captures and keeps each source visible for attribution.
-
   if (visitors !== null) {
     rows.push({
-      label: 'Lead rate',
+      label: 'Meta lead rate',
       value: formatPercent(total / visitors),
       kind: 'total',
       share: null,

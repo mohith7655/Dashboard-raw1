@@ -138,9 +138,9 @@ export const DASHBOARD_TABS: DashboardTab[] = [
   },
   {
     id: 'leads',
-    label: 'Lead Data',
+    label: 'Meta Leads',
     icon: Users,
-    blurb: 'New leads from email lists and Facebook lead ads, with list conversion.',
+    blurb: 'Meta instant-form leads and contacts with no WooCommerce orders.',
   },
   {
     id: 'email',

@@ -126,11 +126,7 @@ export function bucketVisitors(
 }
 
 /**
- * Leads per bucket, every source added together, on the same calendar.
- *
- * Sources are summed rather than kept apart: the table has one column for
- * them, and which list somebody joined is a question the Lead Data tab
- * answers at length.
+ * Meta instant-form leads per bucket, on the same calendar.
  */
 export function bucketLeads(
   series: LeadDayPoint[],
@@ -145,7 +141,7 @@ export function bucketLeads(
   return byBucket
 }
 
-/** Unique Mailchimp/Flodesk email contacts, folded onto the requested grain. */
+/** Meta contacts without WooCommerce orders, folded onto the requested grain. */
 export function bucketContacts(
   series: UniqueContactPoint[],
 ): Map<string, number> {

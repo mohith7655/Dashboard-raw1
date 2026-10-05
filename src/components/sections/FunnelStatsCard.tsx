@@ -44,7 +44,7 @@ interface FunnelStatsCardProps {
  *
  * A figure whose source has not answered is left out rather than shown as
  * nought: no analytics provider means an unknown conversion rate, not one of
- * zero, and the same goes for a leads sheet that has stopped writing.
+ * zero, and the same goes for a Meta lead source that did not answer.
  */
 export function FunnelStatsCard({
   woo,
@@ -131,7 +131,7 @@ export function FunnelStatsCard({
           : capturedBefore / visitorsBefore
 
       out.push({
-        label: 'Lead rate',
+        label: 'Meta lead rate',
         value: formatPercent(rate),
         change: before === null ? null : deltaPct(rate, before),
         ...formatComparison({ value: rate, previous: before }, formatPercent),

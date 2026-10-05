@@ -21,9 +21,7 @@ interface TooltipItem {
 }
 
 const SERIES = [
-  { key: 'mailchimp', label: 'Mailchimp', color: '#d4d4d8' },
-  { key: 'flodesk', label: 'Flodesk', color: '#a78bfa' },
-  { key: 'facebook', label: 'Facebook lead ads', color: '#60a5fa' },
+  { key: 'facebook', label: 'Meta instant forms', color: '#60a5fa' },
 ] as const
 
 function LeadTooltip({ active, payload }: { active?: boolean; payload?: TooltipItem[] }) {
@@ -48,7 +46,7 @@ export function LeadsOverTime({ data, unavailable }: LeadsOverTimeProps) {
   return (
     <ChartCard
       title="Leads over time"
-      subtitle="Distinct people captured per day, by source"
+      subtitle="Meta instant-form submissions per day"
       height={300}
       unavailable={unavailable}
     >
