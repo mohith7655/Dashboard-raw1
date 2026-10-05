@@ -52,6 +52,8 @@ import { denyWithoutSession } from '../lib/auth'
 const API_BASE = 'https://app.metorik.com/api/v1/store'
 const HINT =
   'WooCommerce metrics could not be loaded. Check the Metorik API key in your Netlify environment, then click Retry.'
+const AUTH_HINT =
+  'Metorik rejected METORIK_API_KEY. Check that the key is current and has access to the store reports this dashboard reads. Replace it in Netlify under Environment variables (Functions scope), then redeploy.'
 
 /**
  * Orders that took money. Everything else is counted but not banked.
@@ -126,7 +128,11 @@ export default async function handler(request: Request): Promise<Response> {
     }
     return json(await loadMetrics(apiKey, range, against, meta))
   } catch (err) {
-    return toErrorResponse(err, HINT)
+    const hint =
+      err instanceof Error && /Metorik API error \((401|403)\)/.test(err.message)
+        ? AUTH_HINT
+        : HINT
+    return toErrorResponse(err, hint)
   }
 }
 
