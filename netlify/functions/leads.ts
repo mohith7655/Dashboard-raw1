@@ -1,7 +1,7 @@
 /**
- * Mailchimp-tagged Meta and Gravity Forms leads, plus the contacts who have
- * never ordered. Customer tags are not lead sources; WooCommerce customer
- * history is used to identify which leads have already ordered.
+ * Meta and Gravity Forms leads plus Make.com FB Lead-Ads contacts from
+ * Mailchimp. Customer tags are not lead sources; WooCommerce customer history
+ * is used to identify previous and later purchases.
  */
 import type {
   BreakdownGrain,
@@ -9,6 +9,8 @@ import type {
   LeadDayPoint,
   LeadReport,
   LeadSourceStats,
+  MailchimpPushContact,
+  MailchimpPushReport,
   UniqueContactPoint,
 } from '../../src/lib/types'
 import { metric } from '../../src/lib/derive'
@@ -16,14 +18,14 @@ import { bucketStart } from '../../src/lib/revenueBreakdown'
 import { denyWithoutSession } from '../lib/auth'
 import { BadRequest, isRecord, json, num, readComparison, readRange, toErrorResponse } from '../lib/http'
 import { fetchFlodeskGravityEntries } from '../lib/flodeskLeadEntries'
-import { fetchMailchimpLeadEntries } from '../lib/mailchimpLeadEntries'
+import { fetchMailchimpLeadEntries, type MailchimpPushEntry } from '../lib/mailchimpLeadEntries'
 import { fetchMetaLeadEntries, type MetaLeadEntry } from '../lib/metaLeads'
 
 const META_PAGE_ID = process.env.META_LEAD_PAGE_ID?.trim() || '213491158815011'
 const META_TIME_ZONE = process.env.META_LEAD_TIME_ZONE?.trim() || 'America/Los_Angeles'
 const METORIK_BASE = 'https://app.metorik.com/api/v1/store'
 const LOOKBACK_DAYS = 90
-const EMAIL_BATCH_SIZE = 20
+const EMAIL_BATCH_SIZE = 100
 const EMAIL_BATCH_CONCURRENCY = 5
 const ORDER_FACT_TTL_MS = 5 * 60 * 1000
 const ERROR_HINT =
@@ -47,13 +49,14 @@ interface Row {
 interface OrderFact {
   orderCount: number
   firstOrderDate: string
+  lastOrderDate: string
 }
 
 const orderFactCache = new Map<string, { value: OrderFact; expiresAt: number }>()
 
 /**
- * Actual Meta submissions and Mailchimp-tagged Gravity Forms contacts in the
- * selected range, with unique emails who have never placed a WooCommerce order.
+ * Actual Meta submissions, tagged Gravity Forms contacts, and a separate
+ * Make.com Mailchimp cohort matched to WooCommerce order history.
  */
 export default async function handler(request: Request): Promise<Response> {
   const denied = denyWithoutSession(request)
@@ -74,19 +77,26 @@ export default async function handler(request: Request): Promise<Response> {
     const mailchimpPrefix = serverPrefix(mailchimpKey)
 
     const span = spanFor(range, against)
-    const [metaEntries, mailchimpGravityEntries, flodeskGravityEntries] = await Promise.all([
+    const [metaEntries, mailchimpEntries, flodeskGravityEntries] = await Promise.all([
       fetchMetaLeadEntries(META_PAGE_ID, metaToken, META_TIME_ZONE, span),
       fetchMailchimpLeadEntries(mailchimpKey, mailchimpPrefix, span),
       fetchFlodeskGravityEntries(flodeskKey, span),
     ])
     const entries: LeadEntry[] = [
       ...metaEntries.map(toMetaEntry),
-      ...mailchimpGravityEntries,
+      ...mailchimpEntries.gravity,
       ...flodeskGravityEntries,
     ]
     const inScope = entries.filter((entry) => within(entry.day, range) || (against !== null && within(entry.day, against)))
-    const emails = [...new Set(inScope.map((entry) => entry.email).filter(Boolean))]
+    const pushEntries = uniquePushEntries(mailchimpEntries.makePush)
+    const pushInScope = pushEntries.filter((entry) => within(entry.day, range) || (against !== null && within(entry.day, against)))
+    const emails = [...new Set([...inScope, ...pushInScope].map((entry) => entry.email).filter(Boolean))]
     const orderFacts = await loadOrderFacts(metorikKey, emails)
+
+    const mailchimpPush = mailchimpPushReport(
+      pushEntries.filter((entry) => within(entry.day, range)),
+      orderFacts,
+    )
 
     const leadRows = entries.map(toLeadRow)
     const nonBuyerRows = uniqueRowsByEmail(inScope
@@ -108,6 +118,7 @@ export default async function handler(request: Request): Promise<Response> {
         month: uniqueContactPointsOf(nonBuyerRows, range, 'month'),
       },
       campaigns: formsIn(leadRows, range),
+      mailchimpPush,
       lastSeen: {
         facebook: latestDay(leadRows.filter((row) => row.source === 'facebook')),
         gravity: latestDay(leadRows.filter((row) => row.source === 'gravity')),
@@ -143,7 +154,7 @@ async function loadOrderFacts(apiKey: string, emails: string[]): Promise<Map<str
     for (let j = 0; j < wave.length; j += 1) {
       const batchFacts = results[j]
       for (const email of wave[j]) {
-        const value = batchFacts.get(email) ?? { orderCount: 0, firstOrderDate: '' }
+        const value = batchFacts.get(email) ?? { orderCount: 0, firstOrderDate: '', lastOrderDate: '' }
         facts.set(email, value)
         orderFactCache.set(email, { value, expiresAt: now + ORDER_FACT_TTL_MS })
       }
@@ -175,6 +186,7 @@ async function customerFactsForBatch(apiKey: string, emails: string[]): Promise<
     found.set(email, {
       orderCount: Math.max(0, Math.round(num(row.order_count))),
       firstOrderDate: typeof row.first_order_date === 'string' ? row.first_order_date.slice(0, 10) : '',
+      lastOrderDate: typeof row.last_order_date === 'string' ? row.last_order_date.slice(0, 10) : '',
     })
   }
   return found
@@ -195,6 +207,54 @@ function toLeadRow(entry: LeadEntry): Row {
     key: entry.source === 'facebook' ? entry.id : entry.email,
     source: entry.source,
     cells: { email: entry.email, 'form name': entry.label },
+  }
+}
+
+/** Keep one pushed-contact row per email, using the earliest available tag day. */
+function uniquePushEntries(entries: MailchimpPushEntry[]): MailchimpPushEntry[] {
+  const firstByEmail = new Map<string, MailchimpPushEntry>()
+  for (const entry of entries) {
+    const email = entry.email.trim().toLowerCase()
+    if (!email) continue
+    const current = firstByEmail.get(email)
+    if (!current || entry.day < current.day) firstByEmail.set(email, { ...entry, email })
+  }
+  return [...firstByEmail.values()]
+}
+
+function mailchimpPushReport(
+  entries: MailchimpPushEntry[],
+  orderFacts: Map<string, OrderFact>,
+): MailchimpPushReport {
+  const contacts: MailchimpPushContact[] = entries.map((entry) => {
+    const fact = orderFacts.get(entry.email) ?? { orderCount: 0, firstOrderDate: '', lastOrderDate: '' }
+    return {
+      email: entry.email,
+      addedAt: entry.day,
+      orderCount: fact.orderCount,
+      firstOrderDate: fact.firstOrderDate || null,
+      lastOrderDate: fact.lastOrderDate || null,
+      purchasedBefore: !!fact.firstOrderDate && fact.firstOrderDate < entry.day,
+      purchasedAfter: !!fact.lastOrderDate && fact.lastOrderDate > entry.day,
+    }
+  }).sort((a, b) => b.addedAt.localeCompare(a.addedAt) || a.email.localeCompare(b.email))
+
+  const total = contacts.length
+  const previouslyPurchased = contacts.filter((contact) => contact.purchasedBefore).length
+  const purchasedAfter = contacts.filter((contact) => contact.purchasedAfter).length
+  const noPurchase = contacts.filter((contact) => contact.orderCount === 0).length
+  const sameDayOrUnknown = contacts.filter((contact) =>
+    contact.orderCount > 0 && !contact.purchasedBefore && !contact.purchasedAfter,
+  ).length
+  return {
+    tag: 'FB Lead-Ads',
+    total,
+    previouslyPurchased,
+    purchasedAfter,
+    noPurchase,
+    sameDayOrUnknown: Math.max(0, sameDayOrUnknown),
+    conversionRate: total ? purchasedAfter / total : 0,
+    contacts,
   }
 }
 

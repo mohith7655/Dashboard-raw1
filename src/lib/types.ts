@@ -956,6 +956,29 @@ export interface LeadCampaign {
   leads: number
 }
 
+/** One Mailchimp contact carrying Make.com's FB Lead-Ads tag. */
+export interface MailchimpPushContact {
+  email: string
+  addedAt: string
+  orderCount: number
+  firstOrderDate: string | null
+  lastOrderDate: string | null
+  purchasedBefore: boolean
+  purchasedAfter: boolean
+}
+
+/** Purchase outcome for contacts pushed into Mailchimp by Make.com. */
+export interface MailchimpPushReport {
+  tag: string
+  total: number
+  previouslyPurchased: number
+  purchasedAfter: number
+  noPurchase: number
+  sameDayOrUnknown: number
+  conversionRate: number
+  contacts: MailchimpPushContact[]
+}
+
 export interface LeadReport {
   sources: Record<LeadSourceKey, LeadSourceStats>
   /** Meta and Gravity Forms contacts in the period with zero Woo orders. */
@@ -967,6 +990,8 @@ export interface LeadReport {
    */
   uniqueContactBuckets: Record<BreakdownGrain, UniqueContactPoint[]>
   campaigns: LeadCampaign[]
+  /** Mailchimp Raww Gym Tips contacts carrying Make.com's FB Lead-Ads tag. */
+  mailchimpPush: MailchimpPushReport
   /**
    * The most recent tagged contact day available for each source.
    *

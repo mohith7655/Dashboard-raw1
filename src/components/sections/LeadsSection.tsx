@@ -12,6 +12,7 @@ import {
 import type { StatRowData } from '../StatRows'
 import { Skeleton } from '../Skeleton'
 import { LeadsOverTime } from '../charts/LeadsOverTime'
+import { MailchimpPushConversion } from './MailchimpPushConversion'
 
 interface LeadsSectionProps {
   report: LeadReport | undefined
@@ -161,6 +162,7 @@ export function LeadsSection({
               subtitle="Meta rows are actual submissions. Gravity Forms uses the Learn Barehand tag in Mailchimp Raww Gym Tips and Flodesk; matching emails are counted once."
             />
           )}
+          {report && <MailchimpPushConversion report={report.mailchimpPush} />}
         </>
       )}
     </section>

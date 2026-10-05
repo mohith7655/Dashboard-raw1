@@ -1,4 +1,4 @@
-/** Gravity Forms contacts from the Raww Gym Tips Mailchimp audience. */
+/** Gravity Forms and Make.com tagged contacts from the Raww Gym Tips audience. */
 import { isRecord, num } from './http'
 
 const PAGE_SIZE = 1000
@@ -13,6 +13,19 @@ export interface MailchimpLeadEntry {
   source: 'gravity'
 }
 
+export interface MailchimpPushEntry {
+  id: string
+  day: string
+  email: string
+  label: string
+  source: 'mailchimp-push'
+}
+
+export interface MailchimpLeadCollections {
+  gravity: MailchimpLeadEntry[]
+  makePush: MailchimpPushEntry[]
+}
+
 interface MailchimpList {
   id: string
   name: string
@@ -24,18 +37,18 @@ interface MailchimpPage {
   members?: unknown[]
 }
 
-const cache = new Map<string, { expiresAt: number; value: MailchimpLeadEntry[] }>()
+const cache = new Map<string, { expiresAt: number; value: MailchimpLeadCollections }>()
 
 /**
- * Read only the "Form - Barehand learn" contacts from the Raww Gym Tips
- * audience. Meta submissions come from Meta directly; WooCommerce supplies
- * customer/order history.
+ * Read the Gravity Forms tag and Make.com's FB Lead-Ads tag from the Raww Gym
+ * Tips audience. Meta submissions come from Meta directly; WooCommerce supplies
+ * customer/order history. Customer and year tags are not lead sources.
  */
 export async function fetchMailchimpLeadEntries(
   apiKey: string,
   serverPrefix: string,
   span: { start: string; end: string },
-): Promise<MailchimpLeadEntry[]> {
+): Promise<MailchimpLeadCollections> {
   const cacheKey = serverPrefix
   const cached = cache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) return inSpan(cached.value, span)
@@ -43,7 +56,7 @@ export async function fetchMailchimpLeadEntries(
   const lists = (await getLists(apiKey, serverPrefix)).filter(
     (list) => list.name.trim().toLowerCase() === 'raww gym tips',
   )
-  const results: MailchimpLeadEntry[][] = []
+  const results: { gravity: MailchimpLeadEntry[]; makePush: MailchimpPushEntry[] }[] = []
   for (let i = 0; i < lists.length; i += PAGE_CONCURRENCY) {
     results.push(
       ...(await Promise.all(
@@ -56,13 +69,18 @@ export async function fetchMailchimpLeadEntries(
 
   // Keep each tag row for form/tag attribution. Dashboard totals and the daily
   // graph deduplicate by email within each source.
-  const value = results.flat()
+  const value: MailchimpLeadCollections = {
+    gravity: results.flatMap((result) => result.gravity),
+    makePush: results.flatMap((result) => result.makePush),
+  }
   cache.set(cacheKey, { value, expiresAt: Date.now() + TAG_CACHE_MS })
   return inSpan(value, span)
 }
 
-function inSpan(entries: MailchimpLeadEntry[], span: { start: string; end: string }): MailchimpLeadEntry[] {
-  return entries.filter((entry) => entry.day >= span.start && entry.day <= span.end)
+function inSpan(value: MailchimpLeadCollections, span: { start: string; end: string }): MailchimpLeadCollections {
+  const filter = <T extends { day: string }>(entries: T[]) =>
+    entries.filter((entry) => entry.day >= span.start && entry.day <= span.end)
+  return { gravity: filter(value.gravity), makePush: filter(value.makePush) }
 }
 
 function leadSourceOf(raw: string): 'gravity' | null {
@@ -83,7 +101,7 @@ async function getTaggedMembers(
   apiKey: string,
   serverPrefix: string,
   listId: string,
-): Promise<MailchimpLeadEntry[]> {
+): Promise<{ gravity: MailchimpLeadEntry[]; makePush: MailchimpPushEntry[] }> {
   const first = new URLSearchParams({
     count: String(PAGE_SIZE),
     offset: '0',
@@ -112,7 +130,8 @@ async function getTaggedMembers(
     pages.push(...pageResults)
   }
 
-  const rows: MailchimpLeadEntry[] = []
+  const gravity: MailchimpLeadEntry[] = []
+  const makePush: MailchimpPushEntry[] = []
   for (const page of pages) {
     for (const raw of asRecords(page.members)) {
       const email = typeof raw.email_address === 'string' ? raw.email_address.trim().toLowerCase() : ''
@@ -120,24 +139,42 @@ async function getTaggedMembers(
       for (const tag of asRecords(raw.tags)) {
         const label = typeof tag.name === 'string' ? tag.name : ''
         const source = leadSourceOf(label)
-        if (!source || tag.status === 'inactive') continue
+        if (tag.status === 'inactive') continue
         // Prefer the tag-add date to the audience opt-in date. A contact may
         // have joined the list before being added by a Gravity Forms signup.
         const tagDay = typeof tag.date_added === 'string' ? timestampDay(tag.date_added) : ''
         const optInDay = typeof raw.timestamp_opt === 'string' ? timestampDay(raw.timestamp_opt) : ''
-        const day = tagDay || optInDay
-        if (!day) continue
-        rows.push({
-          id: typeof raw.id === 'string' ? raw.id : email,
-          day,
-          email,
-          label: `${label} (Mailchimp · Raww Gym Tips)`,
-          source,
-        })
+        const id = typeof raw.id === 'string' ? raw.id : email
+        if (source) {
+          // Existing audience members can be tagged later, so prefer the tag
+          // event and fall back to their opt-in date for older tag records.
+          const day = tagDay || optInDay
+          if (!day) continue
+          gravity.push({
+            id,
+            day,
+            email,
+            label: `${label} (Mailchimp · Raww Gym Tips)`,
+            source,
+          })
+        } else if (isMakeFacebookLeadTag(label) && tagDay) {
+          makePush.push({
+            id,
+            day: tagDay,
+            email,
+            label: 'FB Lead-Ads (Mailchimp · Raww Gym Tips)',
+            source: 'mailchimp-push',
+          })
+        }
       }
     }
   }
-  return rows
+  return { gravity, makePush }
+}
+
+function isMakeFacebookLeadTag(raw: string): boolean {
+  const name = raw.trim().toLowerCase().replace(/\s*-\s*/g, '-')
+  return name === 'fb-lead-ads'
 }
 
 function timestampDay(value: string): string {
