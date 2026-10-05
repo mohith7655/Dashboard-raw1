@@ -325,7 +325,6 @@ export function useLeads(
       queryKey: queryKeys.leads(range, against),
       queryFn: () => unwrap(leads.fetchLeads(range, against)),
       enabled,
-      placeholderData: (prev) => prev,
     }),
   )
 }
