@@ -26,7 +26,7 @@ interface RevenueBreakdownCardProps {
   rows: RevenueBreakdownRow[]
   /** The analytics provider's daily visitors, folded onto the table's grain. */
   traffic: TrafficPoint[]
-  /** Daily Meta instant-form submissions; website leads are excluded. */
+  /** Daily Meta submissions and Gravity Forms contacts from Mailchimp tags. */
   leads?: LeadDayPoint[]
   /** Meta contacts with zero WooCommerce orders, deduplicated by email per bucket. */
   uniqueContacts?: Record<BreakdownGrain, UniqueContactPoint[]>

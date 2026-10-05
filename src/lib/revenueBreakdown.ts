@@ -126,7 +126,7 @@ export function bucketVisitors(
 }
 
 /**
- * Meta instant-form leads per bucket, on the same calendar.
+ * Meta and Gravity Forms leads per bucket, on the same calendar.
  */
 export function bucketLeads(
   series: LeadDayPoint[],
@@ -141,7 +141,7 @@ export function bucketLeads(
   return byBucket
 }
 
-/** Meta contacts without WooCommerce orders, folded onto the requested grain. */
+/** Meta and Gravity Forms contacts without Woo orders, folded by period. */
 export function bucketContacts(
   series: UniqueContactPoint[],
 ): Map<string, number> {

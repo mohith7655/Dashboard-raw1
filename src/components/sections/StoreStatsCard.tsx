@@ -22,7 +22,7 @@ interface StoreStatsCardProps {
   range: DateRange
   /** The window those are compared against, or null when comparison is off. */
   against: DateRange | null
-  /** Meta instant-form entries and Meta contacts with no WooCommerce orders. */
+  /** Meta and Gravity Forms leads, plus their contacts with no Woo orders. */
   leads: LeadReport | undefined
   /**
    * Traffic for the same period, needed for the one figure a lead count cannot
@@ -216,7 +216,7 @@ function otherStatuses(metrics: WooMetrics, placed: number): StatRowData[] {
 }
 
 /**
- * Meta instant-form leads, and the share of arrivals that became one.
+ * Meta and Gravity Forms leads, and the share of arrivals that became one.
  *
  * The card counted customers and orders — the two ends of the funnel — with
  * nothing about the step between them, where somebody gives an address without

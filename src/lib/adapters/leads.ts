@@ -3,7 +3,7 @@ import { callFunction, compareParams, toResult } from './client'
 
 const SOURCE = 'Leads'
 const HINT =
-  'Leads come from the Google Sheet the Make.com automations write into. Check LEADS_SHEET_ID names that spreadsheet, and that either the sheet is shared to anyone with the link or the Google refresh token carries the spreadsheets.readonly scope — `npm run google:auth` mints one that does. Then click Retry.'
+  'Meta leads come from Meta instant-form submissions; Gravity Forms leads come from Mailchimp Form/GFORMS_SITE tags. Check META_ACCESS_TOKEN, MAILCHIMP_API_KEY, MAILCHIMP_SERVER_PREFIX, and METORIK_API_KEY in Netlify, then click Retry.'
 
 export async function fetchLeads(
   range: DateRange,

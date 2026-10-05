@@ -21,7 +21,8 @@ interface TooltipItem {
 }
 
 const SERIES = [
-  { key: 'facebook', label: 'Meta instant forms', color: '#60a5fa' },
+  { key: 'facebook', label: 'Meta leads', color: '#60a5fa' },
+  { key: 'gravity', label: 'Gravity Forms leads', color: '#34d399' },
 ] as const
 
 function LeadTooltip({ active, payload }: { active?: boolean; payload?: TooltipItem[] }) {
@@ -46,7 +47,7 @@ export function LeadsOverTime({ data, unavailable }: LeadsOverTimeProps) {
   return (
     <ChartCard
       title="Leads over time"
-      subtitle="Meta instant-form submissions per day"
+      subtitle="Mailchimp contacts by source tag, dated by signup timestamp"
       height={300}
       unavailable={unavailable}
     >

@@ -143,7 +143,7 @@ export type BreakdownGrain = (typeof BREAKDOWN_GRAINS)[number]
 export interface RevenueBreakdownViewRow extends RevenueBreakdownRow {
   visitors: number | null
   /**
-   * Meta instant-form submissions on this day.
+   * Meta form submissions and Gravity Forms contacts on this day.
    */
   leads: number | null
   /**
@@ -918,35 +918,33 @@ export type SectionPrompts = Partial<Record<SectionPromptKey, string>>
 /* -------------------------------- Leads -------------------------------- */
 
 /**
- * Where a lead came from.
- *
- * The two email lists and the Facebook lead-ads capture. The WhatsApp tab in
- * the same spreadsheet is not among them: its rows are post-purchase order
- * confirmations — "I just placed an order" — which is the opposite end of the
- * funnel and would inflate the count with people who had already bought.
+ * Meta form submissions from Meta itself and Gravity Forms contacts identified
+ * by Mailchimp tags. Customer tags are excluded from the lead categories.
  */
-export type LeadSourceKey = 'facebook'
+export type LeadSourceKey = 'facebook' | 'gravity'
 
-export const LEAD_SOURCES: LeadSourceKey[] = ['facebook']
+export const LEAD_SOURCES: LeadSourceKey[] = ['facebook', 'gravity']
 
 export const LEAD_SOURCE_LABELS: Record<LeadSourceKey, string> = {
-  facebook: 'Meta lead forms',
+  facebook: 'Meta leads',
+  gravity: 'Gravity Forms leads',
 }
 
 export interface LeadSourceStats {
-  /** Distinct Meta form entry IDs in the window, compared against the previous one. */
+  /** Distinct Meta submissions or Gravity Forms contacts in the window. */
   count: Metric
 }
 
-/** One day of Meta instant-form submissions. */
+/** One day of Meta submissions and Gravity Forms contacts. */
 export interface LeadDayPoint {
   date: string
   facebook: number
+  gravity: number
 }
 
 /**
- * Meta contacts with no WooCommerce orders in one table bucket, deduplicated
- * by normalized email.
+ * Lead contacts with no WooCommerce orders in one table bucket, deduplicated
+ * by normalized email across Meta and Gravity Forms.
  */
 export interface UniqueContactPoint {
   date: string
@@ -960,7 +958,7 @@ export interface LeadCampaign {
 
 export interface LeadReport {
   sources: Record<LeadSourceKey, LeadSourceStats>
-  /** Meta form contacts in the period with zero recorded WooCommerce orders. */
+  /** Meta and Gravity Forms contacts in the period with zero Woo orders. */
   uniqueContacts: LeadSourceStats
   series: LeadDayPoint[]
   /**
@@ -970,7 +968,7 @@ export interface LeadReport {
   uniqueContactBuckets: Record<BreakdownGrain, UniqueContactPoint[]>
   campaigns: LeadCampaign[]
   /**
-   * The most recent Meta form entry day available to this report.
+   * The most recent tagged contact day available for each source.
    *
    * A stale automation and a quiet week look identical in a count of zero.
    * This is what tells them apart, and the card says so outright rather than

@@ -23,7 +23,7 @@ interface LeadsSectionProps {
   analysis: SectionAnalysisWiring
 }
 
-/** Meta instant-form leads only; website forms and email lists are excluded. */
+/** Meta and Gravity Forms leads, classified by their Mailchimp source tags. */
 export function LeadsSection({
   report,
   loading,
@@ -36,6 +36,7 @@ export function LeadsSection({
   const [analysisOpen, setAnalysisOpen] = useState(false)
   const analysisId = useId()
   const leadCount = report?.sources.facebook.count
+  const gravityCount = report?.sources.gravity.count
   const contactsWithoutOrders = report?.uniqueContacts.count
   const costPerLead = useMemo(() => {
     const spend = meta?.spend.value ?? null
@@ -45,33 +46,23 @@ export function LeadsSection({
 
   const formRows = useMemo((): StatRowData[] => {
     if (!report) return []
-    const total = report.campaigns.reduce((sum, row) => sum + row.leads, 0)
-    return [
-      {
-        label: 'Meta instant-form submissions',
-        value: formatInteger(total),
-        kind: 'total',
-        share: null,
-        change: null,
-        polarity: 'up-good',
-      },
-      ...report.campaigns.map((row) => ({
+    return report.campaigns.map((row) => ({
         label: row.name,
         value: formatInteger(row.leads),
         kind: 'part' as const,
-        share: total ? row.leads / total : 0,
+        share: null,
         change: null,
         polarity: 'up-good' as const,
-      })),
-    ]
+      }))
   }, [report])
 
   const snapshotOf = (): Record<string, unknown> => ({
     range,
     comparison: against,
     currency: 'USD',
-    metaInstantFormLeads: leadCount?.value ?? null,
-    uniqueMetaContactsWithZeroWooOrders: contactsWithoutOrders?.value ?? null,
+    mailchimpTaggedMetaLeads: leadCount?.value ?? null,
+    gravityFormsLeads: gravityCount?.value ?? null,
+    uniqueLeadContactsWithZeroWooOrders: contactsWithoutOrders?.value ?? null,
     costPerMetaLead: costPerLead,
     metaSpend: meta?.spend.value ?? null,
     report: report ?? null,
@@ -81,7 +72,7 @@ export function LeadsSection({
     <section className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
         <SectionLabel size="lg" glyph={<UserPlus size={16} className="text-muted" />}>
-          Meta Leads
+          Leads
         </SectionLabel>
         <div className="mb-3 flex shrink-0 items-center gap-1">
           <AnalyseButton
@@ -89,7 +80,7 @@ export function LeadsSection({
             onRun={() => analysis.onAnalyse(analysis.prompt ?? '', snapshotOf())}
             hasResult={!!analysis.result}
             panelId={analysisId}
-            label="Meta leads"
+            label="Leads"
             onToggle={() => setAnalysisOpen((current) => !current)}
             running={analysis.running}
             disabled={loading}
@@ -100,7 +91,7 @@ export function LeadsSection({
       <SectionAnalysis
         onToggle={() => setAnalysisOpen((current) => !current)}
         section="leads"
-        label="Meta leads"
+        label="Leads"
         open={analysisOpen}
         panelId={analysisId}
         prompt={analysis.prompt}
@@ -121,34 +112,40 @@ export function LeadsSection({
         </div>
       ) : failed ? (
         <RowsCard
-          title="Meta leads unavailable"
+          title="Leads unavailable"
           icon={Megaphone}
           rows={[]}
-          unavailable="Meta leads unavailable"
+          unavailable="Leads unavailable"
         />
       ) : (
         <>
           {report && (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <Headline
                 label="Meta leads"
                 value={formatInteger(leadCount?.value ?? 0)}
                 change={leadCount?.deltaPct ?? null}
-                note="Meta instant-form submissions only"
+                note="Actual Meta instant-form submissions"
+              />
+              <Headline
+                label="Gravity Forms leads"
+                value={formatInteger(gravityCount?.value ?? 0)}
+                change={gravityCount?.deltaPct ?? null}
+                note="Contacts tagged Form or GFORMS_SITE"
               />
               <Headline
                 label="Unique contacts · 0 orders"
                 value={formatInteger(contactsWithoutOrders?.value ?? 0)}
                 change={contactsWithoutOrders?.deltaPct ?? null}
-                note="Distinct Meta emails with no WooCommerce order"
+                note="Distinct Meta and form emails with no Woo order"
               />
               <Headline
                 label="Cost per Meta lead"
                 value={costPerLead === null ? '—' : formatCurrency(costPerLead)}
                 note={
                   costPerLead === null
-                    ? 'Meta spend or instant-form lead data unavailable'
-                    : "Meta's whole spend, not lead ads alone"
+                    ? 'Meta spend or Meta lead data unavailable'
+                    : "Meta's whole spend divided by actual instant-form leads"
                 }
               />
             </div>
@@ -158,10 +155,10 @@ export function LeadsSection({
 
           {report && report.campaigns.length > 0 && (
             <RowsCard
-              title="Meta lead forms"
+              title="Lead source tags"
               icon={Megaphone}
               rows={formRows}
-              subtitle="Actual submissions grouped by Meta instant form."
+              subtitle="Meta rows are actual submissions; Gravity Forms rows use Mailchimp Form/GFORMS_SITE tags. FB Lead tags mark Meta attribution in Mailchimp."
             />
           )}
         </>

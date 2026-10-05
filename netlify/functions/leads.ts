@@ -1,8 +1,7 @@
 /**
- * Meta instant-form leads and the contacts who have never ordered.
- * Website form/pixel events and email-platform membership are not lead sources
- * for this report. WooCommerce customer history is used only to identify which
- * Meta contacts have already ordered.
+ * Mailchimp-tagged Meta and Gravity Forms leads, plus the contacts who have
+ * never ordered. Customer tags are not lead sources; WooCommerce customer
+ * history is used to identify which leads have already ordered.
  */
 import type {
   BreakdownGrain,
@@ -16,6 +15,7 @@ import { metric } from '../../src/lib/derive'
 import { bucketStart } from '../../src/lib/revenueBreakdown'
 import { denyWithoutSession } from '../lib/auth'
 import { BadRequest, isRecord, json, num, readComparison, readRange, toErrorResponse } from '../lib/http'
+import { fetchMailchimpLeadEntries } from '../lib/mailchimpLeadEntries'
 import { fetchMetaLeadEntries, type MetaLeadEntry } from '../lib/metaLeads'
 
 const META_PAGE_ID = process.env.META_LEAD_PAGE_ID?.trim() || '213491158815011'
@@ -26,11 +26,20 @@ const EMAIL_BATCH_SIZE = 20
 const EMAIL_BATCH_CONCURRENCY = 5
 const ORDER_FACT_TTL_MS = 5 * 60 * 1000
 const ERROR_HINT =
-  'Meta lead forms and WooCommerce customer history could not be read. Check META_ACCESS_TOKEN, META_LEAD_PAGE_ID, and METORIK_API_KEY in the Netlify environment, then click Retry.'
+  'Meta and Gravity Forms leads or WooCommerce customer history could not be read. Check META_ACCESS_TOKEN, MAILCHIMP_API_KEY, MAILCHIMP_SERVER_PREFIX, and METORIK_API_KEY in the Netlify environment, then click Retry.'
+
+interface LeadEntry {
+  id: string
+  day: string
+  email: string
+  label: string
+  source: 'facebook' | 'gravity'
+}
 
 interface Row {
   day: string
   key: string
+  source: 'facebook' | 'gravity'
   cells: Record<string, string>
 }
 
@@ -42,8 +51,8 @@ interface OrderFact {
 const orderFactCache = new Map<string, { value: OrderFact; expiresAt: number }>()
 
 /**
- * Meta instant-form entries in the selected range, with unique email contacts
- * who have never placed a WooCommerce order.
+ * Actual Meta submissions and Mailchimp-tagged Gravity Forms contacts in the
+ * selected range, with unique emails who have never placed a WooCommerce order.
  */
 export default async function handler(request: Request): Promise<Response> {
   const denied = denyWithoutSession(request)
@@ -53,26 +62,35 @@ export default async function handler(request: Request): Promise<Response> {
     const url = new URL(request.url)
     const range = readRange(url)
     const against = readComparison(url, range)
-    const token = process.env.META_ACCESS_TOKEN?.trim()
+    const metaToken = process.env.META_ACCESS_TOKEN?.trim()
+    const mailchimpKey = process.env.MAILCHIMP_API_KEY?.trim()
     const metorikKey = process.env.METORIK_API_KEY?.trim()
-    if (!token) throw new BadRequest('META_ACCESS_TOKEN is not configured')
+    if (!metaToken) throw new BadRequest('META_ACCESS_TOKEN is not configured')
+    if (!mailchimpKey) throw new BadRequest('MAILCHIMP_API_KEY is not configured')
     if (!metorikKey) throw new BadRequest('METORIK_API_KEY is not configured')
+    const mailchimpPrefix = serverPrefix(mailchimpKey)
 
     const span = spanFor(range, against)
-    const entries = await fetchMetaLeadEntries(META_PAGE_ID, token, META_TIME_ZONE, span)
-    const inScope = entries.filter(
-      (entry) => within(entry.day, range) || (against !== null && within(entry.day, against)),
-    )
+    const [metaEntries, gravityEntries] = await Promise.all([
+      fetchMetaLeadEntries(META_PAGE_ID, metaToken, META_TIME_ZONE, span),
+      fetchMailchimpLeadEntries(mailchimpKey, mailchimpPrefix, span),
+    ])
+    const entries: LeadEntry[] = [
+      ...metaEntries.map(toMetaEntry),
+      ...gravityEntries.map((entry) => entry),
+    ]
+    const inScope = entries.filter((entry) => within(entry.day, range) || (against !== null && within(entry.day, against)))
     const emails = [...new Set(inScope.map((entry) => entry.email).filter(Boolean))]
     const orderFacts = await loadOrderFacts(metorikKey, emails)
 
     const leadRows = entries.map(toLeadRow)
-    const nonBuyerRows = inScope
+    const nonBuyerRows = uniqueRowsByEmail(inScope
       .filter((entry) => entry.email && (orderFacts.get(entry.email)?.orderCount ?? 0) === 0)
-      .map(toContactRow)
+      .map(toContactRow))
 
     const sources = {
-      facebook: statsFor(leadRows, range, against),
+      facebook: statsFor(leadRows.filter((row) => row.source === 'facebook'), range, against),
+      gravity: statsFor(leadRows.filter((row) => row.source === 'gravity'), range, against),
     }
     const uniqueContacts = statsFor(nonBuyerRows, range, against)
     const report: LeadReport = {
@@ -86,7 +104,8 @@ export default async function handler(request: Request): Promise<Response> {
       },
       campaigns: formsIn(leadRows, range),
       lastSeen: {
-        facebook: latestDay(leadRows),
+        facebook: latestDay(leadRows.filter((row) => row.source === 'facebook')),
+        gravity: latestDay(leadRows.filter((row) => row.source === 'gravity')),
       },
     }
 
@@ -161,19 +180,25 @@ async function customerFactsForBatch(apiKey: string, emails: string[]): Promise<
 const within = (day: string, range: DateRange): boolean =>
   day >= range.start && day <= range.end
 
-function toLeadRow(entry: MetaLeadEntry): Row {
+function toMetaEntry(entry: MetaLeadEntry): LeadEntry {
+  return { ...entry, label: entry.form, source: 'facebook' }
+}
+
+function toLeadRow(entry: LeadEntry): Row {
   return {
     day: entry.day,
-    key: entry.id,
-    cells: { email: entry.email, 'form name': entry.form },
+    key: entry.source === 'facebook' ? entry.id : entry.email,
+    source: entry.source,
+    cells: { email: entry.email, 'form name': entry.label },
   }
 }
 
-function toContactRow(entry: MetaLeadEntry): Row {
+function toContactRow(entry: LeadEntry): Row {
   return {
     day: entry.day,
     key: entry.email,
-    cells: { email: entry.email, 'form name': entry.form },
+    source: entry.source,
+    cells: { email: entry.email, 'form name': entry.label },
   }
 }
 
@@ -211,17 +236,31 @@ function spanFor(range: DateRange, against: DateRange | null): { start: string; 
 }
 
 function seriesOf(rows: Row[], range: DateRange): LeadDayPoint[] {
-  const counts = new Map<string, Set<string>>()
-  for (const row of rows) {
+  const counts = new Map<string, Record<'facebook' | 'gravity', Set<string>>>()
+  const sourceContacts = uniqueRowsByEmail(rows.filter((row) => row.cells.email), true)
+  for (const row of sourceContacts) {
     if (!within(row.day, range)) continue
-    const day = counts.get(row.day) ?? new Set<string>()
-    day.add(row.key || `${row.day}:${day.size}`)
+    const day = counts.get(row.day) ?? { facebook: new Set<string>(), gravity: new Set<string>() }
+    day[row.source].add(row.key || `${row.day}:${day[row.source].size}`)
     counts.set(row.day, day)
   }
   return eachDay(range).map((date) => ({
     date,
-    facebook: counts.get(date)?.size ?? 0,
+    facebook: counts.get(date)?.facebook.size ?? 0,
+    gravity: counts.get(date)?.gravity.size ?? 0,
   }))
+}
+
+/** Count a contact once across tags and sources, on their first lead day. */
+function uniqueRowsByEmail(rows: Row[], separateSources = false): Row[] {
+  const firstByEmail = new Map<string, Row>()
+  for (const row of rows) {
+    if (!row.key) continue
+    const key = separateSources ? `${row.source}:${row.key}` : row.key
+    const first = firstByEmail.get(key)
+    if (!first || row.day < first.day) firstByEmail.set(key, row)
+  }
+  return [...firstByEmail.values()]
 }
 
 function uniqueContactPointsOf(
@@ -258,7 +297,8 @@ function formsIn(rows: Row[], range: DateRange): LeadReport['campaigns'] {
   const byForm = new Map<string, Set<string>>()
   for (const row of rows) {
     if (!within(row.day, range)) continue
-    const form = row.cells['form name'] || 'Unnamed Meta form'
+    const prefix = row.source === 'facebook' ? 'Meta form' : 'Gravity Forms tag'
+    const form = `${prefix}: ${row.cells['form name'] || 'Unlabeled'}`
     const seen = byForm.get(form) ?? new Set<string>()
     seen.add(row.key)
     byForm.set(form, seen)
@@ -270,4 +310,14 @@ function formsIn(rows: Row[], range: DateRange): LeadReport['campaigns'] {
 
 function latestDay(rows: Row[]): string | null {
   return rows.reduce<string | null>((latest, row) => (!latest || row.day > latest ? row.day : latest), null)
+}
+
+function serverPrefix(apiKey: string): string {
+  const configured = process.env.MAILCHIMP_SERVER_PREFIX?.trim()
+  if (configured) return configured
+  const suffix = apiKey.slice(apiKey.lastIndexOf('-') + 1)
+  if (!apiKey || suffix === apiKey || !/^[a-z\d]+$/i.test(suffix)) {
+    throw new BadRequest('MAILCHIMP_SERVER_PREFIX is not configured')
+  }
+  return suffix
 }
