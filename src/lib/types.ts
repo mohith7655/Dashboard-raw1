@@ -1243,11 +1243,9 @@ export interface MailchimpReport {
  * `openRate` that could only ever hold zero would put a figure on screen that
  * looks measured and is not.
  *
- * Nor is any of it scoped to a window. The subscriber endpoint filters on
- * status and segment but not on date — every date parameter is ignored and
- * returns the full 73,000 — so counting who joined during the period would
- * mean paging the whole list on every load. The counts here are current
- * state, and the card says so.
+ * Subscriber and segment counts are filtered by contact creation date. The
+ * subscriber endpoint has no date filter, so the function uses its
+ * newest-first pages to read only pages overlapping the selected range.
  */
 export interface FlodeskSegment {
   id: string
@@ -1275,8 +1273,11 @@ export interface FlodeskCampaign {
 }
 
 export interface FlodeskReport {
-  /** Account-wide counts as they stand. Not scoped to the period. */
+  /** Contacts created during the selected period, grouped by their current status. */
   subscribers: { total: number; active: number; unsubscribed: number }
+  /** False when the selected range would exceed Flodesk's request limit. */
+  subscriberHistoryAvailable: boolean
+  /** Active contacts created during the period, grouped by current segment. */
   segments: FlodeskSegment[]
   /** Completed campaigns last touched inside the window. */
   campaigns: FlodeskCampaign[]

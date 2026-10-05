@@ -28,7 +28,7 @@ interface FlodeskCardProps {
  */
 export function FlodeskCard({ report, loading, failed }: FlodeskCardProps) {
   const segmentRows = useMemo((): StatRowData[] => {
-    if (!report) return []
+    if (!report || !report.subscriberHistoryAvailable) return []
 
     // Segments overlap — a subscriber can sit in several — so they are shown
     // against the active list rather than summed into a total of their own.
@@ -82,28 +82,29 @@ export function FlodeskCard({ report, loading, failed }: FlodeskCardProps) {
             endpoint to ask. So this section is list health and a send log; the
             open and click rates above are Mailchimp&apos;s alone. What Flodesk
             subscribers went on to buy is on the Lead Data tab, counted from the
-            Make.com sheet.
+            Make.com sheet. Subscriber counts below follow the selected dates by
+            the date Flodesk created each contact.
           </p>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         <Figure
-          label="Subscribers"
-          value={formatInteger(subscribers.total)}
-          note="on the account today"
+          label="Created in Flodesk"
+          value={report.subscriberHistoryAvailable ? formatInteger(subscribers.total) : 'Unavailable'}
+          note="during selected period"
         />
         <Figure
           label="Active"
-          value={formatInteger(subscribers.active)}
-          note={`${formatPercent(
+          value={report.subscriberHistoryAvailable ? formatInteger(subscribers.active) : 'Unavailable'}
+          note={report.subscriberHistoryAvailable ? `${formatPercent(
             subscribers.total ? subscribers.active / subscribers.total : 0,
-          )} of the list`}
+          )} of created contacts (current status)` : 'Selected range is too broad'}
         />
         <Figure
           label="Unsubscribed"
-          value={formatInteger(subscribers.unsubscribed)}
-          note={`${formatPercent(unsubShare)} of the list`}
+          value={report.subscriberHistoryAvailable ? formatInteger(subscribers.unsubscribed) : 'Unavailable'}
+          note={report.subscriberHistoryAvailable ? `${formatPercent(unsubShare)} of created contacts (current status)` : 'Selected range is too broad'}
         />
       </div>
 
@@ -111,7 +112,10 @@ export function FlodeskCard({ report, loading, failed }: FlodeskCardProps) {
         title="Segments"
         icon={Layers}
         rows={segmentRows}
-        subtitle="Active subscribers in each segment, largest first. Segments overlap, so these do not sum to the list."
+        subtitle="Active contacts created in this period, grouped by their current segments. Membership can change later and segments overlap."
+        unavailable={report.subscriberHistoryAvailable
+          ? null
+          : 'Flodesk history is too large to scan for this date range. Narrow the selected dates.'}
       />
 
       <RowsCard

@@ -58,13 +58,18 @@ export default async function handler(request: Request): Promise<Response> {
      * whole answer, and fetching 73,000 subscribers to length an array would
      * be absurd.
      */
-    const [total, active, unsubscribed, segments, campaigns] = await Promise.all([
-      countSubscribers(key, {}),
-      countSubscribers(key, { status: 'active' }),
-      countSubscribers(key, { status: 'unsubscribed' }),
+    const [history, segments, campaigns] = await Promise.all([
+      fetchSubscriberHistory(key, range.start, range.end),
       fetchSegments(key),
       fetchCampaigns(key),
     ])
+
+    const segmentRows = segments
+      .map((segment) => ({
+        ...segment,
+        members: history.segmentMembers.get(segment.id) ?? 0,
+      }))
+      .sort((a, b) => b.members - a.members)
 
     // Only the ones that actually went out. A draft is a campaign that has not
     // happened, and counting it beside sends would overstate the activity.
@@ -73,8 +78,9 @@ export default async function handler(request: Request): Promise<Response> {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 
     const report: FlodeskReport = {
-      subscribers: { total, active, unsubscribed },
-      segments,
+      subscribers: history.subscribers,
+      subscriberHistoryAvailable: history.available,
+      segments: segmentRows,
       // Compared as plain days rather than as timestamps: the range is two
       // `yyyy-MM-dd` strings and Flodesk's stamps carry microseconds and a
       // zone, so trimming both to the date is the one comparison that cannot
@@ -125,16 +131,162 @@ async function call<T>(
   return JSON.parse(text) as T
 }
 
-/** A count taken off the pagination envelope, without reading the rows. */
-async function countSubscribers(
+const PAGE_SIZE = 100
+// Keep room under Flodesk's 100 requests/minute limit for boundary searches
+// and the segment/campaign calls made alongside this scan.
+const MAX_HISTORY_PAGES = 70
+
+interface Subscriber {
+  id: string
+  createdAt: string
+  status: string
+  segments: string[]
+}
+
+interface SubscriberHistory {
+  available: boolean
+  subscribers: { total: number; active: number; unsubscribed: number }
+  segmentMembers: Map<string, number>
+}
+
+interface SubscriberPage {
+  rows: Subscriber[]
+  totalPages: number
+}
+
+/**
+ * Flodesk has no created-date filter. Its API currently returns subscribers
+ * newest-first, so binary-search page boundaries and read only pages that can
+ * contain contacts created during the selected period. Status and segment
+ * membership come from each contact's current record.
+ */
+async function fetchSubscriberHistory(
   key: string,
-  filter: Record<string, string>,
-): Promise<number> {
-  const payload = await call<{ meta?: unknown }>(key, '/subscribers', {
-    per_page: '1',
-    ...filter,
+  start: string,
+  end: string,
+): Promise<SubscriberHistory> {
+  const pageCache = new Map<number, SubscriberPage>()
+  const getPage = async (page: number): Promise<SubscriberPage> => {
+    const cached = pageCache.get(page)
+    if (cached) return cached
+    const payload = await call<{ data?: unknown; meta?: unknown }>(key, '/subscribers', {
+      per_page: String(PAGE_SIZE),
+      page: String(page),
+    })
+    const meta = isRecord(payload.meta) ? payload.meta : {}
+    const rows = asArray(payload.data)
+      .filter(isRecord)
+      .map((row) => ({
+        id: typeof row.id === 'string' ? row.id : '',
+        createdAt: typeof row.created_at === 'string' ? row.created_at : '',
+        status: typeof row.status === 'string' ? row.status : '',
+        segments: asArray(row.segments)
+          .filter(isRecord)
+          .map((segment) => typeof segment.id === 'string' ? segment.id : '')
+          .filter(Boolean),
+      }))
+    const totalItems = num(meta.total_items)
+    const totalPages = num(meta.total_pages) || Math.ceil(totalItems / PAGE_SIZE)
+    const result = { rows, totalPages }
+    pageCache.set(page, result)
+    return result
+  }
+
+  const empty = (available: boolean): SubscriberHistory => ({
+    available,
+    subscribers: { total: 0, active: 0, unsubscribed: 0 },
+    segmentMembers: new Map(),
   })
-  return isRecord(payload.meta) ? num(payload.meta.total_items) : 0
+
+  const first = await getPage(1)
+  if (!first.totalPages || !first.rows.length) return empty(true)
+  const final = first.totalPages === 1 ? first : await getPage(first.totalPages)
+  if (!isNewestFirst(first.rows) || !isNewestFirst(final.rows)) return empty(false)
+
+  // First page whose oldest row is on or before the selected end date.
+  let lo = 1
+  let hi = first.totalPages
+  let firstPage = first.totalPages + 1
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2)
+    const page = await getPage(mid)
+    if (!isNewestFirst(page.rows)) return empty(false)
+    const oldest = page.rows.at(-1)?.createdAt.slice(0, 10) ?? ''
+    if (oldest && oldest <= end) {
+      firstPage = mid
+      hi = mid - 1
+    } else {
+      lo = mid + 1
+    }
+  }
+
+  // Last page whose newest row is on or after the selected start date.
+  lo = 1
+  hi = first.totalPages
+  let lastPage = 0
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2)
+    const page = await getPage(mid)
+    if (!isNewestFirst(page.rows)) return empty(false)
+    const newest = page.rows[0]?.createdAt.slice(0, 10) ?? ''
+    if (newest && newest >= start) {
+      lastPage = mid
+      lo = mid + 1
+    } else {
+      hi = mid - 1
+    }
+  }
+
+  if (firstPage > lastPage || !lastPage) return empty(true)
+  if (lastPage - firstPage + 1 > MAX_HISTORY_PAGES) return empty(false)
+
+  const pages: number[] = []
+  for (let page = firstPage; page <= lastPage; page += 1) pages.push(page)
+  // Chunk requests to avoid a large burst at Flodesk's account-wide API.
+  for (let offset = 0; offset < pages.length; offset += 8) {
+    await Promise.all(pages.slice(offset, offset + 8).map(getPage))
+  }
+
+  const contacts = new Map<string, Subscriber>()
+  for (const pageNumber of pages) {
+    const page = pageCache.get(pageNumber)
+    if (!page || !isNewestFirst(page.rows)) return empty(false)
+    const nextPage = pageCache.get(pageNumber + 1)
+    if (nextPage) {
+      const oldestHere = page.rows.at(-1)?.createdAt ?? ''
+      const newestNext = nextPage.rows[0]?.createdAt ?? ''
+      if (!oldestHere || !newestNext || oldestHere < newestNext) return empty(false)
+    }
+    for (const contact of page.rows) {
+      const day = contact.createdAt.slice(0, 10)
+      if (!day || day < start || day > end) continue
+      if (!contact.id) return empty(false)
+      contacts.set(contact.id, contact)
+    }
+  }
+
+  const result = empty(true)
+  result.subscribers.total = contacts.size
+  for (const contact of contacts.values()) {
+    if (contact.status === 'active') {
+      result.subscribers.active += 1
+      for (const segmentId of new Set(contact.segments)) {
+        result.segmentMembers.set(segmentId, (result.segmentMembers.get(segmentId) ?? 0) + 1)
+      }
+    } else if (contact.status === 'unsubscribed') {
+      result.subscribers.unsubscribed += 1
+    }
+  }
+  return result
+}
+
+function isNewestFirst(rows: Subscriber[]): boolean {
+  for (let i = 1; i < rows.length; i += 1) {
+    const previous = rows[i - 1].createdAt
+    const current = rows[i].createdAt
+    if (!previous || !current || previous < current) return false
+  }
+  return true
 }
 
 async function fetchSegments(key: string): Promise<FlodeskSegment[]> {
@@ -144,7 +296,7 @@ async function fetchSegments(key: string): Promise<FlodeskSegment[]> {
     .map((row) => ({
       id: typeof row.id === 'string' ? row.id : '',
       name: typeof row.name === 'string' ? row.name : '(unnamed)',
-      members: num(row.total_active_subscribers),
+      members: 0,
       createdAt: typeof row.created_at === 'string' ? row.created_at : '',
     }))
     .sort((a, b) => b.members - a.members)
