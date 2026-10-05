@@ -49,16 +49,19 @@ export function EmailSection({
   flodeskLoading,
   flodeskFailed,
 }: EmailSectionProps) {
-  /** Audiences as they stand, largest first. Not scoped to the period. */
+  /** Daily audience activity, scoped to the selected period. */
   const audienceRows = useMemo((): StatRowData[] => {
     if (!report) return []
 
-    const total = report.audiences.reduce((sum, a) => sum + a.members, 0)
+    const joined = report.audiences.reduce((sum, a) => sum + a.subscribers, 0)
+    const left = report.audiences.reduce((sum, a) => sum + a.unsubscribers, 0)
+    const net = joined - left
+    const signed = (value: number) => `${value > 0 ? '+' : value < 0 ? '−' : ''}${formatInteger(Math.abs(value))}`
 
     return [
       {
-        label: 'Subscribers across all audiences',
-        value: formatInteger(total),
+        label: 'Net audience membership change',
+        value: signed(net),
         kind: 'total',
         share: null,
         change: null,
@@ -66,12 +69,9 @@ export function EmailSection({
       },
       ...report.audiences.map((a) => ({
         label: a.name,
-        value: formatInteger(a.members),
+        value: `${formatInteger(a.subscribers)} joined · ${formatInteger(a.unsubscribers)} unsubscribed`,
         kind: 'part' as const,
-        share: total ? a.members / total : 0,
-        // No baseline per audience: a list's size is a state Mailchimp reports
-        // now, not a figure it reports for a window, so there is nothing
-        // honest to compare it against.
+        share: null,
         change: null,
         polarity: 'up-good' as const,
       })),
@@ -81,15 +81,14 @@ export function EmailSection({
   /**
    * Which audiences are shrinking.
    *
-   * Mailchimp's own monthly averages, set against each other. A list losing
-   * more people a month than it gains is the finding a subscriber count cannot
-   * make on its own — the count looks large right up until it doesn't.
+   * Lists with more unsubscribes than signups during the selected period.
    */
   const shrinking = useMemo(() => {
     if (!report) return []
+    if (!report.audienceActivityAvailable) return []
     return report.audiences
-      .filter((a) => a.unsubsPerMonth > a.subsPerMonth && a.members > 0)
-      .sort((a, b) => b.unsubsPerMonth - a.unsubsPerMonth)
+      .filter((a) => a.netChange < 0)
+      .sort((a, b) => a.netChange - b.netChange)
   }, [report])
 
   const empty = !!report && report.campaigns.length === 0
@@ -142,8 +141,8 @@ export function EmailSection({
                     quiet month for campaigns is not a quiet month for email:
                     the automations below keep sending to everyone who joins. */}
                 {liveAutomations > 0
-                  ? `${liveAutomations === 1 ? 'One automation is' : `${liveAutomations} automations are`} still sending, and ${liveAutomations === 1 ? 'its' : 'their'} totals are below. The audiences and automations here are current rather than scoped to the period — neither has a size that belongs to a window.`
-                  : 'The audiences below are current, not scoped to the period — a list has a size now, not over a window.'}
+                  ? `${liveAutomations === 1 ? 'One automation is' : `${liveAutomations} automations are`} still sending, and ${liveAutomations === 1 ? 'its' : 'their'} totals are below. Audience activity follows the selected period; automation totals are lifetime.`
+                  : 'Audience activity below follows the selected period. Automation totals remain lifetime figures.'}
               </p>
             </div>
           )}
@@ -173,26 +172,30 @@ export function EmailSection({
           )}
 
           <RowsCard
-            title="Audiences"
+            title="Audience activity"
             icon={Users}
             rows={audienceRows}
-            unavailable={failed ? 'Audiences unavailable' : null}
-            subtitle="Subscribers on each list as it stands today, largest first. Not scoped to the period."
+            unavailable={failed
+              ? 'Audiences unavailable'
+              : report && !report.audienceActivityAvailable
+                ? 'Select a date range fully within Mailchimp’s 180-day daily activity history.'
+                : null}
+            subtitle="Subscribers and unsubscribes in this period; contacts on multiple lists count once per list. Daily history covers 180 days."
           />
 
-          {shrinking.length > 0 && (
+          {report?.audienceActivityAvailable && shrinking.length > 0 && (
             <RowsCard
-              title="Audiences losing people faster than they gain them"
+              title="Audiences with net losses in this period"
               icon={MailX}
               rows={shrinking.map((a) => ({
                 label: a.name,
-                value: `−${formatInteger(a.unsubsPerMonth - a.subsPerMonth)} a month`,
+                value: `−${formatInteger(Math.abs(a.netChange))} net subscribers`,
                 kind: 'part' as const,
                 share: null,
                 change: null,
                 polarity: 'down-good' as const,
               }))}
-              subtitle="Mailchimp's own monthly averages: people leaving set against people joining."
+              subtitle="Unsubscribes exceeded signups in the selected date range."
             />
           )}
 

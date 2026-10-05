@@ -1032,23 +1032,13 @@ export interface MailchimpCampaign {
   bounces: number
 }
 
-/** An audience as it stands now — a list has a state, not a history. */
+/** Mailchimp activity for one audience, limited to the selected date range. */
 export interface MailchimpAudience {
   id: string
   name: string
-  members: number
-  unsubscribes: number
-  cleaned: number
-  /** Ratios, 0–1. Mailchimp reports these as percentages; converted upstream. */
-  openRate: number
-  clickRate: number
-  /**
-   * Mailchimp's own monthly averages — people joining and leaving per month.
-   * Counts, not rates, despite the name the API gives them.
-   */
-  subsPerMonth: number
-  unsubsPerMonth: number
-  lastSentAt: string | null
+  subscribers: number
+  unsubscribers: number
+  netChange: number
 }
 
 /**
@@ -1206,8 +1196,10 @@ export interface MailchimpReport {
   totals: MailchimpTotals
   /** Sends inside the window, most recent first. */
   campaigns: MailchimpCampaign[]
-  /** Every audience on the account, largest first. Not window-scoped. */
+  /** Audience signups and unsubscribes in the selected period, largest first. */
   audiences: MailchimpAudience[]
+  /** Daily audience activity is available for the last 180 days only. */
+  audienceActivityAvailable: boolean
   /**
    * Automations that have ever sent, live ones first. Lifetime totals — see
    * `MailchimpAutomation`. Never window-scoped, whatever the picker says.

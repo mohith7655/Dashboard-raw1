@@ -51,6 +51,9 @@ const HINT =
  * page is the whole answer and there is no pagination to write.
  */
 const PAGE = 1000
+const ACTIVITY_DAYS = 180
+const ACTIVITY_CONCURRENCY = 4
+const ACTIVITY_CACHE_MS = 5 * 60 * 1000
 
 /** Only the fields the report actually renders; the full objects are fat. */
 const REPORT_FIELDS = [
@@ -88,15 +91,20 @@ const AUTOMATION_FIELDS = [
 const LIST_FIELDS = [
   'lists.id',
   'lists.name',
-  'lists.stats.member_count',
-  'lists.stats.unsubscribe_count',
-  'lists.stats.cleaned_count',
-  'lists.stats.open_rate',
-  'lists.stats.click_rate',
-  'lists.stats.avg_sub_rate',
-  'lists.stats.avg_unsub_rate',
-  'lists.stats.campaign_last_sent',
 ].join(',')
+
+interface DailyAudienceActivity {
+  day: string
+  subscribers: number
+  unsubscribers: number
+}
+
+interface AudienceActivityCache {
+  expiresAt: number
+  rows: DailyAudienceActivity[]
+}
+
+const audienceActivityCache = new Map<string, AudienceActivityCache>()
 
 export default async function handler(request: Request): Promise<Response> {
   const denied = denyWithoutSession(request)
@@ -137,12 +145,16 @@ export default async function handler(request: Request): Promise<Response> {
         fetchJourneys(prefix, key),
       ])
 
+    const audienceActivity = await fetchAudienceActivity(prefix, key, lists)
+    const audienceReport = audiencesForRange(lists, audienceActivity, range)
+
     const campaigns = current.map(toCampaign).sort((a, b) => b.sentAt.localeCompare(a.sentAt))
 
     const report: MailchimpReport = {
       totals: totalsOf(campaigns, against ? previous.map(toCampaign) : null),
       campaigns,
-      audiences: toAudiences(lists),
+      audiences: audienceReport.audiences,
+      audienceActivityAvailable: audienceReport.available,
       automations,
       journeys,
       automationTotals: automationTotalsOf(automations, journeys),
@@ -241,6 +253,88 @@ async function fetchLists(prefix: string, key: string): Promise<Record<string, u
     fields: LIST_FIELDS,
   })
   return asArray(payload.lists).filter(isRecord)
+}
+
+/**
+ * Mailchimp exposes daily audience signups and unsubscribes for 180 days.
+ * Cache those rows briefly so moving the date picker does not refetch every
+ * audience's history.
+ */
+async function fetchAudienceActivity(
+  prefix: string,
+  key: string,
+  lists: Record<string, unknown>[],
+): Promise<Map<string, DailyAudienceActivity[]>> {
+  const now = Date.now()
+  const result = new Map<string, DailyAudienceActivity[]>()
+  const missing: Array<{ id: string; cacheKey: string }> = []
+
+  for (const list of lists) {
+    const id = typeof list.id === 'string' ? list.id : ''
+    if (!id) continue
+    const cacheKey = `${prefix}:${id}`
+    const cached = audienceActivityCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) result.set(id, cached.rows)
+    else missing.push({ id, cacheKey })
+  }
+
+  for (let offset = 0; offset < missing.length; offset += ACTIVITY_CONCURRENCY) {
+    const batch = missing.slice(offset, offset + ACTIVITY_CONCURRENCY)
+    const responses = await Promise.all(
+      batch.map(async ({ id }) => {
+        const payload = await call<{ activity?: unknown }>(prefix, key, `/lists/${encodeURIComponent(id)}/activity`, {
+          count: String(ACTIVITY_DAYS),
+        })
+        const rows = asArray(payload.activity).filter(isRecord).flatMap((row) => {
+          const day = typeof row.day === 'string' ? row.day : ''
+          if (!day) return []
+          return [{
+            day,
+            subscribers: Math.max(0, Math.round(num(row.subs))),
+            unsubscribers: Math.max(0, Math.round(num(row.unsubs))),
+          }]
+        })
+        return { id, rows }
+      }),
+    )
+
+    for (const response of responses) {
+      const cacheKey = `${prefix}:${response.id}`
+      audienceActivityCache.set(cacheKey, { rows: response.rows, expiresAt: now + ACTIVITY_CACHE_MS })
+      result.set(response.id, response.rows)
+    }
+  }
+
+  return result
+}
+
+function audiencesForRange(
+  lists: Record<string, unknown>[],
+  activities: Map<string, DailyAudienceActivity[]>,
+  range: DateRange,
+): { audiences: MailchimpAudience[]; available: boolean } {
+  let allCovered = lists.length > 0
+  const audiences = toAudiences(lists).map((audience): MailchimpAudience => {
+    const { id } = audience
+    const activity = activities.get(id) ?? []
+    const days = activity.map((item) => item.day).sort()
+    const firstDay = days[0] ?? ''
+    const lastDay = days[days.length - 1] ?? ''
+    const covered = !!firstDay && range.start >= firstDay && range.end <= lastDay
+    if (!covered) allCovered = false
+
+    const inRange = activity.filter((item) => item.day >= range.start && item.day <= range.end)
+    const subscribers = inRange.reduce((sum, item) => sum + item.subscribers, 0)
+    const unsubscribers = inRange.reduce((sum, item) => sum + item.unsubscribers, 0)
+    return {
+      ...audience,
+      subscribers,
+      unsubscribers,
+      netChange: subscribers - unsubscribers,
+    }
+  }).sort((a, b) => b.subscribers - a.subscribers || a.name.localeCompare(b.name))
+
+  return { audiences, available: allCovered }
 }
 
 /**
@@ -785,24 +879,12 @@ function benchmarkOf(rows: Record<string, unknown>[]): MailchimpBenchmark | null
 function toAudiences(rows: Record<string, unknown>[]): MailchimpAudience[] {
   return rows
     .map((row): MailchimpAudience => {
-      const stats = isRecord(row.stats) ? row.stats : {}
-      const lastSent = stats.campaign_last_sent
       return {
         id: typeof row.id === 'string' ? row.id : '',
         name: typeof row.name === 'string' ? row.name : '(unnamed)',
-        members: num(stats.member_count),
-        unsubscribes: num(stats.unsubscribe_count),
-        cleaned: num(stats.cleaned_count),
-        // Divided by a hundred, unlike everywhere else in this file. A list's
-        // rates arrive as percentages — 23.4 for 23.4% — while a campaign's
-        // arrive as fractions. Both end up as fractions here so one formatter
-        // serves the whole report.
-        openRate: num(stats.open_rate) / 100,
-        clickRate: num(stats.click_rate) / 100,
-        subsPerMonth: num(stats.avg_sub_rate),
-        unsubsPerMonth: num(stats.avg_unsub_rate),
-        lastSentAt: typeof lastSent === 'string' ? lastSent : null,
+        subscribers: 0,
+        unsubscribers: 0,
+        netChange: 0,
       }
     })
-    .sort((a, b) => b.members - a.members)
 }
