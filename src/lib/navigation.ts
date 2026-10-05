@@ -140,7 +140,7 @@ export const DASHBOARD_TABS: DashboardTab[] = [
     id: 'leads',
     label: 'Leads',
     icon: Users,
-    blurb: 'Meta and Gravity Forms leads classified by Mailchimp tags.',
+    blurb: 'Meta leads and deduplicated Gravity Forms contacts from Mailchimp and Flodesk.',
   },
   {
     id: 'email',

@@ -23,7 +23,7 @@ interface LeadsSectionProps {
   analysis: SectionAnalysisWiring
 }
 
-/** Meta and Gravity Forms leads, classified by their Mailchimp source tags. */
+/** Meta leads plus deduplicated Gravity Forms contacts from Mailchimp and Flodesk. */
 export function LeadsSection({
   report,
   loading,
@@ -131,7 +131,7 @@ export function LeadsSection({
                 label="Gravity Forms leads"
                 value={formatInteger(gravityCount?.value ?? 0)}
                 change={gravityCount?.deltaPct ?? null}
-                note="Contacts tagged Form or GFORMS_SITE"
+                note="Learn Barehand contacts from Mailchimp + Flodesk"
               />
               <Headline
                 label="Unique contacts · 0 orders"
@@ -158,7 +158,7 @@ export function LeadsSection({
               title="Lead source tags"
               icon={Megaphone}
               rows={formRows}
-              subtitle="Meta rows are actual submissions; Gravity Forms rows use Mailchimp Form/GFORMS_SITE tags. FB Lead tags mark Meta attribution in Mailchimp."
+              subtitle="Meta rows are actual submissions. Gravity Forms uses the Learn Barehand tag in Mailchimp Raww Gym Tips and Flodesk; matching emails are counted once."
             />
           )}
         </>

@@ -47,7 +47,7 @@ export function LeadsOverTime({ data, unavailable }: LeadsOverTimeProps) {
   return (
     <ChartCard
       title="Leads over time"
-      subtitle="Mailchimp contacts by source tag, dated by signup timestamp"
+      subtitle="Meta submissions and deduplicated Learn Barehand contacts from Mailchimp + Flodesk"
       height={300}
       unavailable={unavailable}
     >

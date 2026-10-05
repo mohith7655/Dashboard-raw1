@@ -15,6 +15,7 @@ import { metric } from '../../src/lib/derive'
 import { bucketStart } from '../../src/lib/revenueBreakdown'
 import { denyWithoutSession } from '../lib/auth'
 import { BadRequest, isRecord, json, num, readComparison, readRange, toErrorResponse } from '../lib/http'
+import { fetchFlodeskGravityEntries } from '../lib/flodeskLeadEntries'
 import { fetchMailchimpLeadEntries } from '../lib/mailchimpLeadEntries'
 import { fetchMetaLeadEntries, type MetaLeadEntry } from '../lib/metaLeads'
 
@@ -26,7 +27,7 @@ const EMAIL_BATCH_SIZE = 20
 const EMAIL_BATCH_CONCURRENCY = 5
 const ORDER_FACT_TTL_MS = 5 * 60 * 1000
 const ERROR_HINT =
-  'Meta and Gravity Forms leads or WooCommerce customer history could not be read. Check META_ACCESS_TOKEN, MAILCHIMP_API_KEY, MAILCHIMP_SERVER_PREFIX, and METORIK_API_KEY in the Netlify environment, then click Retry.'
+  'Meta and Gravity Forms leads or WooCommerce customer history could not be read. Check META_ACCESS_TOKEN, MAILCHIMP_API_KEY, MAILCHIMP_SERVER_PREFIX, FLODESK_API_KEY, and METORIK_API_KEY in the Netlify environment, then click Retry.'
 
 interface LeadEntry {
   id: string
@@ -64,20 +65,24 @@ export default async function handler(request: Request): Promise<Response> {
     const against = readComparison(url, range)
     const metaToken = process.env.META_ACCESS_TOKEN?.trim()
     const mailchimpKey = process.env.MAILCHIMP_API_KEY?.trim()
+    const flodeskKey = process.env.FLODESK_API_KEY?.trim()
     const metorikKey = process.env.METORIK_API_KEY?.trim()
     if (!metaToken) throw new BadRequest('META_ACCESS_TOKEN is not configured')
     if (!mailchimpKey) throw new BadRequest('MAILCHIMP_API_KEY is not configured')
+    if (!flodeskKey) throw new BadRequest('FLODESK_API_KEY is not configured')
     if (!metorikKey) throw new BadRequest('METORIK_API_KEY is not configured')
     const mailchimpPrefix = serverPrefix(mailchimpKey)
 
     const span = spanFor(range, against)
-    const [metaEntries, gravityEntries] = await Promise.all([
+    const [metaEntries, mailchimpGravityEntries, flodeskGravityEntries] = await Promise.all([
       fetchMetaLeadEntries(META_PAGE_ID, metaToken, META_TIME_ZONE, span),
       fetchMailchimpLeadEntries(mailchimpKey, mailchimpPrefix, span),
+      fetchFlodeskGravityEntries(flodeskKey, span),
     ])
     const entries: LeadEntry[] = [
       ...metaEntries.map(toMetaEntry),
-      ...gravityEntries.map((entry) => entry),
+      ...mailchimpGravityEntries,
+      ...flodeskGravityEntries,
     ]
     const inScope = entries.filter((entry) => within(entry.day, range) || (against !== null && within(entry.day, against)))
     const emails = [...new Set(inScope.map((entry) => entry.email).filter(Boolean))]
@@ -295,7 +300,12 @@ function eachDay(range: DateRange): string[] {
 
 function formsIn(rows: Row[], range: DateRange): LeadReport['campaigns'] {
   const byForm = new Map<string, Set<string>>()
-  for (const row of rows) {
+  const deduplicated = uniqueRowsByEmail(rows, true).map((row) =>
+    row.source === 'gravity'
+      ? { ...row, cells: { ...row.cells, 'form name': 'Learn Barehand (Mailchimp + Flodesk)' } }
+      : row,
+  )
+  for (const row of deduplicated) {
     if (!within(row.day, range)) continue
     const prefix = row.source === 'facebook' ? 'Meta form' : 'Gravity Forms tag'
     const form = `${prefix}: ${row.cells['form name'] || 'Unlabeled'}`
