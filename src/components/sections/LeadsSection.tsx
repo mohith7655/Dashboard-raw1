@@ -69,7 +69,17 @@ export function LeadsSection({
     uniqueLeadContactsWithZeroWooOrders: contactsWithoutOrders?.value ?? null,
     costPerMetaLead: costPerLead,
     metaSpend: meta?.spend.value ?? null,
-    report: report ?? null,
+    // The lead list is every email in the range; an analysis needs the totals,
+    // not hundreds of addresses.
+    report: report
+      ? {
+          ...report,
+          leadPurchases: {
+            facebook: { ...report.leadPurchases.facebook, contacts: [] },
+            gravity: { ...report.leadPurchases.gravity, contacts: [] },
+          },
+        }
+      : null,
   })
 
   return (

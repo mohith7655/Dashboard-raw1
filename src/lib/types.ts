@@ -961,6 +961,8 @@ export interface LeadPurchaseContact {
   email: string
   /** The day they became a lead, or were given the tag. */
   addedAt: string
+  /** The Meta campaign behind a Meta lead, where one is on record; null otherwise. */
+  campaign: string | null
   orderCount: number
   firstOrderDate: string | null
   lastOrderDate: string | null
@@ -1026,7 +1028,7 @@ export interface LeadReport {
   campaigns: LeadCampaign[]
   /**
    * Meta and Gravity Forms leads in the range matched to Woo orders, dated by
-   * each email's first lead day. `contacts` lists only those with an order.
+   * each email's first lead day. `contacts` lists every lead, buyer or not.
    */
   leadPurchases: Record<LeadSourceKey, LeadPurchaseReport>
   /** Meta leads in the range by the campaign that produced them, with their order outcomes. */

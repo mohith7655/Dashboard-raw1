@@ -114,7 +114,9 @@ export default async function handler(request: Request): Promise<Response> {
     const inRange = inScope.filter((entry) => within(entry.day, range))
     const metaLeadsInRange = firstLeadDays(inRange, 'facebook')
     const leadPurchases = {
-      facebook: purchaseReport('Meta leads', metaLeadsInRange, orderFacts),
+      facebook: purchaseReport('Meta leads', metaLeadsInRange, orderFacts, (email) =>
+        fbTagDates.leadCampaigns[email]?.name ?? null,
+      ),
       gravity: purchaseReport('Gravity Forms leads', firstLeadDays(inRange, 'gravity'), orderFacts),
     }
 
@@ -229,20 +231,22 @@ async function startBackground(origin: string, name: string): Promise<void> {
 }
 
 /**
- * Each contact's Woo history against the day they became a lead. The totals
- * cover every contact; the list keeps only those with an order, which is the
- * list the dashboard shows.
+ * Each contact's Woo history against the day they became a lead, buyers or
+ * not, so the dashboard can filter the list either way. `campaignOf` names
+ * the Meta campaign behind a contact where one is on record.
  */
 function purchaseReport(
   tag: string,
   entries: { email: string; day: string }[],
   orderFacts: Map<string, OrderFact>,
+  campaignOf: (email: string) => string | null = () => null,
 ): LeadPurchaseReport {
   const contacts: LeadPurchaseContact[] = entries.map((entry) => {
     const fact = orderFacts.get(entry.email) ?? NO_ORDERS
     return {
       email: entry.email,
       addedAt: entry.day,
+      campaign: campaignOf(entry.email),
       orderCount: fact.orderCount,
       firstOrderDate: fact.firstOrderDate || null,
       lastOrderDate: fact.lastOrderDate || null,
@@ -266,7 +270,7 @@ function purchaseReport(
     noPurchase,
     sameDayOrUnknown: Math.max(0, sameDayOrUnknown),
     conversionRate: total ? purchasedAfter / total : 0,
-    contacts: contacts.filter((contact) => contact.orderCount > 0),
+    contacts,
   }
 }
 
