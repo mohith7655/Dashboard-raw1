@@ -2,8 +2,11 @@
 import { isRecord, num } from './http'
 
 const PAGE_SIZE = 1000
-const PAGE_CONCURRENCY = 8
+// Mailchimp allows ten simultaneous connections per account, and the Mailchimp
+// function opens six of its own while the Leads tab is loading.
+const PAGE_CONCURRENCY = 4
 const TAG_CACHE_MS = 5 * 60 * 1000
+const MEMBER_FIELDS = 'members.id,members.email_address,members.timestamp_opt,members.tags,total_items'
 
 export interface MailchimpLeadEntry {
   id: string
@@ -49,7 +52,7 @@ export async function fetchMailchimpLeadEntries(
   serverPrefix: string,
   span: { start: string; end: string },
 ): Promise<MailchimpLeadCollections> {
-  const cacheKey = serverPrefix
+  const cacheKey = `${serverPrefix}:${span.start}:${span.end}`
   const cached = cache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) return inSpan(cached.value, span)
 
@@ -57,14 +60,8 @@ export async function fetchMailchimpLeadEntries(
     (list) => list.name.trim().toLowerCase() === 'raww gym tips',
   )
   const results: { gravity: MailchimpLeadEntry[]; makePush: MailchimpPushEntry[] }[] = []
-  for (let i = 0; i < lists.length; i += PAGE_CONCURRENCY) {
-    results.push(
-      ...(await Promise.all(
-        lists.slice(i, i + PAGE_CONCURRENCY).map((list) =>
-          getTaggedMembers(apiKey, serverPrefix, list.id),
-        ),
-      )),
-    )
+  for (const list of lists) {
+    results.push(await getTaggedMembers(apiKey, serverPrefix, list.id, span))
   }
 
   // Keep each tag row for form/tag attribution. Dashboard totals and the daily
@@ -97,18 +94,29 @@ async function getLists(apiKey: string, serverPrefix: string): Promise<Mailchimp
   })
 }
 
+/**
+ * Only members who opted in during the span are read. The member list returns
+ * tags as `{ id, name }` without `date_added`, so a Gravity Forms lead is
+ * already dated by its opt-in day; filtering on that server-side gives the
+ * same rows as scanning the whole audience, which ran past the function limit.
+ */
 async function getTaggedMembers(
   apiKey: string,
   serverPrefix: string,
   listId: string,
+  span: { start: string; end: string },
 ): Promise<{ gravity: MailchimpLeadEntry[]; makePush: MailchimpPushEntry[] }> {
-  const first = new URLSearchParams({
+  const pageParams = (offset: number) => new URLSearchParams({
     count: String(PAGE_SIZE),
-    offset: '0',
-    fields: 'members.id,members.email_address,members.timestamp_opt,members.tags,total_items',
+    offset: String(offset),
+    fields: MEMBER_FIELDS,
+    // Mailchimp's `since` is exclusive and timestamps are whole seconds, so
+    // starting a second early keeps an opt-in at exactly midnight.
+    since_timestamp_opt: `${shiftDay(span.start, -1)}T23:59:59+00:00`,
+    before_timestamp_opt: `${shiftDay(span.end, 1)}T00:00:00+00:00`,
   })
   const path = `/lists/${encodeURIComponent(listId)}/members`
-  const initial = await mailchimp(apiKey, serverPrefix, `${path}?${first}`)
+  const initial = await mailchimp(apiKey, serverPrefix, `${path}?${pageParams(0)}`)
   const total = Math.max(0, num(initial.total_items))
   const pages: MailchimpPage[] = [initial]
   const offsets = Array.from(
@@ -118,14 +126,9 @@ async function getTaggedMembers(
 
   for (let i = 0; i < offsets.length; i += PAGE_CONCURRENCY) {
     const pageResults = await Promise.all(
-      offsets.slice(i, i + PAGE_CONCURRENCY).map((offset) => {
-        const params = new URLSearchParams({
-          count: String(PAGE_SIZE),
-          offset: String(offset),
-          fields: 'members.id,members.email_address,members.timestamp_opt,members.tags,total_items',
-        })
-        return mailchimp(apiKey, serverPrefix, `${path}?${params}`)
-      }),
+      offsets.slice(i, i + PAGE_CONCURRENCY).map((offset) =>
+        mailchimp(apiKey, serverPrefix, `${path}?${pageParams(offset)}`),
+      ),
     )
     pages.push(...pageResults)
   }
@@ -140,15 +143,12 @@ async function getTaggedMembers(
         const label = typeof tag.name === 'string' ? tag.name : ''
         const source = leadSourceOf(label)
         if (tag.status === 'inactive') continue
-        // Prefer the tag-add date to the audience opt-in date. A contact may
-        // have joined the list before being added by a Gravity Forms signup.
         const tagDay = typeof tag.date_added === 'string' ? timestampDay(tag.date_added) : ''
         const optInDay = typeof raw.timestamp_opt === 'string' ? timestampDay(raw.timestamp_opt) : ''
         const id = typeof raw.id === 'string' ? raw.id : email
         if (source) {
-          // Existing audience members can be tagged later, so prefer the tag
-          // event and fall back to their opt-in date for older tag records.
-          const day = tagDay || optInDay
+          // Dated by opt-in, the field the request is filtered on; see above.
+          const day = optInDay
           if (!day) continue
           gravity.push({
             id,
@@ -175,6 +175,10 @@ async function getTaggedMembers(
 function isMakeFacebookLeadTag(raw: string): boolean {
   const name = raw.trim().toLowerCase().replace(/\s*-\s*/g, '-')
   return name === 'fb-lead-ads'
+}
+
+function shiftDay(day: string, days: number): string {
+  return new Date(Date.parse(`${day}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10)
 }
 
 function timestampDay(value: string): string {

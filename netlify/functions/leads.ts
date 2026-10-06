@@ -24,7 +24,8 @@ import { fetchMetaLeadEntries, type MetaLeadEntry } from '../lib/metaLeads'
 const META_PAGE_ID = process.env.META_LEAD_PAGE_ID?.trim() || '213491158815011'
 const META_TIME_ZONE = process.env.META_LEAD_TIME_ZONE?.trim() || 'America/Los_Angeles'
 const METORIK_BASE = 'https://app.metorik.com/api/v1/store'
-const EMAIL_BATCH_SIZE = 100
+// Metorik rejects an `in` filter with more than 25 values (HTTP 422).
+const EMAIL_BATCH_SIZE = 25
 const EMAIL_BATCH_CONCURRENCY = 5
 const ORDER_FACT_TTL_MS = 5 * 60 * 1000
 const ERROR_HINT =

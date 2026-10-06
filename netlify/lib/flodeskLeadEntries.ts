@@ -39,37 +39,35 @@ export async function fetchFlodeskGravityEntries(
   const first = await getSubscribers(apiKey, segment.id, 1)
   const total = isRecord(first.meta) ? Math.max(0, Number(first.meta.total_items) || 0) : 0
   const pageCount = Math.ceil(total / PAGE_SIZE)
-  const pageCache = new Map<number, FlodeskPage>([[1, first]])
-  const getPage = async (page: number): Promise<FlodeskPage> => {
-    const cachedPage = pageCache.get(page)
-    if (cachedPage) return cachedPage
-    const value = await getSubscribers(apiKey, segment.id, page)
-    pageCache.set(page, value)
-    return value
+  // Pending reads are shared so overlapping lookups never fetch a page twice;
+  // a failed read is dropped so the full scan below can try it again.
+  const pageCache = new Map<number, Promise<FlodeskPage>>([[1, Promise.resolve(first)]])
+  const getPage = (page: number): Promise<FlodeskPage> => {
+    let pending = pageCache.get(page)
+    if (!pending) {
+      pending = getSubscribers(apiKey, segment.id, page)
+      pageCache.set(page, pending)
+      pending.catch(() => pageCache.delete(page))
+    }
+    return pending
   }
 
   let fullScan = false
   if (pageCount) {
-    const last = pageCount === 1 ? first : await getPage(pageCount)
-    if (!newestFirst(first) || !newestFirst(last)) {
+    // The last page only confirms the ordering end to end, so it is read
+    // alongside the lookup rather than ahead of it.
+    const last = getPage(pageCount)
+    try {
+      if (!newestFirst(first)) throw new Error('Flodesk subscribers are not newest first.')
+      // Ranges ending recently start on page 1, which is already in hand.
+      const firstPage = oldestDay(first) <= span.end
+        ? 1
+        : await firstOverlappingPage(getPage, pageCount, span.end)
+      await readBackTo(getPage, firstPage, pageCount, span.start)
+      if (!newestFirst(await last)) throw new Error('Flodesk subscribers are not newest first.')
+    } catch {
+      // Preserve correctness if Flodesk's ordering changes during the lookup.
       fullScan = true
-    } else {
-      try {
-        const firstPage = await firstOverlappingPage(getPage, pageCount, span.end)
-        const lastPage = await lastOverlappingPage(getPage, pageCount, span.start)
-        if (firstPage <= lastPage) {
-          const pageNumbers = Array.from(
-            { length: lastPage - firstPage + 1 },
-            (_, index) => firstPage + index,
-          )
-          for (let offset = 0; offset < pageNumbers.length; offset += PAGE_CONCURRENCY) {
-            await Promise.all(pageNumbers.slice(offset, offset + PAGE_CONCURRENCY).map(getPage))
-          }
-        }
-      } catch {
-        // Preserve correctness if Flodesk's ordering changes during the lookup.
-        fullScan = true
-      }
     }
     if (fullScan) {
       for (let page = 2; page <= pageCount; page += PAGE_CONCURRENCY) {
@@ -83,7 +81,7 @@ export async function fetchFlodeskGravityEntries(
   }
 
   const rows: FlodeskLeadEntry[] = []
-  for (const response of pageCache.values()) {
+  for (const response of await Promise.all(pageCache.values())) {
     for (const row of asArray(response.data).filter(isRecord)) {
       const email = typeof row.email === 'string' ? row.email.trim().toLowerCase() : ''
       const timestamp = typeof row.created_at === 'string' ? row.created_at : ''
@@ -110,11 +108,15 @@ function pageDays(page: FlodeskPage): string[] {
 }
 
 function newestFirst(page: FlodeskPage): boolean {
-  const days = pageDays(page)
-  for (let index = 1; index < days.length; index += 1) {
-    if (!days[index - 1] || !days[index] || days[index - 1] < days[index]) return false
+  // Compare instants, not text: Flodesk trims trailing zeros from the
+  // fraction, so "…32.18Z" sorts after "…32.182Z" as a string.
+  const times = pageDays(page).map((value) => Date.parse(value))
+  for (let index = 1; index < times.length; index += 1) {
+    if (!Number.isFinite(times[index - 1]) || !Number.isFinite(times[index]) || times[index - 1] < times[index]) {
+      return false
+    }
   }
-  return days.length > 0
+  return times.length > 0 && Number.isFinite(times[0])
 }
 
 async function firstOverlappingPage(
@@ -129,7 +131,7 @@ async function firstOverlappingPage(
     const middle = Math.floor((low + high) / 2)
     const page = await getPage(middle)
     if (!newestFirst(page)) throw new Error('Flodesk subscriber ordering changed during the date lookup.')
-    const oldest = pageDays(page).at(-1)?.slice(0, 10) ?? ''
+    const oldest = oldestDay(page)
     if (oldest && oldest <= end) {
       found = middle
       high = middle - 1
@@ -140,27 +142,30 @@ async function firstOverlappingPage(
   return found
 }
 
-async function lastOverlappingPage(
+/**
+ * Read forward from `from` in parallel waves until a page reaches back past
+ * `start`; every page after that one is older than the span.
+ */
+async function readBackTo(
   getPage: (page: number) => Promise<FlodeskPage>,
+  from: number,
   pageCount: number,
   start: string,
-): Promise<number> {
-  let low = 1
-  let high = pageCount
-  let found = 0
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2)
-    const page = await getPage(middle)
-    if (!newestFirst(page)) throw new Error('Flodesk subscriber ordering changed during the date lookup.')
-    const newest = pageDays(page)[0]?.slice(0, 10) ?? ''
-    if (newest && newest >= start) {
-      found = middle
-      low = middle + 1
-    } else {
-      high = middle - 1
-    }
+): Promise<void> {
+  for (let page = from; page <= pageCount; page += PAGE_CONCURRENCY) {
+    const wave = await Promise.all(
+      Array.from(
+        { length: Math.min(PAGE_CONCURRENCY, pageCount - page + 1) },
+        (_, index) => getPage(page + index),
+      ),
+    )
+    if (!wave.every(newestFirst)) throw new Error('Flodesk subscriber ordering changed during the date lookup.')
+    if (wave.some((response) => oldestDay(response) < start)) return
   }
-  return found
+}
+
+function oldestDay(page: FlodeskPage): string {
+  return pageDays(page).at(-1)?.slice(0, 10) ?? ''
 }
 
 function inSpan(entries: FlodeskLeadEntry[], span: { start: string; end: string }): FlodeskLeadEntry[] {
