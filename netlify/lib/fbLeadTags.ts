@@ -63,6 +63,11 @@ export interface FbLeadContact {
   optInDay: string
 }
 
+export interface LeadCampaign {
+  id: string
+  name: string
+}
+
 export interface FbLeadTagDates {
   /** When the last refresh finished, or null before the first one. */
   updatedAt: string | null
@@ -77,6 +82,12 @@ export interface FbLeadTagDates {
    * stopped serving the submission.
    */
   leadDays: Record<string, string>
+  /**
+   * Email (lower case) → the Meta campaign behind that first submission,
+   * where it came from an ad. Read and kept alongside the day, since Meta
+   * forgets both after 90 days.
+   */
+  leadCampaigns: Record<string, LeadCampaign>
   /** Every contact carrying an FB lead tag at the last refresh, once per tag. */
   contacts: FbLeadContact[]
   /** Tagged contacts whose date has not been read yet. */
@@ -108,8 +119,10 @@ export function runInProgress(value: FbLeadTagDates, now = Date.now()): boolean 
 export function needsRefresh(value: FbLeadTagDates, now = Date.now()): boolean {
   if (runInProgress(value, now)) return false
   const updated = value.updatedAt ? Date.parse(value.updatedAt) : Number.NaN
-  // No contacts means a store saved before they were kept, not an empty tag.
-  return value.pending > 0 || value.contacts.length === 0 || !Number.isFinite(updated) || now - updated > STALE_MS
+  // No contacts, or lead days without campaigns, means a store saved before
+  // they were kept, not an empty tag.
+  const missingCampaigns = Object.keys(value.leadDays).length > 0 && Object.keys(value.leadCampaigns).length === 0
+  return value.pending > 0 || value.contacts.length === 0 || missingCampaigns || !Number.isFinite(updated) || now - updated > STALE_MS
 }
 
 interface TagDateStore {
@@ -125,7 +138,7 @@ interface TagDateStore {
  * Every save first folds in what is stored, so two runs that overlap add to
  * each other's progress instead of the later one overwriting the earlier.
  * `leadEntries` are the Meta submissions the caller could read, folded into
- * the stored lead days.
+ * the stored lead days and campaigns.
  */
 export async function refreshFbLeadTagDates(
   apiKey: string,
@@ -133,7 +146,7 @@ export async function refreshFbLeadTagDates(
   startedAt: string,
   deadline: number,
   store: TagDateStore,
-  leadEntries: { email: string; day: string }[],
+  leadEntries: { email: string; day: string; campaignId: string; campaign: string }[],
   log: (message: string) => void = () => {},
 ): Promise<FbLeadTagDates> {
   const began = Date.now()
@@ -145,15 +158,27 @@ export async function refreshFbLeadTagDates(
 
   const dates: Record<string, string> = {}
   const leadDays: Record<string, string> = {}
-  const addLeadDay = (email: string, day: string) => {
-    if (email && (!leadDays[email] || day < leadDays[email])) leadDays[email] = day
+  const leadCampaigns: Record<string, LeadCampaign> = {}
+  // The campaign always follows the earliest day, so the two never disagree.
+  const addLead = (email: string, day: string, campaign: LeadCampaign | undefined) => {
+    if (!email) return
+    const current = leadDays[email]
+    if (!current || day < current) {
+      leadDays[email] = day
+      if (campaign?.id) leadCampaigns[email] = campaign
+      else delete leadCampaigns[email]
+    } else if (day === current && campaign?.id && !leadCampaigns[email]) {
+      leadCampaigns[email] = campaign
+    }
   }
-  for (const entry of leadEntries) addLeadDay(entry.email, entry.day)
+  for (const entry of leadEntries) {
+    addLead(entry.email, entry.day, entry.campaignId ? { id: entry.campaignId, name: entry.campaign } : undefined)
+  }
   const absorb = (stored: FbLeadTagDates) => {
     for (const [email, day] of Object.entries(stored.dates)) {
       if (taggedSet.has(email) && !dates[email]) dates[email] = day
     }
-    for (const [email, day] of Object.entries(stored.leadDays)) addLeadDay(email, day)
+    for (const [email, day] of Object.entries(stored.leadDays)) addLead(email, day, stored.leadCampaigns[email])
   }
   absorb(await store.read())
   const pendingCount = () => tagged.filter((email) => !dates[email]).length
@@ -164,6 +189,7 @@ export async function refreshFbLeadTagDates(
       startedAt,
       dates: { ...dates },
       leadDays: { ...leadDays },
+      leadCampaigns: { ...leadCampaigns },
       contacts,
       pending: pendingCount(),
     }
@@ -337,6 +363,7 @@ function normalise(raw: unknown): FbLeadTagDates {
     startedAt: typeof record.startedAt === 'string' ? record.startedAt : null,
     dates: dayMap(record.dates),
     leadDays: dayMap(record.leadDays),
+    leadCampaigns: campaignMap(record.leadCampaigns),
     contacts: asArray(record.contacts).filter(isRecord).flatMap((row): FbLeadContact[] => {
       const text = (value: unknown) => (typeof value === 'string' ? value : '')
       const email = text(row.email)
@@ -355,4 +382,15 @@ function dayMap(raw: unknown): Record<string, string> {
     if (typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day)) days[email] = day
   }
   return days
+}
+
+function campaignMap(raw: unknown): Record<string, LeadCampaign> {
+  const campaigns: Record<string, LeadCampaign> = {}
+  if (!isRecord(raw)) return campaigns
+  for (const [email, value] of Object.entries(raw)) {
+    if (isRecord(value) && typeof value.id === 'string' && value.id) {
+      campaigns[email] = { id: value.id, name: typeof value.name === 'string' ? value.name : value.id }
+    }
+  }
+  return campaigns
 }

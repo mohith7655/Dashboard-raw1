@@ -994,6 +994,23 @@ export interface LeadOrderHistory {
   updatedAt: string | null
 }
 
+/**
+ * One Meta campaign over the selected dates: what Meta reports for it, and
+ * what the instant-form leads it brought into Mailchimp went on to buy.
+ */
+export interface LeadCampaignOutcome {
+  campaign: string
+  /** Null where Meta could not be read, or for leads with no campaign on record. */
+  spend: number | null
+  /** Leads Meta counts for the campaign, instant forms and website (pixel) leads together. */
+  metaLeads: number | null
+  /** Meta leads in Mailchimp tied to the campaign by their recorded Meta submission. */
+  formLeads: number
+  noOrders: number
+  boughtBefore: number
+  boughtAfter: number
+}
+
 export interface LeadReport {
   sources: Record<LeadSourceKey, LeadSourceStats>
   /** Meta and Gravity Forms contacts in the period with zero Woo orders. */
@@ -1012,6 +1029,8 @@ export interface LeadReport {
    * each email's first lead day. `contacts` lists only those with an order.
    */
   leadPurchases: Record<LeadSourceKey, LeadPurchaseReport>
+  /** Meta leads in the range by the campaign that produced them, with their order outcomes. */
+  metaCampaigns: LeadCampaignOutcome[]
   /** How much of the WooCommerce order history the order matching above could see. */
   orderHistory: LeadOrderHistory
   /**

@@ -1,4 +1,5 @@
 /** Helpers for Meta Ads and instant-form lead retrieval. */
+import type { DateRange } from '../../src/lib/types'
 import { asArray, isRecord, num } from './http'
 
 const GRAPH_VERSION = 'v21.0'
@@ -14,6 +15,9 @@ export interface MetaLeadEntry {
   day: string
   email: string
   form: string
+  /** The campaign whose ad the form was submitted from; '' for organic submissions. */
+  campaignId: string
+  campaign: string
 }
 
 /**
@@ -56,7 +60,7 @@ export async function fetchMetaLeadEntries(
       if (!id) return []
 
       const params = new URLSearchParams({
-        fields: 'id,created_time,field_data',
+        fields: 'id,created_time,field_data,campaign_id,campaign_name',
         limit: '1000',
         access_token: pageToken,
         // Bound Meta's server-side scan to the selected days (plus a UTC-day
@@ -83,7 +87,14 @@ export async function fetchMetaLeadEntries(
           .find((field) => String(field.name ?? '').toLowerCase().includes('email'))
         const values = asArray(emailField?.values)
         const email = (typeof values[0] === 'string' ? values[0] : '').trim().toLowerCase()
-        return [{ id: entryId, day, email, form: name }]
+        return [{
+          id: entryId,
+          day,
+          email,
+          form: name,
+          campaignId: String(entry.campaign_id ?? ''),
+          campaign: typeof entry.campaign_name === 'string' ? entry.campaign_name : '',
+        }]
       })
     }),
   )
@@ -94,6 +105,49 @@ export async function fetchMetaLeadEntries(
     seen.add(entry.id)
     return true
   })
+}
+
+/** One campaign's spend and the leads Meta reports for it over a range. */
+export interface CampaignLeadInsight {
+  name: string
+  spend: number
+  /** Instant-form and website (pixel) leads together, as Meta counts them. */
+  leads: number
+}
+
+/**
+ * Lead action types, aggregate first. `lead` already sums instant forms and
+ * pixel leads, so the first type present is used and the rest are ignored.
+ */
+const LEAD_ACTIONS = ['lead', 'onsite_conversion.lead_grouped', 'offsite_conversion.fb_pixel_lead']
+
+/** Every campaign that spent or delivered in the range, by campaign id. */
+export async function fetchCampaignLeadInsights(
+  accountId: string,
+  token: string,
+  range: DateRange,
+): Promise<Map<string, CampaignLeadInsight>> {
+  const params = new URLSearchParams({
+    fields: 'campaign_id,campaign_name,spend,actions',
+    time_range: JSON.stringify({ since: range.start, until: range.end }),
+    level: 'campaign',
+    limit: '500',
+    access_token: token,
+  })
+  const rows = await fetchAllPages(`https://graph.facebook.com/${GRAPH_VERSION}/${accountId}/insights?${params}`)
+  const campaigns = new Map<string, CampaignLeadInsight>()
+  for (const row of rows) {
+    const id = String(row.campaign_id ?? '')
+    if (!id) continue
+    const actions = asArray(row.actions).filter(isRecord)
+    const type = LEAD_ACTIONS.find((candidate) => actions.some((action) => action.action_type === candidate))
+    campaigns.set(id, {
+      name: typeof row.campaign_name === 'string' ? row.campaign_name : id,
+      spend: num(row.spend),
+      leads: actions.filter((action) => action.action_type === type).reduce((sum, action) => sum + num(action.value), 0),
+    })
+  }
+  return campaigns
 }
 
 function rangeFloor(day: string): number {

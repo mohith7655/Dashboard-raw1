@@ -12,6 +12,7 @@ import {
 import type { StatRowData } from '../StatRows'
 import { Skeleton } from '../Skeleton'
 import { LeadsOverTime } from '../charts/LeadsOverTime'
+import { LeadCampaigns } from './LeadCampaigns'
 import { LeadPurchases } from './LeadPurchases'
 
 interface LeadsSectionProps {
@@ -175,6 +176,7 @@ export function LeadsSection({
               subtitle="Contacts carrying each tag in Mailchimp Raww Gym Tips, each counted once. Meta tags are dated by the lead's entry date, Gravity Forms by opt-in."
             />
           )}
+          {report && <LeadCampaigns rows={report.metaCampaigns} />}
           {report && <LeadPurchases reports={report.leadPurchases} />}
         </>
       )}

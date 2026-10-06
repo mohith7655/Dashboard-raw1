@@ -11,6 +11,7 @@ import type {
   DateRange,
   LeadDayPoint,
   LeadPurchaseContact,
+  LeadCampaignOutcome,
   LeadPurchaseReport,
   LeadReport,
   LeadSourceKey,
@@ -21,6 +22,7 @@ import { metric } from '../../src/lib/derive'
 import { bucketStart } from '../../src/lib/revenueBreakdown'
 import { denyWithoutSession, serviceHeaders } from '../lib/auth'
 import { BadRequest, json, readComparison, readRange, toErrorResponse } from '../lib/http'
+import { fetchCampaignLeadInsights, normaliseAccountId, type CampaignLeadInsight } from '../lib/metaLeads'
 import {
   isFbLeadAdsTag,
   needsRefresh,
@@ -74,10 +76,12 @@ export default async function handler(request: Request): Promise<Response> {
     const mailchimpPrefix = serverPrefix(mailchimpKey)
 
     const span = spanFor(range, against)
-    const [mailchimpEntries, fbTagDates, orderHistory] = await Promise.all([
+    const metaToken = process.env.META_ACCESS_TOKEN?.trim()
+    const metaAccount = process.env.META_AD_ACCOUNT_ID?.trim()
+    const [mailchimpEntries, fbTagDates, orderHistory, campaignInsights] = await Promise.all([
       fetchMailchimpLeadEntries(mailchimpKey, mailchimpPrefix, span),
       // The tag dates are an annotation; without Blobs the rest still loads.
-      readFbLeadTagDates().catch((): FbLeadTagDates => ({ updatedAt: null, startedAt: null, dates: {}, leadDays: {}, contacts: [], pending: 0 })),
+      readFbLeadTagDates().catch((): FbLeadTagDates => ({ updatedAt: null, startedAt: null, dates: {}, leadDays: {}, leadCampaigns: {}, contacts: [], pending: 0 })),
       // Without Blobs the leads still load, marked as having no order history yet.
       readWooOrderHistory().catch((err): WooOrderHistory => {
         console.error('[leads] order history unreadable:', err instanceof Error ? err.message : err)
@@ -89,6 +93,13 @@ export default async function handler(request: Request): Promise<Response> {
           run: { startedAt: null, savedAt: null, finishedAt: null },
         }
       }),
+      // Spend and Meta's own lead counts only annotate the campaign table.
+      metaToken && metaAccount
+        ? fetchCampaignLeadInsights(normaliseAccountId(metaAccount), metaToken, range).catch((err) => {
+            console.error('[leads] Meta campaign insights unavailable:', err instanceof Error ? err.message : err)
+            return null
+          })
+        : null,
     ])
     const refreshing = Promise.all([
       needsRefresh(fbTagDates) ? startBackground(url.origin, 'fb-lead-tags-background') : undefined,
@@ -101,8 +112,9 @@ export default async function handler(request: Request): Promise<Response> {
     ]
     const inScope = entries.filter((entry) => within(entry.day, range) || (against !== null && within(entry.day, against)))
     const inRange = inScope.filter((entry) => within(entry.day, range))
+    const metaLeadsInRange = firstLeadDays(inRange, 'facebook')
     const leadPurchases = {
-      facebook: purchaseReport('Meta leads', firstLeadDays(inRange, 'facebook'), orderFacts),
+      facebook: purchaseReport('Meta leads', metaLeadsInRange, orderFacts),
       gravity: purchaseReport('Gravity Forms leads', firstLeadDays(inRange, 'gravity'), orderFacts),
     }
 
@@ -135,6 +147,7 @@ export default async function handler(request: Request): Promise<Response> {
       },
       campaigns: formsIn(leadRows, range),
       leadPurchases,
+      metaCampaigns: campaignOutcomes(metaLeadsInRange, fbTagDates.leadCampaigns, campaignInsights, orderFacts),
       orderHistory: {
         ready: orderHistory.ready,
         progress: orderHistory.progress,
@@ -255,6 +268,52 @@ function purchaseReport(
     conversionRate: total ? purchasedAfter / total : 0,
     contacts: contacts.filter((contact) => contact.orderCount > 0),
   }
+}
+
+/**
+ * Each Meta campaign's leads in the range: what Meta reports for it, and what
+ * the Meta leads it brought into Mailchimp went on to buy. A lead is tied to
+ * a campaign by the Meta submission recorded for its email; one with none on
+ * record (organic, or submitted before Meta's 90 days were first read) is
+ * kept in its own row rather than dropped. Campaigns that spent without
+ * bringing a lead are listed too, since that is half the answer.
+ */
+function campaignOutcomes(
+  leads: { email: string; day: string }[],
+  campaignsByEmail: FbLeadTagDates['leadCampaigns'],
+  insights: Map<string, CampaignLeadInsight> | null,
+  orderFacts: Map<string, OrderFact>,
+): LeadCampaignOutcome[] {
+  const groups = new Map<string, { name: string; leads: { email: string; day: string }[] }>()
+  for (const lead of leads) {
+    const campaign = campaignsByEmail[lead.email]
+    const id = campaign?.id ?? ''
+    const group = groups.get(id) ?? { name: campaign?.name || 'No campaign on record', leads: [] }
+    group.leads.push(lead)
+    groups.set(id, group)
+  }
+  for (const [id, insight] of insights ?? []) {
+    if (!groups.has(id) && (insight.spend > 0 || insight.leads > 0)) groups.set(id, { name: insight.name, leads: [] })
+  }
+
+  return [...groups]
+    .map(([id, group]): LeadCampaignOutcome => {
+      const outcome = purchaseReport(group.name, group.leads, orderFacts)
+      const insight = id ? insights?.get(id) : undefined
+      const known = id !== '' && insights !== null
+      return {
+        campaign: insight?.name ?? group.name,
+        spend: known ? insight?.spend ?? 0 : null,
+        metaLeads: known ? insight?.leads ?? 0 : null,
+        formLeads: outcome.total,
+        noOrders: outcome.noPurchase,
+        boughtBefore: outcome.previouslyPurchased,
+        boughtAfter: outcome.purchasedAfter,
+      }
+    })
+    .sort((a, b) =>
+      b.formLeads - a.formLeads || (b.metaLeads ?? 0) - (a.metaLeads ?? 0) || (b.spend ?? 0) - (a.spend ?? 0),
+    )
 }
 
 function toContactRow(entry: LeadEntry): Row {
