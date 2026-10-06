@@ -79,14 +79,14 @@ interface ColumnSpec {
  */
 const COLUMNS: ColumnSpec[] = [
   { key: 'visitors', header: 'Visitors', count: true },
-  { key: 'metaLeads', header: 'Meta leads', count: true },
   { key: 'gravityLeads', header: 'Gravity leads', count: true },
+  { key: 'metaLeads', header: 'Meta leads', count: true },
   { key: 'contacts', header: 'Leads · 0 orders', count: true },
   { key: 'orders', header: 'Orders', count: true },
   { key: 'totalSales', header: 'Total Sales', lead: true },
   { key: 'refunds', header: 'Refunds', negative: true },
-  { key: 'metaLeadRate', header: 'Meta lead %', rate: true },
   { key: 'gravityLeadRate', header: 'Gravity lead %', rate: true },
+  { key: 'metaLeadRate', header: 'Meta lead %', rate: true },
   { key: 'conversion', header: 'Conversion', rate: true, divide: true },
   { key: 'grossSales', header: 'Gross Sales' },
   { key: 'discounts', header: 'Discounts', negative: true },
@@ -298,8 +298,8 @@ export function RevenueBreakdownCard({
             </table>
           </div>
           <p className="px-5 pb-5 pt-3 text-[12px] text-muted">
-            Meta leads are Make.com&rsquo;s FB lead contacts in Mailchimp; Gravity leads are the
-            form entries Make.com logs. Each lead % is that source&rsquo;s leads ÷ visitors, and
+            Gravity leads are the form entries Make.com logs; Meta leads are Make.com&rsquo;s FB
+            lead contacts in Mailchimp. Each lead % is that source&rsquo;s leads ÷ visitors, and
             Conversion is orders ÷ visitors. Leads · 0 orders counts both sources once by email,
             leaving out anyone with a WooCommerce order.
           </p>
