@@ -1,19 +1,19 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import type {
   BreakdownGrain,
   LeadDayPoint,
+  LeadPurchaseReport,
   LeadSourceKey,
   RevenueBreakdownRow,
   RevenueBreakdownViewRow,
   SortDirection,
   TrafficPoint,
-  UniqueContactPoint,
 } from '../../lib/types'
 import { BREAKDOWN_GRAINS } from '../../lib/types'
 import {
   bucketLabel,
-  bucketContacts,
+  bucketLeadOrders,
   bucketLeads,
   bucketRows,
   bucketVisitors,
@@ -23,6 +23,7 @@ import {
 import { formatCurrency, formatInteger, formatPercent } from '../../lib/format'
 import { Skeleton } from '../Skeleton'
 import { useColumnOrder } from '../../hooks/useColumnOrder'
+import { ColumnSettings } from '../ColumnSettings'
 
 interface RevenueBreakdownCardProps {
   rows: RevenueBreakdownRow[]
@@ -30,10 +31,8 @@ interface RevenueBreakdownCardProps {
   traffic: TrafficPoint[]
   /** Daily Meta leads and Gravity Forms entries, by source. */
   leads?: LeadDayPoint[]
-  /** Meta and Gravity Forms contacts with zero WooCommerce orders, deduplicated by email per bucket. */
-  uniqueContacts?: Record<BreakdownGrain, UniqueContactPoint[]>
-  /** Whole-period contacts with zero orders for the totals row. */
-  uniqueContactTotal?: number
+  /** Source matched leads and later Woo purchases, grouped by lead date. */
+  leadPurchases?: Record<LeadSourceKey, LeadPurchaseReport>
   /**
    * False when no analytics provider is connected. Distinct from an empty
    * series: the first means the conversion column cannot be known, the second
@@ -85,9 +84,10 @@ const COLUMNS: ColumnSpec[] = [
   { key: 'conversion', header: 'Conversion', rate: true, divide: true },
   { key: 'gravityLeads', header: 'Gravity leads', count: true },
   { key: 'gravityLeadRate', header: 'Gravity lead %', rate: true },
+  { key: 'gravityLeadOrderRate', header: 'Gravity lead order %', rate: true },
   { key: 'metaLeads', header: 'Meta leads', count: true },
   { key: 'metaLeadRate', header: 'Meta lead %', rate: true },
-  { key: 'contacts', header: 'Leads · 0 orders', count: true },
+  { key: 'metaLeadOrderRate', header: 'Meta lead order %', rate: true },
   { key: 'refunds', header: 'Refunds', negative: true },
   { key: 'grossSales', header: 'Gross Sales' },
   { key: 'discounts', header: 'Discounts', negative: true },
@@ -110,8 +110,7 @@ export function RevenueBreakdownCard({
   rows,
   traffic,
   leads,
-  uniqueContacts,
-  uniqueContactTotal,
+  leadPurchases,
   trafficAvailable,
   loading,
   unavailable,
@@ -120,7 +119,6 @@ export function RevenueBreakdownCard({
   const [sort, setSort] = useState<SortField>('date')
   const [direction, setDirection] = useState<SortDirection>('asc')
   const { order, moveColumn } = useColumnOrder(COLUMNS.map((column) => column.key), 'dashboard-table:Revenue Breakdown')
-  const [dragging, setDragging] = useState<string | null>(null)
   const orderedColumns = useMemo(() => {
     const byKey = new Map<string, ColumnSpec>(COLUMNS.map((column) => [column.key, column]))
     return order.map((key) => byKey.get(key)).filter((column): column is ColumnSpec => !!column)
@@ -139,9 +137,9 @@ export function RevenueBreakdownCard({
       bucketVisitors(traffic, grain),
       trafficAvailable,
       leads ? bucketLeads(leads, grain) : undefined,
-      uniqueContacts ? bucketContacts(uniqueContacts[grain]) : undefined,
+      leadPurchases ? bucketLeadOrders(leadPurchases, grain) : undefined,
     )
-  }, [rows, traffic, leads, uniqueContacts, trafficAvailable, grain])
+  }, [rows, traffic, leads, leadPurchases, trafficAvailable, grain])
 
   const sorted = useMemo(() => {
     const copy = [...grouped]
@@ -185,12 +183,13 @@ export function RevenueBreakdownCard({
       visitors,
       metaLeads,
       gravityLeads,
-      contacts: uniqueContactTotal ?? null,
       conversion: per(money.orders),
       metaLeadRate: per(metaLeads),
       gravityLeadRate: per(gravityLeads),
+      metaLeadOrderRate: leadPurchases?.facebook.conversionRate ?? null,
+      gravityLeadOrderRate: leadPurchases?.gravity.conversionRate ?? null,
     }
-  }, [rows, traffic, leads, uniqueContactTotal, trafficAvailable])
+  }, [rows, traffic, leads, leadPurchases, trafficAvailable])
   // The period's own bounds, so a partial week or month at either edge is
   // labelled with the days it holds rather than the days its calendar has.
   const firstDate = rows.length ? rows[0].date : ''
@@ -214,20 +213,27 @@ export function RevenueBreakdownCard({
           <h3 className="text-[15px] font-semibold text-ink">Revenue Breakdown</h3>
         </div>
 
-        <label className="flex items-center gap-2">
-          <span className="sr-only">Group by</span>
-          <select
-            value={grain}
-            onChange={(event) => setGrain(event.target.value as BreakdownGrain)}
-            className="h-8 rounded-md border border-btn-border bg-btn px-2 text-[13px] text-ink outline-none transition-colors focus:border-[#3d3d44]"
-          >
-            {BREAKDOWN_GRAINS.map((id) => (
-              <option key={id} value={id}>
-                {GRAIN_LABELS[id]}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2">
+            <span className="sr-only">Group by</span>
+            <select
+              value={grain}
+              onChange={(event) => setGrain(event.target.value as BreakdownGrain)}
+              className="h-8 rounded-md border border-btn-border bg-btn px-2 text-[13px] text-ink outline-none transition-colors focus:border-[#3d3d44]"
+            >
+              {BREAKDOWN_GRAINS.map((id) => (
+                <option key={id} value={id}>
+                  {GRAIN_LABELS[id]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <ColumnSettings
+            columns={COLUMNS.map(({ key, header }) => ({ key, label: header }))}
+            order={order}
+            onMove={moveColumn}
+          />
+        </div>
       </div>
 
       {loading ? (
@@ -268,20 +274,6 @@ export function RevenueBreakdownCard({
                     className={`${column.divide ? 'border-r border-row-line' : ''} ${
                       index === orderedColumns.length - 1 ? 'pr-5' : ''
                     }`}
-                    draggable
-                    dragging={dragging === column.key}
-                    onDragStart={(event) => {
-                      setDragging(column.key)
-                      event.dataTransfer.effectAllowed = 'move'
-                      event.dataTransfer.setData('text/plain', column.key)
-                    }}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => {
-                      event.preventDefault()
-                      moveColumn(event.dataTransfer.getData('text/plain') || dragging || '', column.key)
-                      setDragging(null)
-                    }}
-                    onDragEnd={() => setDragging(null)}
                   />
                 ))}
               </tr>
@@ -316,10 +308,9 @@ export function RevenueBreakdownCard({
             </table>
           </div>
           <p className="px-5 pb-5 pt-3 text-[12px] text-muted">
-            Gravity leads are Gravity Forms entries (Learn Barehand, then the Barehand popup); Meta
-            leads are Make.com&rsquo;s FB lead contacts in Mailchimp. Each lead % is that source&rsquo;s leads ÷ visitors, and
-            Conversion is orders ÷ visitors. Leads · 0 orders counts both sources once by email,
-            leaving out anyone with a WooCommerce order.
+            Lead % is source leads divided by visitors. Lead order % is the share of source leads
+            that later placed a WooCommerce order, matched by email and grouped by lead date.
+            Conversion is orders divided by visitors.
           </p>
         </>
       )}
@@ -396,12 +387,6 @@ function SortableTh({
   onSort,
   align = 'left',
   className = '',
-  draggable = false,
-  dragging = false,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDragEnd,
 }: {
   label: string
   field: SortField
@@ -410,24 +395,13 @@ function SortableTh({
   onSort: (field: SortField) => void
   align?: 'left' | 'right'
   className?: string
-  draggable?: boolean
-  dragging?: boolean
-  onDragStart?: (event: React.DragEvent<HTMLTableCellElement>) => void
-  onDragOver?: (event: React.DragEvent<HTMLTableCellElement>) => void
-  onDrop?: (event: React.DragEvent<HTMLTableCellElement>) => void
-  onDragEnd?: () => void
 }) {
   const active = field === sort
 
   return (
     <th
       scope="col"
-      draggable={draggable}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-      onDragEnd={onDragEnd}
-      className={`px-3 py-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-label ${draggable ? 'cursor-grab' : ''} ${dragging ? 'opacity-40' : ''} ${
+      className={`px-3 py-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-label ${
         align === 'right' ? 'text-right' : 'text-left'
       } ${className}`}
     >
@@ -439,7 +413,6 @@ function SortableTh({
           active ? 'text-ink' : ''
         } ${align === 'right' ? 'flex-row-reverse' : ''}`}
       >
-        {draggable && <GripVertical size={12} className="opacity-40" aria-hidden="true" />}
         {label}
         {/* The inactive arrow is held at low opacity rather than hidden, so the
             header row does not reflow the moment a column is sorted. */}

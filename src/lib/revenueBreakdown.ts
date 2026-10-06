@@ -9,6 +9,7 @@ import type {
   BreakdownGrain,
   LeadDayPoint,
   LeadSourceKey,
+  LeadPurchaseReport,
   RevenueBreakdownRow,
   RevenueBreakdownViewRow,
   TrafficPoint,
@@ -154,6 +155,27 @@ export function bucketContacts(
   return byBucket
 }
 
+/** Lead cohort purchases, counted against the day each contact became a lead. */
+export function bucketLeadOrders(
+  reports: Record<LeadSourceKey, LeadPurchaseReport>,
+  grain: BreakdownGrain,
+): Map<string, Record<LeadSourceKey, { leads: number; orders: number }>> {
+  const byBucket = new Map<string, Record<LeadSourceKey, { leads: number; orders: number }>>()
+  for (const source of ['facebook', 'gravity'] as const) {
+    for (const contact of reports[source].contacts) {
+      const date = bucketStart(contact.addedAt, grain)
+      const bucket = byBucket.get(date) ?? {
+        facebook: { leads: 0, orders: 0 },
+        gravity: { leads: 0, orders: 0 },
+      }
+      bucket[source].leads += 1
+      if (contact.purchasedAfter) bucket[source].orders += 1
+      byBucket.set(date, bucket)
+    }
+  }
+  return byBucket
+}
+
 /**
  * The statement joined to the traffic, with conversion struck per bucket.
  *
@@ -171,7 +193,7 @@ export function withTraffic(
   visitorsByBucket: Map<string, number>,
   available: boolean,
   leadsByBucket?: Map<string, Record<LeadSourceKey, number>>,
-  contactsByBucket?: Map<string, number>,
+  leadOrdersByBucket?: Map<string, Record<LeadSourceKey, { leads: number; orders: number }>>,
 ): RevenueBreakdownViewRow[] {
   return rows.map((row) => {
     const visitors = available ? (visitorsByBucket.get(row.date) ?? null) : null
@@ -179,7 +201,7 @@ export function withTraffic(
     // same as a bucket it holds no rows for — the first is unknown everywhere,
     // the second is a genuine nought on a day the automation did report.
     const leads = leadsByBucket ? (leadsByBucket.get(row.date) ?? { facebook: 0, gravity: 0 }) : null
-    const contacts = contactsByBucket ? (contactsByBucket.get(row.date) ?? 0) : null
+    const leadOrders = leadOrdersByBucket?.get(row.date)
 
     // Both rates guard the empty denominator as well as the missing one: a day
     // the provider reported zero visitors for divides into an infinite rate,
@@ -192,10 +214,11 @@ export function withTraffic(
       visitors,
       metaLeads: leads?.facebook ?? null,
       gravityLeads: leads?.gravity ?? null,
-      contacts,
       conversion: per(row.orders),
       metaLeadRate: per(leads?.facebook ?? null),
       gravityLeadRate: per(leads?.gravity ?? null),
+      metaLeadOrderRate: leadOrders?.facebook.leads ? leadOrders.facebook.orders / leadOrders.facebook.leads : null,
+      gravityLeadOrderRate: leadOrders?.gravity.leads ? leadOrders.gravity.orders / leadOrders.gravity.leads : null,
     }
   })
 }

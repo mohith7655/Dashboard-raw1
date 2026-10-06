@@ -790,8 +790,7 @@ export default function App() {
               // flight or has failed, so the lead columns show a dash rather
               // than claiming nobody signed up.
               leads={leadData.data?.series}
-              uniqueContacts={leadData.data?.uniqueContactBuckets}
-              uniqueContactTotal={leadData.data?.uniqueContacts.count.value}
+              leadPurchases={leadData.data?.leadPurchases}
               trafficAvailable={!traffic.error && (traffic.data?.available ?? false)}
               loading={woo.isLoading}
               unavailable={woo.error ? 'Revenue breakdown unavailable' : undefined}

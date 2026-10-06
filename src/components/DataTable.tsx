@@ -1,9 +1,10 @@
-import { useMemo, useState, type ReactNode } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, GripVertical } from 'lucide-react'
+import { useMemo, type ReactNode } from 'react'
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from 'lucide-react'
 import type { SortDirection } from '../lib/types'
 import { formatInteger } from '../lib/format'
 import { Skeleton } from './Skeleton'
 import { useColumnOrder } from '../hooks/useColumnOrder'
+import { ColumnSettings } from './ColumnSettings'
 
 export interface Column<Row> {
   /** Stable key, also used as the sort field when `sortable` is set. */
@@ -70,7 +71,6 @@ export function DataTable<Row>({
     const byKey = new Map(columns.map((column) => [column.key, column]))
     return order.map((key) => byKey.get(key)).filter((column): column is Column<Row> => !!column)
   }, [columns, order])
-  const [dragging, setDragging] = useState<string | null>(null)
   const pageCount = Math.max(1, Math.ceil(total / perPage))
   const firstRow = total === 0 ? 0 : (page - 1) * perPage + 1
   const lastRow = Math.min(page * perPage, total)
@@ -84,7 +84,14 @@ export function DataTable<Row>({
             {loading ? 'Loading…' : subtitle}
           </p>
         </div>
-        {toolbar && <div className="flex items-center gap-2">{toolbar}</div>}
+        <div className="flex items-center gap-2">
+          {toolbar}
+          <ColumnSettings
+            columns={columns.map(({ key, header }) => ({ key, label: header }))}
+            order={order}
+            onMove={moveColumn}
+          />
+        </div>
       </div>
 
       {unavailable ? (
@@ -110,20 +117,6 @@ export function DataTable<Row>({
                       active={sort === col.key}
                       direction={direction}
                       onClick={() => onSortChange?.(col.key)}
-                      draggable
-                      onDragStart={(event) => {
-                        setDragging(col.key)
-                        event.dataTransfer.effectAllowed = 'move'
-                        event.dataTransfer.setData('text/plain', col.key)
-                      }}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault()
-                        moveColumn(event.dataTransfer.getData('text/plain') || dragging || '', col.key)
-                        setDragging(null)
-                      }}
-                      onDragEnd={() => setDragging(null)}
-                      dragging={dragging === col.key}
                     >
                       {col.header}
                     </Th>
@@ -223,12 +216,6 @@ function Th({
   active,
   direction,
   onClick,
-  draggable,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDragEnd,
-  dragging,
 }: {
   children: ReactNode
   align?: 'left' | 'right'
@@ -237,21 +224,10 @@ function Th({
   active?: boolean
   direction?: SortDirection
   onClick?: () => void
-  draggable?: boolean
-  onDragStart?: (event: React.DragEvent<HTMLTableCellElement>) => void
-  onDragOver?: (event: React.DragEvent<HTMLTableCellElement>) => void
-  onDrop?: (event: React.DragEvent<HTMLTableCellElement>) => void
-  onDragEnd?: () => void
-  dragging?: boolean
 }) {
   return (
     <th
       scope="col"
-      draggable={draggable}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-      onDragEnd={onDragEnd}
       aria-sort={
         sortable
           ? active
@@ -261,7 +237,7 @@ function Th({
             : 'none'
           : undefined
       }
-      className={`px-3 py-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-label ${draggable ? 'cursor-grab' : ''} ${dragging ? 'opacity-40' : ''} ${
+      className={`px-3 py-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-label ${
         align === 'right' ? 'text-right' : 'text-left'
       } ${className}`}
     >
@@ -273,7 +249,7 @@ function Th({
             align === 'right' ? 'flex-row-reverse' : ''
           } ${active ? 'text-ink' : ''}`}
         >
-        {draggable && <GripVertical size={12} className="mr-1 inline-block opacity-40" aria-hidden="true" />}{children}
+          {children}
           {active && direction === 'asc' ? (
             <ChevronUp size={12} />
           ) : (
@@ -281,7 +257,7 @@ function Th({
           )}
         </button>
       ) : (
-        <>{draggable && <GripVertical size={12} className="mr-1 inline-block opacity-40" aria-hidden="true" />}{children}</>
+        children
       )}
     </th>
   )

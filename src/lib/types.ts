@@ -147,11 +147,6 @@ export interface RevenueBreakdownViewRow extends RevenueBreakdownRow {
   /** Gravity Forms entries in this bucket. */
   gravityLeads: number | null
   /**
-   * Meta and Gravity Forms contacts whose email has no WooCommerce order,
-   * counted once.
-   */
-  contacts: number | null
-  /**
    * Each source's leads ÷ visitors for this bucket, as a ratio in 0..1.
    *
    * The step conversion misses: a visitor who leaves without buying has not
@@ -160,6 +155,9 @@ export interface RevenueBreakdownViewRow extends RevenueBreakdownRow {
    */
   metaLeadRate: number | null
   gravityLeadRate: number | null
+  /** Share of each source's leads that went on to buy, by lead date. */
+  metaLeadOrderRate: number | null
+  gravityLeadOrderRate: number | null
   /**
    * Orders ÷ visitors for this bucket, as a ratio in 0..1.
    *
