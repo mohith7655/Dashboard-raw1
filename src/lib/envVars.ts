@@ -62,11 +62,13 @@ export const ENV_VARS: EnvVarSpec[] = [
 
   /* ---------------------------- WooCommerce ---------------------------- */
   /*
-   * Read directly from the store for one thing Metorik cannot answer: which
-   * coupon took which money. A discount plugin can apply the money on a line
-   * that is not a WooCommerce coupon at all, and only the order carries both.
-   * All three are optional together — without them the coupon card falls back
-   * to Metorik's own figures.
+   * Read directly from the store for two things Metorik is not used for:
+   * which coupon took which money — a discount plugin can apply the money on a
+   * line that is not a WooCommerce coupon at all, and only the order carries
+   * both — and which lead emails have ever ordered, from an index of every
+   * paid order that a background function keeps in Netlify Blobs. Without all
+   * three, the coupon card falls back to Metorik's own figures and the Leads
+   * tab does not load.
    */
   {
     name: 'WOO_STORE_URL',
@@ -75,7 +77,7 @@ export const ENV_VARS: EnvVarSpec[] = [
     scope: 'functions',
     description:
       'Store origin, e.g. https://example.com. Must be https — the API keys travel as basic auth.',
-    powers: ['Coupon usage'],
+    powers: ['Coupon usage', 'Leads'],
     where: 'The storefront address itself',
   },
   {
@@ -84,7 +86,7 @@ export const ENV_VARS: EnvVarSpec[] = [
     required: false,
     scope: 'functions',
     description: 'REST API consumer key, `ck_…`. Read permission is enough.',
-    powers: ['Coupon usage'],
+    powers: ['Coupon usage', 'Leads'],
     where: 'WooCommerce → Settings → Advanced → REST API → Add key (Read)',
   },
   {
@@ -93,7 +95,7 @@ export const ENV_VARS: EnvVarSpec[] = [
     required: false,
     scope: 'functions',
     description: 'REST API consumer secret, `cs_…`, issued with the key above.',
-    powers: ['Coupon usage'],
+    powers: ['Coupon usage', 'Leads'],
     where: 'WooCommerce → Settings → Advanced → REST API → Add key (Read)',
   },
 

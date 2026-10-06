@@ -3,6 +3,11 @@ import { asArray, isRecord, num } from './http'
 
 const GRAPH_VERSION = 'v21.0'
 
+/** The Facebook page whose instant forms are the Meta lead source. */
+export const META_LEAD_PAGE_ID = process.env.META_LEAD_PAGE_ID?.trim() || '213491158815011'
+/** Submissions are counted on the page's own reporting day. */
+export const META_LEAD_TIME_ZONE = process.env.META_LEAD_TIME_ZONE?.trim() || 'America/Los_Angeles'
+
 /** One entry actually submitted through a Meta instant form. */
 export interface MetaLeadEntry {
   id: string

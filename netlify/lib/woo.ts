@@ -19,7 +19,7 @@ import type { CouponType } from '../../src/lib/data/types'
 import { isRecord, num } from './http'
 
 /** Orders that took money, matching the statuses the statement banks. */
-const PAID_STATUSES = 'completed,processing,refunded'
+export const PAID_STATUSES = 'completed,processing,refunded'
 
 const PAGE_SIZE = 100
 /** Safety valve, as on the Metorik sweep: 4,000 orders is a very long range. */

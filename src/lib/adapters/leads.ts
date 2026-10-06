@@ -3,7 +3,7 @@ import { callFunction, compareParams, toResult } from './client'
 
 const SOURCE = 'Leads'
 const HINT =
-  'Meta leads come from Meta instant-form submissions; Gravity Forms leads come from the Learn Barehand form contacts in Mailchimp Raww Gym Tips and Flodesk. Check META_ACCESS_TOKEN, MAILCHIMP_API_KEY, MAILCHIMP_SERVER_PREFIX, FLODESK_API_KEY, and METORIK_API_KEY in Netlify, then click Retry.'
+  'Meta leads are the FB lead contacts Make.com adds to Mailchimp Raww Gym Tips; Gravity Forms leads are its Learn Barehand contacts. Check MAILCHIMP_API_KEY, MAILCHIMP_SERVER_PREFIX, WOO_STORE_URL, WOO_CONSUMER_KEY, and WOO_CONSUMER_SECRET in Netlify, then click Retry.'
 
 export async function fetchLeads(
   range: DateRange,

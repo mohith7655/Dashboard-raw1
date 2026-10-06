@@ -1,7 +1,7 @@
 import { useId, useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, Megaphone, UserPlus } from 'lucide-react'
 import type { AdsMetrics, LeadReport } from '../../lib/types'
-import { formatCurrency, formatDeltaPercent, formatInteger } from '../../lib/format'
+import { formatCurrency, formatDeltaPercent, formatInteger, formatPercent } from '../../lib/format'
 import { RowsCard } from '../RowsCard'
 import { SectionLabel } from '../SectionLabel'
 import {
@@ -13,7 +13,6 @@ import type { StatRowData } from '../StatRows'
 import { Skeleton } from '../Skeleton'
 import { LeadsOverTime } from '../charts/LeadsOverTime'
 import { LeadPurchases } from './LeadPurchases'
-import { MailchimpPushConversion } from './MailchimpPushConversion'
 
 interface LeadsSectionProps {
   report: LeadReport | undefined
@@ -25,7 +24,7 @@ interface LeadsSectionProps {
   analysis: SectionAnalysisWiring
 }
 
-/** Meta leads plus deduplicated Gravity Forms contacts from Mailchimp and Flodesk. */
+/** Meta and Gravity Forms leads, both from Mailchimp Raww Gym Tips. */
 export function LeadsSection({
   report,
   loading,
@@ -123,19 +122,24 @@ export function LeadsSection({
         />
       ) : (
         <>
+          {report && !report.orderHistory.ready && (
+            <p className="rounded-lg border border-btn-border px-3 py-2 text-[11px] leading-relaxed text-label">
+              Reading the WooCommerce order history ({formatPercent(report.orderHistory.progress)} done). Until it finishes, some contacts with orders count as having none; reload to update.
+            </p>
+          )}
           {report && (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
               <Headline
                 label="Meta leads"
                 value={formatInteger(leadCount?.value ?? 0)}
                 change={leadCount?.deltaPct ?? null}
-                note="Actual Meta instant-form submissions"
+                note="FB lead contacts Make.com added to Mailchimp"
               />
               <Headline
                 label="Gravity Forms leads"
                 value={formatInteger(gravityCount?.value ?? 0)}
                 change={gravityCount?.deltaPct ?? null}
-                note="Learn Barehand contacts from Mailchimp + Flodesk"
+                note="Learn Barehand contacts in Mailchimp"
               />
               <Headline
                 label="Gravity Forms · 0 orders"
@@ -155,7 +159,7 @@ export function LeadsSection({
                 note={
                   costPerLead === null
                     ? 'Meta spend or Meta lead data unavailable'
-                    : "Meta's whole spend divided by actual instant-form leads"
+                    : "Meta's whole spend divided by Meta leads in Mailchimp"
                 }
               />
             </div>
@@ -168,10 +172,9 @@ export function LeadsSection({
               title="Lead source tags"
               icon={Megaphone}
               rows={formRows}
-              subtitle="Meta rows are actual submissions. Gravity Forms uses the Learn Barehand tag in Mailchimp Raww Gym Tips and Flodesk; matching emails are counted once."
+              subtitle="Contacts carrying each tag in Mailchimp Raww Gym Tips, each counted once. Meta tags are dated by the lead's entry date, Gravity Forms by opt-in."
             />
           )}
-          {report && <MailchimpPushConversion report={report.mailchimpPush} />}
           {report && <LeadPurchases reports={report.leadPurchases} />}
         </>
       )}

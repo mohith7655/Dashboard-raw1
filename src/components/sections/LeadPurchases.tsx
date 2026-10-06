@@ -11,7 +11,6 @@ import {
   type LeadPurchaseReport,
   type LeadSourceKey,
 } from '../../lib/types'
-import { Metric } from './MailchimpPushConversion'
 
 const PER_PAGE = 25
 
@@ -93,8 +92,8 @@ export function LeadPurchases({ reports }: { reports: Record<LeadSourceKey, Lead
             <div className="px-1 text-[11px] font-medium uppercase tracking-wide text-label">
               {LEAD_SOURCE_LABELS[source]}
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
-              <Metric label="Lead emails" value={report.total} note="Distinct emails in selected dates" />
+            {/* The lead count itself is the headline card above, so it is not repeated here. */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
               <Metric label="With Woo orders" value={report.total - report.noPurchase} note="Any WooCommerce order on record" />
               <Metric label="Previously purchased" value={report.previouslyPurchased} note="First Woo order was before the lead date" />
               <Metric label="Purchased after lead" value={report.purchasedAfter} note="Woo order dated after the lead date" />
@@ -102,7 +101,7 @@ export function LeadPurchases({ reports }: { reports: Record<LeadSourceKey, Lead
               <Metric
                 label="Conversion rate"
                 value={formatPercent(report.conversionRate)}
-                note="Purchased after lead ÷ lead emails"
+                note="Purchased after lead ÷ all leads"
               />
             </div>
           </div>
@@ -111,7 +110,7 @@ export function LeadPurchases({ reports }: { reports: Record<LeadSourceKey, Lead
 
       <DataTable
         title="Leads with Woo orders"
-        subtitle="Meta and Gravity Forms lead emails from the selected dates that match a WooCommerce customer, dated by each email's first lead day in the range."
+        subtitle="Meta and Gravity Forms leads from the selected dates with a WooCommerce order, dated by each email's first lead day in the range."
         columns={columns}
         rows={visibleRows}
         rowKey={(row) => `${row.source}:${row.email}`}
@@ -123,8 +122,20 @@ export function LeadPurchases({ reports }: { reports: Record<LeadSourceKey, Lead
         unavailable={rows.length === 0 ? 'No lead in this period has a Woo order.' : undefined}
       />
       <p className="px-1 text-[11px] leading-relaxed text-muted">
-        Order dates are whole days, so an order on the lead day itself cannot be placed before or after it. Someone who bought both before and after counts in both columns. Meta submissions without an email cannot be matched.
+        Order dates are whole days, so an order on the lead day itself cannot be placed before or after it. Someone who bought both before and after counts in both columns.
       </p>
     </section>
+  )
+}
+
+function Metric({ label, value, note }: { label: string; value: number | string; note: string }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-btn-border px-3 py-2.5">
+      <div className="truncate text-[10.5px] uppercase tracking-wide text-label">{label}</div>
+      <div className="mt-1 truncate text-[24px] font-semibold leading-tight tabular-nums text-ink">
+        {typeof value === 'number' ? formatInteger(value) : value}
+      </div>
+      <div className="mt-0.5 text-[11px] text-label">{note}</div>
+    </div>
   )
 }

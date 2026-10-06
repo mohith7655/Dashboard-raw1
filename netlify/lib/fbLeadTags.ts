@@ -11,6 +11,17 @@
  * and the Leads function reads them from there. A tag date does not change once
  * set, so each contact is looked up once and every later refresh only reads
  * the contacts tagged since.
+ *
+ * The tag date says when Make.com ran a batch, not when the contact became a
+ * lead: it tags weeks apart, and one run on 5 October tagged 407 contacts who
+ * had submitted their Meta forms from July on. So each refresh also records
+ * the day every email first came through a Meta instant form. Meta serves only
+ * the last 90 days of submissions, so those days are kept here once read.
+ *
+ * The same refresh keeps the list of every contact carrying an FB lead tag,
+ * with the dates Mailchimp holds for each. These are the Leads tab's Meta
+ * leads, and reading them is several seconds a page of Mailchimp calls, too
+ * slow to make at page load.
  */
 import { createHash } from 'node:crypto'
 import { getStore } from '@netlify/blobs'
@@ -21,6 +32,9 @@ const KEY = 'fb-lead-ads-tag-dates'
 const LIST_NAME = 'raww gym tips'
 const TAG_NAMES = new Set(['fb lead-ads', 'fb-lead-ads'])
 const PAGE_SIZE = 1000
+const CONTACT_FIELDS =
+  'members.email_address,members.merge_fields.ENTRYDATE,members.timestamp_signup,members.timestamp_opt,total_items'
+const DAY = /^\d{4}-\d{2}-\d{2}$/
 // Mailchimp allows ten simultaneous connections per account; leave room for
 // the dashboard's own Mailchimp and Leads reads running at the same time.
 const CONCURRENCY = 3
@@ -36,6 +50,19 @@ const JUST_STARTED_MS = 60_000
 /** A live run saves every hundred contacts, well inside this. */
 const PROGRESS_MS = 90_000
 
+/** A contact carrying one of Make.com's FB lead tags, with the dates Mailchimp holds for them. */
+export interface FbLeadContact {
+  email: string
+  /** The tag as Mailchimp names it: `FB Lead- Ads` now, `FB Lead- Glovegrab` in 2024. */
+  tag: string
+  /** ENTRYDATE, which Make.com sets from the Meta submission, `yyyy-MM-dd`, or ''. */
+  entryDay: string
+  /** The day they first signed up, UTC, or ''. Seldom earlier than the submission. */
+  signupDay: string
+  /** The opt-in day, UTC, or ''. */
+  optInDay: string
+}
+
 export interface FbLeadTagDates {
   /** When the last refresh finished, or null before the first one. */
   updatedAt: string | null
@@ -43,6 +70,15 @@ export interface FbLeadTagDates {
   startedAt: string | null
   /** Email (lower case) → day the tag was added, `yyyy-MM-dd` in UTC. */
   dates: Record<string, string>
+  /**
+   * Email (lower case) → the first day it was submitted through a Meta
+   * instant form, `yyyy-MM-dd` in the page's time zone. Kept for every Meta
+   * lead, tagged yet or not, since Make.com can tag one after Meta has
+   * stopped serving the submission.
+   */
+  leadDays: Record<string, string>
+  /** Every contact carrying an FB lead tag at the last refresh, once per tag. */
+  contacts: FbLeadContact[]
   /** Tagged contacts whose date has not been read yet. */
   pending: number
 }
@@ -72,7 +108,8 @@ export function runInProgress(value: FbLeadTagDates, now = Date.now()): boolean 
 export function needsRefresh(value: FbLeadTagDates, now = Date.now()): boolean {
   if (runInProgress(value, now)) return false
   const updated = value.updatedAt ? Date.parse(value.updatedAt) : Number.NaN
-  return value.pending > 0 || !Number.isFinite(updated) || now - updated > STALE_MS
+  // No contacts means a store saved before they were kept, not an empty tag.
+  return value.pending > 0 || value.contacts.length === 0 || !Number.isFinite(updated) || now - updated > STALE_MS
 }
 
 interface TagDateStore {
@@ -87,6 +124,8 @@ interface TagDateStore {
  *
  * Every save first folds in what is stored, so two runs that overlap add to
  * each other's progress instead of the later one overwriting the earlier.
+ * `leadEntries` are the Meta submissions the caller could read, folded into
+ * the stored lead days.
  */
 export async function refreshFbLeadTagDates(
   apiKey: string,
@@ -94,20 +133,27 @@ export async function refreshFbLeadTagDates(
   startedAt: string,
   deadline: number,
   store: TagDateStore,
+  leadEntries: { email: string; day: string }[],
   log: (message: string) => void = () => {},
 ): Promise<FbLeadTagDates> {
   const began = Date.now()
   const call = (path: string) => mailchimp(apiKey, serverPrefix, path)
   const listId = await findList(call)
-  const segmentId = await findTagSegment(call, listId)
-  const tagged = await segmentEmails(call, listId, segmentId)
+  const contacts = await leadTagContacts(call, listId)
+  const tagged = [...new Set(contacts.filter((contact) => isFbLeadAdsTag(contact.tag)).map((contact) => contact.email))]
   const taggedSet = new Set(tagged)
 
   const dates: Record<string, string> = {}
+  const leadDays: Record<string, string> = {}
+  const addLeadDay = (email: string, day: string) => {
+    if (email && (!leadDays[email] || day < leadDays[email])) leadDays[email] = day
+  }
+  for (const entry of leadEntries) addLeadDay(entry.email, entry.day)
   const absorb = (stored: FbLeadTagDates) => {
     for (const [email, day] of Object.entries(stored.dates)) {
       if (taggedSet.has(email) && !dates[email]) dates[email] = day
     }
+    for (const [email, day] of Object.entries(stored.leadDays)) addLeadDay(email, day)
   }
   absorb(await store.read())
   const pendingCount = () => tagged.filter((email) => !dates[email]).length
@@ -117,6 +163,8 @@ export async function refreshFbLeadTagDates(
       updatedAt: new Date().toISOString(),
       startedAt,
       dates: { ...dates },
+      leadDays: { ...leadDays },
+      contacts,
       pending: pendingCount(),
     }
     await store.write(value)
@@ -124,7 +172,7 @@ export async function refreshFbLeadTagDates(
   }
 
   const missing = tagged.filter((email) => !dates[email])
-  log(`tagged ${tagged.length}, already dated ${tagged.length - missing.length}, to look up ${missing.length}`)
+  log(`tagged ${tagged.length}, already dated ${tagged.length - missing.length}, to look up ${missing.length}, Meta lead days ${Object.keys(leadDays).length}`)
 
   let failures = 0
   let lastError = ''
@@ -171,44 +219,65 @@ async function findList(call: Call): Promise<string> {
   return list.id
 }
 
-async function findTagSegment(call: Call, listId: string): Promise<number> {
+/**
+ * Every contact carrying one of Make.com's FB lead tags (any tag named
+ * `FB Lead- …`), whatever their subscription status, once per tag.
+ */
+async function leadTagContacts(call: Call, listId: string): Promise<FbLeadContact[]> {
   const body = await call(
     `/lists/${encodeURIComponent(listId)}/segments?type=static&count=1000&fields=segments.id,segments.name`,
   )
-  const segment = asArray(body.segments).filter(isRecord).find(
-    (row) => typeof row.name === 'string' && TAG_NAMES.has(tagKey(row.name)),
+  const segments = asArray(body.segments).filter(isRecord).flatMap((row) =>
+    typeof row.name === 'string' && tagKey(row.name).startsWith('fb lead-') ? [{ id: num(row.id), name: row.name }] : [],
   )
-  if (!segment) throw new Error('Mailchimp tag "FB Lead- Ads" was not found in Raww Gym Tips.')
-  return num(segment.id)
-}
+  if (!segments.some((segment) => isFbLeadAdsTag(segment.name))) {
+    throw new Error('Mailchimp tag "FB Lead- Ads" was not found in Raww Gym Tips.')
+  }
 
-/** Every contact carrying the tag, whatever their subscription status. */
-async function segmentEmails(call: Call, listId: string, segmentId: number): Promise<string[]> {
-  const page = (offset: number) => call(
-    `/lists/${encodeURIComponent(listId)}/segments/${segmentId}/members?${new URLSearchParams({
-      count: String(PAGE_SIZE),
-      offset: String(offset),
-      include_unsubscribed: 'true',
-      include_cleaned: 'true',
-      include_transactional: 'true',
-      fields: 'members.email_address,total_items',
-    })}`,
-  )
-  const first = await page(0)
-  const total = Math.max(0, num(first.total_items))
-  const rest = await Promise.all(
-    Array.from({ length: Math.max(0, Math.ceil(total / PAGE_SIZE) - 1) }, (_, index) =>
-      page((index + 1) * PAGE_SIZE),
-    ),
-  )
-  const emails = new Set<string>()
-  for (const body of [first, ...rest]) {
-    for (const row of asArray(body.members).filter(isRecord)) {
+  const contacts: FbLeadContact[] = []
+  // One tag at a time, so a tag's pages never take more than three connections.
+  for (const segment of segments) {
+    const page = (offset: number) => call(
+      `/lists/${encodeURIComponent(listId)}/segments/${segment.id}/members?${new URLSearchParams({
+        count: String(PAGE_SIZE),
+        offset: String(offset),
+        include_unsubscribed: 'true',
+        include_cleaned: 'true',
+        include_transactional: 'true',
+        fields: CONTACT_FIELDS,
+      })}`,
+    )
+    const first = await page(0)
+    const total = Math.max(0, num(first.total_items))
+    const offsets = Array.from({ length: Math.max(0, Math.ceil(total / PAGE_SIZE) - 1) }, (_, index) => (index + 1) * PAGE_SIZE)
+    const bodies = [first]
+    for (let i = 0; i < offsets.length; i += CONCURRENCY) {
+      bodies.push(...(await Promise.all(offsets.slice(i, i + CONCURRENCY).map(page))))
+    }
+
+    const seen = new Set<string>()
+    for (const row of bodies.flatMap((page) => asArray(page.members).filter(isRecord))) {
       const email = typeof row.email_address === 'string' ? row.email_address.trim().toLowerCase() : ''
-      if (email) emails.add(email)
+      if (!email || seen.has(email)) continue
+      seen.add(email)
+      const entry = isRecord(row.merge_fields) && typeof row.merge_fields.ENTRYDATE === 'string'
+        ? row.merge_fields.ENTRYDATE.trim()
+        : ''
+      contacts.push({
+        email,
+        tag: segment.name,
+        entryDay: DAY.test(entry) ? entry : '',
+        signupDay: utcDay(row.timestamp_signup),
+        optInDay: utcDay(row.timestamp_opt),
+      })
     }
   }
-  return [...emails]
+  return contacts
+}
+
+function utcDay(value: unknown): string {
+  const timestamp = typeof value === 'string' && value ? Date.parse(value) : Number.NaN
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString().slice(0, 10) : ''
 }
 
 /**
@@ -232,6 +301,11 @@ async function tagDay(call: Call, listId: string, email: string): Promise<{ day:
   )
   const added = typeof tag?.date_added === 'string' ? Date.parse(tag.date_added) : Number.NaN
   return { day: Number.isFinite(added) ? new Date(added).toISOString().slice(0, 10) : '', error: '' }
+}
+
+/** Whether a Mailchimp tag is the one this store dates, `FB Lead- Ads`. */
+export function isFbLeadAdsTag(name: string): boolean {
+  return TAG_NAMES.has(tagKey(name))
 }
 
 /** "FB Lead- Ads" and "FB-Lead-Ads" read the same. */
@@ -258,16 +332,27 @@ async function mailchimp(apiKey: string, serverPrefix: string, path: string): Pr
 
 function normalise(raw: unknown): FbLeadTagDates {
   const record = isRecord(raw) ? raw : {}
-  const dates: Record<string, string> = {}
-  if (isRecord(record.dates)) {
-    for (const [email, day] of Object.entries(record.dates)) {
-      if (typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day)) dates[email] = day
-    }
-  }
   return {
     updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : null,
     startedAt: typeof record.startedAt === 'string' ? record.startedAt : null,
-    dates,
+    dates: dayMap(record.dates),
+    leadDays: dayMap(record.leadDays),
+    contacts: asArray(record.contacts).filter(isRecord).flatMap((row): FbLeadContact[] => {
+      const text = (value: unknown) => (typeof value === 'string' ? value : '')
+      const email = text(row.email)
+      return email
+        ? [{ email, tag: text(row.tag), entryDay: text(row.entryDay), signupDay: text(row.signupDay), optInDay: text(row.optInDay) }]
+        : []
+    }),
     pending: Math.max(0, Math.round(num(record.pending))),
   }
+}
+
+function dayMap(raw: unknown): Record<string, string> {
+  const days: Record<string, string> = {}
+  if (!isRecord(raw)) return days
+  for (const [email, day] of Object.entries(raw)) {
+    if (typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day)) days[email] = day
+  }
+  return days
 }

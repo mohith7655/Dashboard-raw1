@@ -1,8 +1,10 @@
 /**
- * Meta and Gravity Forms leads plus Make.com FB Lead-Ads contacts from
- * Mailchimp, whose tag dates come from the store `fb-lead-tags-background`
- * keeps. Customer tags are not lead sources; WooCommerce customer history is
- * used to identify previous and later purchases.
+ * Meta and Gravity Forms leads, both read from Mailchimp Raww Gym Tips: the
+ * contacts Make.com tags as FB leads, and those carrying the Learn Barehand
+ * form tag. FB Lead-Ads tag dates and Meta submission days come from the store
+ * `fb-lead-tags-background` keeps. Customer tags are not lead sources;
+ * WooCommerce order history, read from the index `woo-orders-background`
+ * keeps, is used to identify previous and later purchases.
  */
 import type {
   BreakdownGrain,
@@ -13,28 +15,32 @@ import type {
   LeadReport,
   LeadSourceKey,
   LeadSourceStats,
-  MailchimpPushReport,
   UniqueContactPoint,
 } from '../../src/lib/types'
 import { metric } from '../../src/lib/derive'
 import { bucketStart } from '../../src/lib/revenueBreakdown'
 import { denyWithoutSession, serviceHeaders } from '../lib/auth'
-import { BadRequest, isRecord, json, num, readComparison, readRange, toErrorResponse } from '../lib/http'
-import { needsRefresh, readFbLeadTagDates, type FbLeadTagDates } from '../lib/fbLeadTags'
-import { fetchFlodeskGravityEntries } from '../lib/flodeskLeadEntries'
+import { BadRequest, json, readComparison, readRange, toErrorResponse } from '../lib/http'
+import {
+  isFbLeadAdsTag,
+  needsRefresh,
+  readFbLeadTagDates,
+  type FbLeadContact,
+  type FbLeadTagDates,
+} from '../lib/fbLeadTags'
 import { fetchMailchimpLeadEntries } from '../lib/mailchimpLeadEntries'
-import { fetchMetaLeadEntries, type MetaLeadEntry } from '../lib/metaLeads'
+import { wooCredentials } from '../lib/woo'
+import {
+  readWooOrderHistory,
+  wooOrderHistoryNeedsRefresh,
+  type OrderFact,
+  type WooOrderHistory,
+} from '../lib/wooOrderIndex'
 
-const META_PAGE_ID = process.env.META_LEAD_PAGE_ID?.trim() || '213491158815011'
-const META_TIME_ZONE = process.env.META_LEAD_TIME_ZONE?.trim() || 'America/Los_Angeles'
-const METORIK_BASE = 'https://app.metorik.com/api/v1/store'
-// Metorik rejects an `in` filter with more than 25 values (HTTP 422).
-const EMAIL_BATCH_SIZE = 25
-const EMAIL_BATCH_CONCURRENCY = 5
-const ORDER_FACT_TTL_MS = 5 * 60 * 1000
 const TRIGGER_TIMEOUT_MS = 3000
 const ERROR_HINT =
-  'Meta and Gravity Forms leads or WooCommerce customer history could not be read. Check META_ACCESS_TOKEN, MAILCHIMP_API_KEY, MAILCHIMP_SERVER_PREFIX, FLODESK_API_KEY, and METORIK_API_KEY in the Netlify environment, then click Retry.'
+  'Mailchimp leads or WooCommerce order history could not be read. Check MAILCHIMP_API_KEY, MAILCHIMP_SERVER_PREFIX, WOO_STORE_URL, WOO_CONSUMER_KEY, and WOO_CONSUMER_SECRET in the Netlify environment, then click Retry.'
+const NO_ORDERS: OrderFact = { orderCount: 0, firstOrderDate: '', lastOrderDate: '' }
 
 interface LeadEntry {
   id: string
@@ -51,18 +57,7 @@ interface Row {
   cells: Record<string, string>
 }
 
-interface OrderFact {
-  orderCount: number
-  firstOrderDate: string
-  lastOrderDate: string
-}
-
-const orderFactCache = new Map<string, { value: OrderFact; expiresAt: number }>()
-
-/**
- * Actual Meta submissions, tagged Gravity Forms contacts, and a separate
- * Make.com Mailchimp cohort matched to WooCommerce order history.
- */
+/** Mailchimp's FB lead and Gravity Forms contacts, matched to WooCommerce order history. */
 export default async function handler(request: Request): Promise<Response> {
   const denied = denyWithoutSession(request)
   if (denied) return denied
@@ -71,46 +66,44 @@ export default async function handler(request: Request): Promise<Response> {
     const url = new URL(request.url)
     const range = readRange(url)
     const against = readComparison(url, range)
-    const metaToken = process.env.META_ACCESS_TOKEN?.trim()
     const mailchimpKey = process.env.MAILCHIMP_API_KEY?.trim()
-    const flodeskKey = process.env.FLODESK_API_KEY?.trim()
-    const metorikKey = process.env.METORIK_API_KEY?.trim()
-    if (!metaToken) throw new BadRequest('META_ACCESS_TOKEN is not configured')
     if (!mailchimpKey) throw new BadRequest('MAILCHIMP_API_KEY is not configured')
-    if (!flodeskKey) throw new BadRequest('FLODESK_API_KEY is not configured')
-    if (!metorikKey) throw new BadRequest('METORIK_API_KEY is not configured')
+    if (!wooCredentials()) {
+      throw new BadRequest('WOO_STORE_URL, WOO_CONSUMER_KEY and WOO_CONSUMER_SECRET are not configured')
+    }
     const mailchimpPrefix = serverPrefix(mailchimpKey)
 
     const span = spanFor(range, against)
-    const [metaEntries, mailchimpEntries, flodeskGravityEntries, fbTagDates] = await Promise.all([
-      fetchMetaLeadEntries(META_PAGE_ID, metaToken, META_TIME_ZONE, span),
+    const [mailchimpEntries, fbTagDates, orderHistory] = await Promise.all([
       fetchMailchimpLeadEntries(mailchimpKey, mailchimpPrefix, span),
-      fetchFlodeskGravityEntries(flodeskKey, span),
       // The tag dates are an annotation; without Blobs the rest still loads.
-      readFbLeadTagDates().catch((): FbLeadTagDates => ({ updatedAt: null, startedAt: null, dates: {}, pending: 0 })),
+      readFbLeadTagDates().catch((): FbLeadTagDates => ({ updatedAt: null, startedAt: null, dates: {}, leadDays: {}, contacts: [], pending: 0 })),
+      // Without Blobs the leads still load, marked as having no order history yet.
+      readWooOrderHistory().catch((err): WooOrderHistory => {
+        console.error('[leads] order history unreadable:', err instanceof Error ? err.message : err)
+        return {
+          ready: false,
+          progress: 0,
+          updatedAt: null,
+          facts: new Map(),
+          run: { startedAt: null, savedAt: null, finishedAt: null },
+        }
+      }),
     ])
-    const refreshing = needsRefresh(fbTagDates) ? startTagRefresh(url.origin) : Promise.resolve()
+    const refreshing = Promise.all([
+      needsRefresh(fbTagDates) ? startBackground(url.origin, 'fb-lead-tags-background') : undefined,
+      wooOrderHistoryNeedsRefresh(orderHistory) ? startBackground(url.origin, 'woo-orders-background') : undefined,
+    ])
+    const orderFacts = orderHistory.facts
     const entries: LeadEntry[] = [
-      ...metaEntries.map(toMetaEntry),
+      ...metaLeadEntries(fbTagDates.contacts, fbTagDates),
       ...mailchimpEntries.gravity,
-      ...flodeskGravityEntries,
     ]
     const inScope = entries.filter((entry) => within(entry.day, range) || (against !== null && within(entry.day, against)))
-    const pushInRange = Object.entries(fbTagDates.dates)
-      .map(([email, day]) => ({ email, day }))
-      .filter((entry) => within(entry.day, range))
-    const emails = [...new Set([...inScope, ...pushInRange].map((entry) => entry.email).filter(Boolean))]
-    const orderFacts = await loadOrderFacts(metorikKey, emails)
-
-    const mailchimpPush: MailchimpPushReport = {
-      ...purchaseReport('FB Lead-Ads', pushInRange, orderFacts, false),
-      pending: fbTagDates.pending,
-      datesUpdatedAt: fbTagDates.updatedAt,
-    }
     const inRange = inScope.filter((entry) => within(entry.day, range))
     const leadPurchases = {
-      facebook: purchaseReport('Meta leads', firstLeadDays(inRange, 'facebook'), orderFacts, true),
-      gravity: purchaseReport('Gravity Forms leads', firstLeadDays(inRange, 'gravity'), orderFacts, true),
+      facebook: purchaseReport('Meta leads', firstLeadDays(inRange, 'facebook'), orderFacts),
+      gravity: purchaseReport('Gravity Forms leads', firstLeadDays(inRange, 'gravity'), orderFacts),
     }
 
     const leadRows = entries.map(toLeadRow)
@@ -141,8 +134,12 @@ export default async function handler(request: Request): Promise<Response> {
         month: uniqueContactPointsOf(nonBuyerRows, range, 'month'),
       },
       campaigns: formsIn(leadRows, range),
-      mailchimpPush,
       leadPurchases,
+      orderHistory: {
+        ready: orderHistory.ready,
+        progress: orderHistory.progress,
+        updatedAt: orderHistory.updatedAt,
+      },
       lastSeen: {
         facebook: latestDay(leadRows.filter((row) => row.source === 'facebook')),
         gravity: latestDay(leadRows.filter((row) => row.source === 'gravity')),
@@ -156,74 +153,28 @@ export default async function handler(request: Request): Promise<Response> {
   }
 }
 
-/* ------------------------- WooCommerce matching ------------------------ */
-
-async function loadOrderFacts(apiKey: string, emails: string[]): Promise<Map<string, OrderFact>> {
-  const now = Date.now()
-  const facts = new Map<string, OrderFact>()
-  const pending = [...new Set(emails)].filter((email) => {
-    const cached = orderFactCache.get(email)
-    if (!cached || cached.expiresAt <= now) return true
-    facts.set(email, cached.value)
-    return false
-  })
-
-  const batches: string[][] = []
-  for (let i = 0; i < pending.length; i += EMAIL_BATCH_SIZE) {
-    batches.push(pending.slice(i, i + EMAIL_BATCH_SIZE))
-  }
-
-  for (let i = 0; i < batches.length; i += EMAIL_BATCH_CONCURRENCY) {
-    const wave = batches.slice(i, i + EMAIL_BATCH_CONCURRENCY)
-    const results = await Promise.all(wave.map((batch) => customerFactsForBatch(apiKey, batch)))
-    for (let j = 0; j < wave.length; j += 1) {
-      const batchFacts = results[j]
-      for (const email of wave[j]) {
-        const value = batchFacts.get(email) ?? { orderCount: 0, firstOrderDate: '', lastOrderDate: '' }
-        facts.set(email, value)
-        orderFactCache.set(email, { value, expiresAt: now + ORDER_FACT_TTL_MS })
-      }
-    }
-  }
-
-  return facts
-}
-
-async function customerFactsForBatch(apiKey: string, emails: string[]): Promise<Map<string, OrderFact>> {
-  const params = new URLSearchParams({
-    filters: JSON.stringify([{ field: 'email', operator: 'in', value: emails }]),
-    per_page: '100',
-    page: '1',
-  })
-  const response = await fetch(`${METORIK_BASE}/customers?${params}`, {
-    headers: { authorization: `Bearer ${apiKey}`, accept: 'application/json' },
-  })
-  const body: unknown = await response.json().catch(() => null)
-  if (!response.ok) {
-    throw new Error(`WooCommerce customer lookup failed (HTTP ${response.status})`)
-  }
-
-  const found = new Map<string, OrderFact>()
-  if (!isRecord(body)) return found
-  for (const row of Array.isArray(body.data) ? body.data.filter(isRecord) : []) {
-    const email = String(row.email ?? '').trim().toLowerCase()
-    if (!email) continue
-    found.set(email, {
-      orderCount: Math.max(0, Math.round(num(row.order_count))),
-      firstOrderDate: typeof row.first_order_date === 'string' ? row.first_order_date.slice(0, 10) : '',
-      lastOrderDate: typeof row.last_order_date === 'string' ? row.last_order_date.slice(0, 10) : '',
-    })
-  }
-  return found
-}
-
 /* ------------------------------ Counting ------------------------------- */
 
 const within = (day: string, range: DateRange): boolean =>
   day >= range.start && day <= range.end
 
-function toMetaEntry(entry: MetaLeadEntry): LeadEntry {
-  return { ...entry, label: entry.form, source: 'facebook' }
+/**
+ * Mailchimp's FB lead contacts, each dated by the first day there is evidence
+ * they were a lead. Make.com tags in batches weeks apart, so for `FB Lead- Ads`
+ * the tag date is only an upper bound: the Meta submission day where it was
+ * recorded, the ENTRYDATE Make.com writes, and the signup day are earlier and
+ * closer. Older FB tags were applied as contacts joined, so their opt-in day
+ * stands in for the tag date, as it does for anyone not dated yet.
+ */
+function metaLeadEntries(contacts: FbLeadContact[], stored: FbLeadTagDates): LeadEntry[] {
+  return contacts.flatMap((contact) => {
+    const known = [contact.entryDay, contact.signupDay, stored.leadDays[contact.email]]
+    known.push(isFbLeadAdsTag(contact.tag) ? stored.dates[contact.email] : contact.optInDay)
+    const days = known.filter((day): day is string => !!day)
+    const day = days.length > 0 ? days.reduce((a, b) => (a < b ? a : b)) : contact.optInDay
+    if (!day) return []
+    return [{ id: contact.email, day, email: contact.email, label: contact.tag, source: 'facebook' as const }]
+  })
 }
 
 function toLeadRow(entry: LeadEntry): Row {
@@ -247,13 +198,14 @@ function firstLeadDays(entries: LeadEntry[], source: LeadSourceKey): { email: st
 }
 
 /**
- * Asks the background function to date newly tagged FB Lead-Ads contacts.
- * Netlify answers 202 straight away; the timeout keeps a slow answer from
- * holding up the report, and a missed start only waits for the hourly run.
+ * Asks a background function to bring its store up to date: the FB Lead-Ads
+ * tag dates or the WooCommerce order index. Netlify answers 202 straight away;
+ * the timeout keeps a slow answer from holding up the report, and a missed
+ * start only waits for the hourly run.
  */
-async function startTagRefresh(origin: string): Promise<void> {
+async function startBackground(origin: string, name: string): Promise<void> {
   try {
-    await fetch(`${origin}/.netlify/functions/fb-lead-tags-background`, {
+    await fetch(`${origin}/.netlify/functions/${name}`, {
       method: 'POST',
       headers: serviceHeaders(),
       signal: AbortSignal.timeout(TRIGGER_TIMEOUT_MS),
@@ -264,18 +216,17 @@ async function startTagRefresh(origin: string): Promise<void> {
 }
 
 /**
- * Each contact's Woo history against the day they became a lead. With
- * `buyersOnly`, the totals still cover every contact but the list keeps only
- * those with an order, which is the list the dashboard shows.
+ * Each contact's Woo history against the day they became a lead. The totals
+ * cover every contact; the list keeps only those with an order, which is the
+ * list the dashboard shows.
  */
 function purchaseReport(
   tag: string,
   entries: { email: string; day: string }[],
   orderFacts: Map<string, OrderFact>,
-  buyersOnly: boolean,
 ): LeadPurchaseReport {
   const contacts: LeadPurchaseContact[] = entries.map((entry) => {
-    const fact = orderFacts.get(entry.email) ?? { orderCount: 0, firstOrderDate: '', lastOrderDate: '' }
+    const fact = orderFacts.get(entry.email) ?? NO_ORDERS
     return {
       email: entry.email,
       addedAt: entry.day,
@@ -302,7 +253,7 @@ function purchaseReport(
     noPurchase,
     sameDayOrUnknown: Math.max(0, sameDayOrUnknown),
     conversionRate: total ? purchasedAfter / total : 0,
-    contacts: buyersOnly ? contacts.filter((contact) => contact.orderCount > 0) : contacts,
+    contacts: contacts.filter((contact) => contact.orderCount > 0),
   }
 }
 
@@ -408,12 +359,12 @@ function formsIn(rows: Row[], range: DateRange): LeadReport['campaigns'] {
   const byForm = new Map<string, Set<string>>()
   const deduplicated = uniqueRowsByEmail(rows, true).map((row) =>
     row.source === 'gravity'
-      ? { ...row, cells: { ...row.cells, 'form name': 'Learn Barehand (Mailchimp + Flodesk)' } }
+      ? { ...row, cells: { ...row.cells, 'form name': 'Learn Barehand (Mailchimp)' } }
       : row,
   )
   for (const row of deduplicated) {
     if (!within(row.day, range)) continue
-    const prefix = row.source === 'facebook' ? 'Meta form' : 'Gravity Forms tag'
+    const prefix = row.source === 'facebook' ? 'Meta tag' : 'Gravity Forms tag'
     const form = `${prefix}: ${row.cells['form name'] || 'Unlabeled'}`
     const seen = byForm.get(form) ?? new Set<string>()
     seen.add(row.key)

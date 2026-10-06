@@ -34,8 +34,8 @@ interface MailchimpPage {
 const cache = new Map<string, { expiresAt: number; value: MailchimpLeadCollections }>()
 
 /**
- * Read the Gravity Forms tag from the Raww Gym Tips audience. Meta submissions
- * come from Meta directly, Make.com's FB Lead-Ads tag dates from `fbLeadTags`,
+ * Read the Gravity Forms tag from the Raww Gym Tips audience. Make.com's FB
+ * lead contacts, with their dates, come from the store `fbLeadTags` keeps,
  * and WooCommerce supplies customer/order history. Customer and year tags are
  * not lead sources.
  */

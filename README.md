@@ -54,6 +54,9 @@ Add these as Netlify Function environment variables, then redeploy:
 | Variable | Used by |
 | --- | --- |
 | `METORIK_API_KEY` | WooCommerce, orders, customers, products, coupons, and costs |
+| `WOO_STORE_URL` | Leads order matching and coupon usage — the store origin, e.g. `https://rawwgear.com` |
+| `WOO_CONSUMER_KEY` | Leads order matching and coupon usage — WooCommerce REST key (`ck_…`), Read permission |
+| `WOO_CONSUMER_SECRET` | Leads order matching and coupon usage — the secret issued with it (`cs_…`) |
 | `META_ACCESS_TOKEN` | Meta Ads |
 | `META_AD_ACCOUNT_ID` | Meta Ads |
 | `GOOGLE_ADS_DEVELOPER_TOKEN` | Google Ads |
