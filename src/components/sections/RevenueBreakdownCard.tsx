@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react'
 import type {
   BreakdownGrain,
   LeadDayPoint,
@@ -22,6 +22,7 @@ import {
 } from '../../lib/revenueBreakdown'
 import { formatCurrency, formatInteger, formatPercent } from '../../lib/format'
 import { Skeleton } from '../Skeleton'
+import { useColumnOrder } from '../../hooks/useColumnOrder'
 
 interface RevenueBreakdownCardProps {
   rows: RevenueBreakdownRow[]
@@ -79,23 +80,20 @@ interface ColumnSpec {
  */
 const COLUMNS: ColumnSpec[] = [
   { key: 'visitors', header: 'Visitors', count: true },
-  { key: 'gravityLeads', header: 'Gravity leads', count: true },
-  { key: 'metaLeads', header: 'Meta leads', count: true },
-  { key: 'contacts', header: 'Leads · 0 orders', count: true },
-  { key: 'orders', header: 'Orders', count: true },
   { key: 'totalSales', header: 'Total Sales', lead: true },
-  { key: 'refunds', header: 'Refunds', negative: true },
-  { key: 'gravityLeadRate', header: 'Gravity lead %', rate: true },
-  { key: 'metaLeadRate', header: 'Meta lead %', rate: true },
+  { key: 'orders', header: 'Orders', count: true },
   { key: 'conversion', header: 'Conversion', rate: true, divide: true },
+  { key: 'gravityLeads', header: 'Gravity leads', count: true },
+  { key: 'gravityLeadRate', header: 'Gravity lead %', rate: true },
+  { key: 'metaLeads', header: 'Meta leads', count: true },
+  { key: 'metaLeadRate', header: 'Meta lead %', rate: true },
+  { key: 'contacts', header: 'Leads · 0 orders', count: true },
+  { key: 'refunds', header: 'Refunds', negative: true },
   { key: 'grossSales', header: 'Gross Sales' },
   { key: 'discounts', header: 'Discounts', negative: true },
   { key: 'shippingCharged', header: 'Shipping' },
   { key: 'taxCollected', header: 'Tax' },
 ]
-
-/** The rightmost column, which carries the card's padding. */
-const LAST = COLUMNS[COLUMNS.length - 1].key
 
 /**
  * The statement a row at a time.
@@ -121,6 +119,12 @@ export function RevenueBreakdownCard({
   const [grain, setGrain] = useState<BreakdownGrain>('day')
   const [sort, setSort] = useState<SortField>('date')
   const [direction, setDirection] = useState<SortDirection>('asc')
+  const { order, moveColumn } = useColumnOrder(COLUMNS.map((column) => column.key), 'dashboard-table:Revenue Breakdown')
+  const [dragging, setDragging] = useState<string | null>(null)
+  const orderedColumns = useMemo(() => {
+    const byKey = new Map<string, ColumnSpec>(COLUMNS.map((column) => [column.key, column]))
+    return order.map((key) => byKey.get(key)).filter((column): column is ColumnSpec => !!column)
+  }, [order])
 
   /*
    * Money folded first, then traffic folded onto the same buckets, then the
@@ -252,7 +256,7 @@ export function RevenueBreakdownCard({
                   onSort={onSort}
                   className="pl-5"
                 />
-                {COLUMNS.map((column) => (
+                {orderedColumns.map((column, index) => (
                   <SortableTh
                     key={column.key}
                     label={column.header}
@@ -262,8 +266,22 @@ export function RevenueBreakdownCard({
                     onSort={onSort}
                     align="right"
                     className={`${column.divide ? 'border-r border-row-line' : ''} ${
-                      column.key === LAST ? 'pr-5' : ''
+                      index === orderedColumns.length - 1 ? 'pr-5' : ''
                     }`}
+                    draggable
+                    dragging={dragging === column.key}
+                    onDragStart={(event) => {
+                      setDragging(column.key)
+                      event.dataTransfer.effectAllowed = 'move'
+                      event.dataTransfer.setData('text/plain', column.key)
+                    }}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault()
+                      moveColumn(event.dataTransfer.getData('text/plain') || dragging || '', column.key)
+                      setDragging(null)
+                    }}
+                    onDragEnd={() => setDragging(null)}
                   />
                 ))}
               </tr>
@@ -275,8 +293,8 @@ export function RevenueBreakdownCard({
                   <td className="h-11 whitespace-nowrap pl-5 pr-3 align-middle text-muted">
                     {bucketLabel(row.date, grain, firstDate, lastDate)}
                   </td>
-                  {COLUMNS.map((column) => (
-                    <Cell key={column.key} column={column} row={row} />
+                  {orderedColumns.map((column, index) => (
+                    <Cell key={column.key} column={column} row={row} last={index === orderedColumns.length - 1} />
                   ))}
                 </tr>
               ))}
@@ -290,8 +308,8 @@ export function RevenueBreakdownCard({
                 <td className="h-12 pl-5 pr-3 align-middle text-[13px] font-semibold text-ink">
                   Totals
                 </td>
-                {COLUMNS.map((column) => (
-                  <Cell key={column.key} column={column} row={totals} strong />
+                {orderedColumns.map((column, index) => (
+                  <Cell key={column.key} column={column} row={totals} strong last={index === orderedColumns.length - 1} />
                 ))}
               </tr>
             </tfoot>
@@ -313,10 +331,12 @@ function Cell({
   column,
   row,
   strong = false,
+  last = false,
 }: {
   column: ColumnSpec
   row: RevenueBreakdownViewRow
   strong?: boolean
+  last?: boolean
 }) {
   const value = row[column.key]
 
@@ -328,7 +348,7 @@ function Cell({
       <td
         className={`h-11 px-3 text-right align-middle text-muted ${
           column.divide ? 'border-r border-row-line' : ''
-        } ${column.key === LAST ? 'pr-5' : ''}`}
+        } ${last ? 'pr-5' : ''}`}
       >
         —
       </td>
@@ -360,7 +380,7 @@ function Cell({
       className={`h-11 px-3 text-right align-middle tabular-nums ${tone} ${
         strong || column.lead ? 'font-semibold' : ''
       } ${column.divide ? 'border-r border-row-line' : ''} ${
-        column.key === LAST ? 'pr-5' : ''
+        last ? 'pr-5' : ''
       }`}
     >
       {text}
@@ -376,6 +396,12 @@ function SortableTh({
   onSort,
   align = 'left',
   className = '',
+  draggable = false,
+  dragging = false,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: {
   label: string
   field: SortField
@@ -384,13 +410,24 @@ function SortableTh({
   onSort: (field: SortField) => void
   align?: 'left' | 'right'
   className?: string
+  draggable?: boolean
+  dragging?: boolean
+  onDragStart?: (event: React.DragEvent<HTMLTableCellElement>) => void
+  onDragOver?: (event: React.DragEvent<HTMLTableCellElement>) => void
+  onDrop?: (event: React.DragEvent<HTMLTableCellElement>) => void
+  onDragEnd?: () => void
 }) {
   const active = field === sort
 
   return (
     <th
       scope="col"
-      className={`px-3 py-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-label ${
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
+      className={`px-3 py-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-label ${draggable ? 'cursor-grab' : ''} ${dragging ? 'opacity-40' : ''} ${
         align === 'right' ? 'text-right' : 'text-left'
       } ${className}`}
     >
@@ -402,6 +439,7 @@ function SortableTh({
           active ? 'text-ink' : ''
         } ${align === 'right' ? 'flex-row-reverse' : ''}`}
       >
+        {draggable && <GripVertical size={12} className="opacity-40" aria-hidden="true" />}
         {label}
         {/* The inactive arrow is held at low opacity rather than hidden, so the
             header row does not reflow the moment a column is sorted. */}

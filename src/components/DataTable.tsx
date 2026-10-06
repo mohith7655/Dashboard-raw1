@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from 'lucide-react'
+import { useMemo, useState, type ReactNode } from 'react'
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, GripVertical } from 'lucide-react'
 import type { SortDirection } from '../lib/types'
 import { formatInteger } from '../lib/format'
 import { Skeleton } from './Skeleton'
+import { useColumnOrder } from '../hooks/useColumnOrder'
 
 export interface Column<Row> {
   /** Stable key, also used as the sort field when `sortable` is set. */
@@ -63,6 +64,13 @@ export function DataTable<Row>({
   noun = 'rows',
   toolbar,
 }: DataTableProps<Row>) {
+  const columnKeys = columns.map((column) => column.key)
+  const { order, moveColumn } = useColumnOrder(columnKeys, `dashboard-table:${title}`)
+  const orderedColumns = useMemo(() => {
+    const byKey = new Map(columns.map((column) => [column.key, column]))
+    return order.map((key) => byKey.get(key)).filter((column): column is Column<Row> => !!column)
+  }, [columns, order])
+  const [dragging, setDragging] = useState<string | null>(null)
   const pageCount = Math.max(1, Math.ceil(total / perPage))
   const firstRow = total === 0 ? 0 : (page - 1) * perPage + 1
   const lastRow = Math.min(page * perPage, total)
@@ -91,7 +99,7 @@ export function DataTable<Row>({
             <table className="w-full min-w-[760px] border-collapse text-[13px]">
               <thead>
                 <tr className="border-b border-line text-left">
-                  {columns.map((col, i) => (
+                  {orderedColumns.map((col, i) => (
                     <Th
                       key={col.key}
                       align={col.align}
@@ -102,6 +110,20 @@ export function DataTable<Row>({
                       active={sort === col.key}
                       direction={direction}
                       onClick={() => onSortChange?.(col.key)}
+                      draggable
+                      onDragStart={(event) => {
+                        setDragging(col.key)
+                        event.dataTransfer.effectAllowed = 'move'
+                        event.dataTransfer.setData('text/plain', col.key)
+                      }}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault()
+                        moveColumn(event.dataTransfer.getData('text/plain') || dragging || '', col.key)
+                        setDragging(null)
+                      }}
+                      onDragEnd={() => setDragging(null)}
+                      dragging={dragging === col.key}
                     >
                       {col.header}
                     </Th>
@@ -112,7 +134,7 @@ export function DataTable<Row>({
                 {loading
                   ? Array.from({ length: Math.min(perPage, 10) }, (_, i) => (
                       <tr key={i} className="border-b border-row-line last:border-0">
-                        {columns.map((col, j) => (
+                        {orderedColumns.map((col, j) => (
                           <Td
                             key={col.key}
                             align={col.align}
@@ -134,7 +156,7 @@ export function DataTable<Row>({
                         key={rowKey(row)}
                         className="border-b border-row-line transition-colors last:border-0 hover:bg-[#1b1b1f]"
                       >
-                        {columns.map((col, j) => (
+                        {orderedColumns.map((col, j) => (
                           <Td
                             key={col.key}
                             align={col.align}
@@ -201,6 +223,12 @@ function Th({
   active,
   direction,
   onClick,
+  draggable,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  dragging,
 }: {
   children: ReactNode
   align?: 'left' | 'right'
@@ -209,10 +237,21 @@ function Th({
   active?: boolean
   direction?: SortDirection
   onClick?: () => void
+  draggable?: boolean
+  onDragStart?: (event: React.DragEvent<HTMLTableCellElement>) => void
+  onDragOver?: (event: React.DragEvent<HTMLTableCellElement>) => void
+  onDrop?: (event: React.DragEvent<HTMLTableCellElement>) => void
+  onDragEnd?: () => void
+  dragging?: boolean
 }) {
   return (
     <th
       scope="col"
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
       aria-sort={
         sortable
           ? active
@@ -222,7 +261,7 @@ function Th({
             : 'none'
           : undefined
       }
-      className={`px-3 py-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-label ${
+      className={`px-3 py-2.5 text-[11px] font-medium uppercase tracking-[0.06em] text-label ${draggable ? 'cursor-grab' : ''} ${dragging ? 'opacity-40' : ''} ${
         align === 'right' ? 'text-right' : 'text-left'
       } ${className}`}
     >
@@ -234,7 +273,7 @@ function Th({
             align === 'right' ? 'flex-row-reverse' : ''
           } ${active ? 'text-ink' : ''}`}
         >
-          {children}
+        {draggable && <GripVertical size={12} className="mr-1 inline-block opacity-40" aria-hidden="true" />}{children}
           {active && direction === 'asc' ? (
             <ChevronUp size={12} />
           ) : (
@@ -242,7 +281,7 @@ function Th({
           )}
         </button>
       ) : (
-        children
+        <>{draggable && <GripVertical size={12} className="mr-1 inline-block opacity-40" aria-hidden="true" />}{children}</>
       )}
     </th>
   )
