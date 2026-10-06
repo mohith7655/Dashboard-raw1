@@ -150,7 +150,7 @@ export function LeadsSection({
                 label="Gravity Forms leads"
                 value={formatInteger(gravityCount?.value ?? 0)}
                 change={gravityCount?.deltaPct ?? null}
-                note="Learn Barehand contacts in Mailchimp"
+                note="Learn Barehand form entries sent to Mailchimp"
               />
               <Headline
                 label="Gravity Forms · 0 orders"
@@ -183,7 +183,7 @@ export function LeadsSection({
               title="Lead source tags"
               icon={Megaphone}
               rows={formRows}
-              subtitle="Contacts carrying each tag in Mailchimp Raww Gym Tips, each counted once. Meta tags are dated by the lead's entry date, Gravity Forms by opt-in."
+              subtitle="Each contact counted once. Meta leads carry Make.com's FB lead tags in Mailchimp Raww Gym Tips; Gravity Forms leads are the entries Make.com logs on its way to Mailchimp, dated when they were captured."
             />
           )}
           {report && <LeadCampaigns rows={report.metaCampaigns} />}

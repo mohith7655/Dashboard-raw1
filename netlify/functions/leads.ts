@@ -1,7 +1,7 @@
 /**
- * Meta and Gravity Forms leads, both read from Mailchimp Raww Gym Tips: the
- * contacts Make.com tags as FB leads, and those carrying the Learn Barehand
- * form tag. FB Lead-Ads tag dates and Meta submission days come from the store
+ * Meta and Gravity Forms leads: the contacts Make.com tags as FB leads in
+ * Mailchimp Raww Gym Tips, and the Gravity Forms entries Make.com sends there,
+ * as its log sheet records them. FB Lead-Ads tag dates and Meta submission days come from the store
  * `fb-lead-tags-background` keeps. Customer tags are not lead sources;
  * WooCommerce order history, read from the index `woo-orders-background`
  * keeps, is used to identify previous and later purchases.
@@ -25,12 +25,15 @@ import { BadRequest, json, readComparison, readRange, toErrorResponse } from '..
 import { fetchCampaignLeadInsights, normaliseAccountId, type CampaignLeadInsight } from '../lib/metaLeads'
 import {
   isFbLeadAdsTag,
+  isGravityLeadTag,
+  isMetaLeadTag,
   needsRefresh,
   readFbLeadTagDates,
-  type FbLeadContact,
+  type LeadTagContact,
   type FbLeadTagDates,
 } from '../lib/fbLeadTags'
-import { fetchMailchimpLeadEntries } from '../lib/mailchimpLeadEntries'
+import { fetchSheetEntries, type SheetEntry } from '../lib/leadSheet'
+import { fetchLeadTagContacts, type LeadContactFilter } from '../lib/mailchimpLeadEntries'
 import { wooCredentials } from '../lib/woo'
 import {
   readWooOrderHistory,
@@ -40,6 +43,10 @@ import {
 } from '../lib/wooOrderIndex'
 
 const TRIGGER_TIMEOUT_MS = 3000
+/** Contacts changed this long before the stored list was read are read again, against clock drift. */
+const TOP_UP_OVERLAP_MS = 10 * 60_000
+/** However stale the stored list, the live read never reaches further back than this. */
+const TOP_UP_MAX_MS = 2 * 86_400_000
 const ERROR_HINT =
   'Mailchimp leads or WooCommerce order history could not be read. Check MAILCHIMP_API_KEY, MAILCHIMP_SERVER_PREFIX, WOO_STORE_URL, WOO_CONSUMER_KEY, and WOO_CONSUMER_SECRET in the Netlify environment, then click Retry.'
 const NO_ORDERS: OrderFact = { orderCount: 0, firstOrderDate: '', lastOrderDate: '' }
@@ -78,10 +85,25 @@ export default async function handler(request: Request): Promise<Response> {
     const span = spanFor(range, against)
     const metaToken = process.env.META_ACCESS_TOKEN?.trim()
     const metaAccount = process.env.META_AD_ACCOUNT_ID?.trim()
-    const [mailchimpEntries, fbTagDates, orderHistory, campaignInsights] = await Promise.all([
-      fetchMailchimpLeadEntries(mailchimpKey, mailchimpPrefix, span),
-      // The tag dates are an annotation; without Blobs the rest still loads.
-      readFbLeadTagDates().catch((): FbLeadTagDates => ({ updatedAt: null, startedAt: null, dates: {}, leadDays: {}, leadCampaigns: {}, contacts: [], pending: 0 })),
+    // Without Blobs the leads still load, from the live read alone.
+    const storedLeads = readFbLeadTagDates().catch((): FbLeadTagDates => ({
+      updatedAt: null,
+      startedAt: null,
+      dates: {},
+      leadDays: {},
+      leadCampaigns: {},
+      contacts: [],
+      contactsReadAt: null,
+      pending: 0,
+    }))
+    const [fbTagDates, contacts, sheetEntries, orderHistory, campaignInsights] = await Promise.all([
+      storedLeads,
+      storedLeads.then((stored) => currentContacts(mailchimpKey, mailchimpPrefix, stored, span)),
+      // Without the sheet, Gravity Forms leads fall back to Mailchimp opt-in.
+      fetchSheetEntries().catch((err) => {
+        console.error('[leads] entries sheet unavailable:', err instanceof Error ? err.message : err)
+        return null
+      }),
       // Without Blobs the leads still load, marked as having no order history yet.
       readWooOrderHistory().catch((err): WooOrderHistory => {
         console.error('[leads] order history unreadable:', err instanceof Error ? err.message : err)
@@ -107,8 +129,8 @@ export default async function handler(request: Request): Promise<Response> {
     ])
     const orderFacts = orderHistory.facts
     const entries: LeadEntry[] = [
-      ...metaLeadEntries(fbTagDates.contacts, fbTagDates),
-      ...mailchimpEntries.gravity,
+      ...metaLeadEntries(contacts.filter((contact) => isMetaLeadTag(contact.tag)), fbTagDates),
+      ...gravityLeadEntries(sheetEntries, contacts.filter((contact) => isGravityLeadTag(contact.tag))),
     ]
     const inScope = entries.filter((entry) => within(entry.day, range) || (against !== null && within(entry.day, against)))
     const inRange = inScope.filter((entry) => within(entry.day, range))
@@ -174,6 +196,61 @@ const within = (day: string, range: DateRange): boolean =>
   day >= range.start && day <= range.end
 
 /**
+ * The stored lead contacts, topped up with every contact changed since they
+ * were read, so an entry made since the last background refresh still counts.
+ * Before the store holds Gravity Forms contacts at all, those in the span are
+ * read by opt-in instead, as they were before the store kept them.
+ */
+async function currentContacts(
+  apiKey: string,
+  serverPrefix: string,
+  stored: FbLeadTagDates,
+  span: { start: string; end: string },
+): Promise<LeadTagContact[]> {
+  const readAt = stored.contactsReadAt ? Date.parse(stored.contactsReadAt) : Number.NaN
+  const hasGravity = stored.contacts.some((contact) => isGravityLeadTag(contact.tag))
+  const filter: LeadContactFilter = hasGravity && Number.isFinite(readAt)
+    ? {
+        changedSince: `${new Date(Math.max(readAt - TOP_UP_OVERLAP_MS, Date.now() - TOP_UP_MAX_MS)).toISOString().slice(0, 19)}+00:00`,
+      }
+    : { optedIn: span }
+  const recent = await fetchLeadTagContacts(apiKey, serverPrefix, filter)
+  const byTag = new Map(stored.contacts.map((contact) => [`${contact.email}|${contact.tag}`, contact]))
+  for (const contact of recent) byTag.set(`${contact.email}|${contact.tag}`, contact)
+  return [...byTag.values()]
+}
+
+/**
+ * Gravity Forms leads: every entry in the log sheet, on the day it was
+ * captured, so someone already subscribed who fills the form again counts
+ * that day. Mailchimp's own dates cannot do this (see `leadSheet`). Before
+ * the log begins, or if it cannot be read, Learn Barehand contacts stand in
+ * on the day they opted in.
+ */
+function gravityLeadEntries(sheet: SheetEntry[] | null, contacts: LeadTagContact[]): LeadEntry[] {
+  const logStart = sheet?.reduce<string | null>((min, entry) => (!min || entry.day < min ? entry.day : min), null) ?? null
+  const logged = (sheet ?? []).map((entry): LeadEntry => ({
+    id: entry.email,
+    day: entry.day,
+    email: entry.email,
+    label: 'Form - Barehand learn (entries sheet)',
+    source: 'gravity',
+  }))
+  const beforeLog = contacts.flatMap((contact): LeadEntry[] =>
+    contact.optInDay && (!logStart || contact.optInDay < logStart)
+      ? [{
+          id: contact.email,
+          day: contact.optInDay,
+          email: contact.email,
+          label: `${contact.tag} (Mailchimp · Raww Gym Tips)`,
+          source: 'gravity',
+        }]
+      : [],
+  )
+  return [...logged, ...beforeLog]
+}
+
+/**
  * Mailchimp's FB lead contacts, each dated by the first day there is evidence
  * they were a lead. Make.com tags in batches weeks apart, so for `FB Lead- Ads`
  * the tag date is only an upper bound: the Meta submission day where it was
@@ -181,7 +258,7 @@ const within = (day: string, range: DateRange): boolean =>
  * closer. Older FB tags were applied as contacts joined, so their opt-in day
  * stands in for the tag date, as it does for anyone not dated yet.
  */
-function metaLeadEntries(contacts: FbLeadContact[], stored: FbLeadTagDates): LeadEntry[] {
+function metaLeadEntries(contacts: LeadTagContact[], stored: FbLeadTagDates): LeadEntry[] {
   return contacts.flatMap((contact) => {
     const known = [contact.entryDay, contact.signupDay, stored.leadDays[contact.email]]
     known.push(isFbLeadAdsTag(contact.tag) ? stored.dates[contact.email] : contact.optInDay)
@@ -362,9 +439,10 @@ function spanFor(range: DateRange, against: DateRange | null): { start: string; 
 
 function seriesOf(rows: Row[], range: DateRange): LeadDayPoint[] {
   const counts = new Map<string, Record<'facebook' | 'gravity', Set<string>>>()
-  const sourceContacts = uniqueRowsByEmail(rows.filter((row) => row.cells.email), true)
+  // Each contact once, on their first lead day within the range, so the
+  // series adds up to the headline count. Someone who came back counts again.
+  const sourceContacts = uniqueRowsByEmail(rows.filter((row) => row.cells.email && within(row.day, range)), true)
   for (const row of sourceContacts) {
-    if (!within(row.day, range)) continue
     const day = counts.get(row.day) ?? { facebook: new Set<string>(), gravity: new Set<string>() }
     day[row.source].add(row.key || `${row.day}:${day[row.source].size}`)
     counts.set(row.day, day)
@@ -420,9 +498,10 @@ function eachDay(range: DateRange): string[] {
 
 function formsIn(rows: Row[], range: DateRange): LeadReport['campaigns'] {
   const byForm = new Map<string, Set<string>>()
-  const deduplicated = uniqueRowsByEmail(rows, true).map((row) =>
+  // Deduplicated within the range, as the headline counts are.
+  const deduplicated = uniqueRowsByEmail(rows.filter((row) => within(row.day, range)), true).map((row) =>
     row.source === 'gravity'
-      ? { ...row, cells: { ...row.cells, 'form name': 'Learn Barehand (Mailchimp)' } }
+      ? { ...row, cells: { ...row.cells, 'form name': 'Learn Barehand' } }
       : row,
   )
   for (const row of deduplicated) {

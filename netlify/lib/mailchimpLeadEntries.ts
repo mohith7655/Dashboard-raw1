@@ -1,24 +1,23 @@
-/** Gravity Forms tagged contacts from the Raww Gym Tips audience. */
+/**
+ * Raww Gym Tips contacts carrying a lead tag, read live from Mailchimp. The
+ * whole list is kept by the `fbLeadTags` background refresh, since reading
+ * all ~16,000 takes the better part of a minute; Leads reads only what
+ * changed since that refresh, so an entry made minutes ago already counts.
+ */
 import { isRecord, num } from './http'
+import { isGravityLeadTag, isMetaLeadTag, type LeadTagContact } from './fbLeadTags'
 
 const PAGE_SIZE = 1000
 // Mailchimp allows ten simultaneous connections per account, and the Mailchimp
 // function opens six of its own while the Leads tab is loading.
 const PAGE_CONCURRENCY = 4
-const TAG_CACHE_MS = 5 * 60 * 1000
-const MEMBER_FIELDS = 'members.id,members.email_address,members.timestamp_opt,members.tags,total_items'
+const CACHE_MS = 60 * 1000
+const MEMBER_FIELDS =
+  'members.email_address,members.timestamp_signup,members.timestamp_opt,members.tags,members.merge_fields.ENTRYDATE,total_items'
+const DAY = /^\d{4}-\d{2}-\d{2}$/
 
-export interface MailchimpLeadEntry {
-  id: string
-  day: string
-  email: string
-  label: string
-  source: 'gravity'
-}
-
-export interface MailchimpLeadCollections {
-  gravity: MailchimpLeadEntry[]
-}
+/** Which members to read: those changed since a moment, or those who opted in within a span. */
+export type LeadContactFilter = { changedSince: string } | { optedIn: { start: string; end: string } }
 
 interface MailchimpList {
   id: string
@@ -31,47 +30,27 @@ interface MailchimpPage {
   members?: unknown[]
 }
 
-const cache = new Map<string, { expiresAt: number; value: MailchimpLeadCollections }>()
+const cache = new Map<string, { expiresAt: number; value: LeadTagContact[] }>()
 
-/**
- * Read the Gravity Forms tag from the Raww Gym Tips audience. Make.com's FB
- * lead contacts, with their dates, come from the store `fbLeadTags` keeps,
- * and WooCommerce supplies customer/order history. Customer and year tags are
- * not lead sources.
- */
-export async function fetchMailchimpLeadEntries(
+/** One contact per lead tag on each matching member. Customer and year tags are not lead sources. */
+export async function fetchLeadTagContacts(
   apiKey: string,
   serverPrefix: string,
-  span: { start: string; end: string },
-): Promise<MailchimpLeadCollections> {
-  const cacheKey = `${serverPrefix}:${span.start}:${span.end}`
+  filter: LeadContactFilter,
+): Promise<LeadTagContact[]> {
+  const cacheKey = `${serverPrefix}:${JSON.stringify(filter)}`
   const cached = cache.get(cacheKey)
-  if (cached && cached.expiresAt > Date.now()) return inSpan(cached.value, span)
+  if (cached && cached.expiresAt > Date.now()) return cached.value
 
   const lists = (await getLists(apiKey, serverPrefix)).filter(
     (list) => list.name.trim().toLowerCase() === 'raww gym tips',
   )
-  const results: MailchimpLeadEntry[][] = []
+  const contacts: LeadTagContact[] = []
   for (const list of lists) {
-    results.push(await getTaggedMembers(apiKey, serverPrefix, list.id, span))
+    contacts.push(...(await getMembers(apiKey, serverPrefix, list.id, filter)))
   }
-
-  // Keep each tag row for form/tag attribution. Dashboard totals and the daily
-  // graph deduplicate by email within each source.
-  const value: MailchimpLeadCollections = { gravity: results.flat() }
-  cache.set(cacheKey, { value, expiresAt: Date.now() + TAG_CACHE_MS })
-  return inSpan(value, span)
-}
-
-function inSpan(value: MailchimpLeadCollections, span: { start: string; end: string }): MailchimpLeadCollections {
-  const filter = <T extends { day: string }>(entries: T[]) =>
-    entries.filter((entry) => entry.day >= span.start && entry.day <= span.end)
-  return { gravity: filter(value.gravity) }
-}
-
-function leadSourceOf(raw: string): 'gravity' | null {
-  const name = raw.trim().toLowerCase().replace(/\s*-\s*/g, '-')
-  return name === 'form-barehand learn' || name === 'form-learn barehand' ? 'gravity' : null
+  cache.set(cacheKey, { value: contacts, expiresAt: Date.now() + CACHE_MS })
+  return contacts
 }
 
 async function getLists(apiKey: string, serverPrefix: string): Promise<MailchimpList[]> {
@@ -83,33 +62,34 @@ async function getLists(apiKey: string, serverPrefix: string): Promise<Mailchimp
   })
 }
 
-/**
- * Only members who opted in during the span are read. The member list returns
- * tags as `{ id, name }` without `date_added`, so a Gravity Forms lead is
- * already dated by its opt-in day; filtering on that server-side gives the
- * same rows as scanning the whole audience, which ran past the function limit.
- */
-async function getTaggedMembers(
+function filterParams(filter: LeadContactFilter): Record<string, string> {
+  if ('changedSince' in filter) return { since_last_changed: filter.changedSince }
+  // Mailchimp's `since` is exclusive and timestamps are whole seconds, so
+  // starting a second early keeps an opt-in at exactly midnight.
+  return {
+    since_timestamp_opt: `${shiftDay(filter.optedIn.start, -1)}T23:59:59+00:00`,
+    before_timestamp_opt: `${shiftDay(filter.optedIn.end, 1)}T00:00:00+00:00`,
+  }
+}
+
+async function getMembers(
   apiKey: string,
   serverPrefix: string,
   listId: string,
-  span: { start: string; end: string },
-): Promise<MailchimpLeadEntry[]> {
+  filter: LeadContactFilter,
+): Promise<LeadTagContact[]> {
   const pageParams = (offset: number) => new URLSearchParams({
     count: String(PAGE_SIZE),
     offset: String(offset),
     fields: MEMBER_FIELDS,
-    // Mailchimp's `since` is exclusive and timestamps are whole seconds, so
-    // starting a second early keeps an opt-in at exactly midnight.
-    since_timestamp_opt: `${shiftDay(span.start, -1)}T23:59:59+00:00`,
-    before_timestamp_opt: `${shiftDay(span.end, 1)}T00:00:00+00:00`,
+    ...filterParams(filter),
   })
   const path = `/lists/${encodeURIComponent(listId)}/members`
   const initial = await mailchimp(apiKey, serverPrefix, `${path}?${pageParams(0)}`)
   const total = Math.max(0, num(initial.total_items))
   const pages: MailchimpPage[] = [initial]
   const offsets = Array.from(
-    { length: Math.ceil(total / PAGE_SIZE) - 1 },
+    { length: Math.max(0, Math.ceil(total / PAGE_SIZE) - 1) },
     (_, index) => (index + 1) * PAGE_SIZE,
   )
 
@@ -122,37 +102,36 @@ async function getTaggedMembers(
     pages.push(...pageResults)
   }
 
-  const gravity: MailchimpLeadEntry[] = []
+  const contacts: LeadTagContact[] = []
   for (const page of pages) {
     for (const raw of asRecords(page.members)) {
       const email = typeof raw.email_address === 'string' ? raw.email_address.trim().toLowerCase() : ''
       if (!email) continue
+      const entry = isRecord(raw.merge_fields) && typeof raw.merge_fields.ENTRYDATE === 'string'
+        ? raw.merge_fields.ENTRYDATE.trim()
+        : ''
       for (const tag of asRecords(raw.tags)) {
-        const label = typeof tag.name === 'string' ? tag.name : ''
-        const source = leadSourceOf(label)
-        if (!source || tag.status === 'inactive') continue
-        // Dated by opt-in, the field the request is filtered on; see above.
-        const day = typeof raw.timestamp_opt === 'string' ? timestampDay(raw.timestamp_opt) : ''
-        if (!day) continue
-        gravity.push({
-          id: typeof raw.id === 'string' ? raw.id : email,
-          day,
+        const name = typeof tag.name === 'string' ? tag.name : ''
+        if (tag.status === 'inactive' || !(isMetaLeadTag(name) || isGravityLeadTag(name))) continue
+        contacts.push({
           email,
-          label: `${label} (Mailchimp · Raww Gym Tips)`,
-          source,
+          tag: name,
+          entryDay: DAY.test(entry) ? entry : '',
+          signupDay: timestampDay(raw.timestamp_signup),
+          optInDay: timestampDay(raw.timestamp_opt),
         })
       }
     }
   }
-  return gravity
+  return contacts
 }
 
 function shiftDay(day: string, days: number): string {
   return new Date(Date.parse(`${day}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10)
 }
 
-function timestampDay(value: string): string {
-  const timestamp = Date.parse(value)
+function timestampDay(value: unknown): string {
+  const timestamp = typeof value === 'string' && value ? Date.parse(value) : Number.NaN
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString().slice(0, 10) : ''
 }
 

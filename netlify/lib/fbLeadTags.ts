@@ -18,10 +18,11 @@
  * the day every email first came through a Meta instant form. Meta serves only
  * the last 90 days of submissions, so those days are kept here once read.
  *
- * The same refresh keeps the list of every contact carrying an FB lead tag,
- * with the dates Mailchimp holds for each. These are the Leads tab's Meta
- * leads, and reading them is several seconds a page of Mailchimp calls, too
- * slow to make at page load.
+ * The same refresh keeps the list of every contact carrying a lead tag (the
+ * FB lead tags and Gravity Forms' Learn Barehand), with the dates Mailchimp
+ * holds for each. These are the Leads tab's leads, ~16,000 of them, and
+ * reading them is the better part of a minute of Mailchimp calls, too slow
+ * to make at page load. Leads tops the list up with what changed since.
  */
 import { createHash } from 'node:crypto'
 import { getStore } from '@netlify/blobs'
@@ -50,12 +51,18 @@ const JUST_STARTED_MS = 60_000
 /** A live run saves every hundred contacts, well inside this. */
 const PROGRESS_MS = 90_000
 
-/** A contact carrying one of Make.com's FB lead tags, with the dates Mailchimp holds for them. */
-export interface FbLeadContact {
+/** A contact carrying one lead tag, with the dates Mailchimp holds for them. */
+export interface LeadTagContact {
   email: string
-  /** The tag as Mailchimp names it: `FB Lead- Ads` now, `FB Lead- Glovegrab` in 2024. */
+  /**
+   * The tag as Mailchimp names it: `FB Lead- Ads` (and `FB Lead- Glovegrab`
+   * in 2024) from Meta, `Form - Barehand learn` from Gravity Forms.
+   */
   tag: string
-  /** ENTRYDATE, which Make.com sets from the Meta submission, `yyyy-MM-dd`, or ''. */
+  /**
+   * ENTRYDATE, `yyyy-MM-dd`, or ''. Make.com writes the day of the contact's
+   * latest entry, form or Meta, so an earlier entry is overwritten.
+   */
   entryDay: string
   /** The day they first signed up, UTC, or ''. Seldom earlier than the submission. */
   signupDay: string
@@ -88,8 +95,10 @@ export interface FbLeadTagDates {
    * forgets both after 90 days.
    */
   leadCampaigns: Record<string, LeadCampaign>
-  /** Every contact carrying an FB lead tag at the last refresh, once per tag. */
-  contacts: FbLeadContact[]
+  /** Every contact carrying a lead tag at the last refresh, once per tag. */
+  contacts: LeadTagContact[]
+  /** When `contacts` began to be read, so Leads can read only what changed since. */
+  contactsReadAt: string | null
   /** Tagged contacts whose date has not been read yet. */
   pending: number
 }
@@ -119,10 +128,11 @@ export function runInProgress(value: FbLeadTagDates, now = Date.now()): boolean 
 export function needsRefresh(value: FbLeadTagDates, now = Date.now()): boolean {
   if (runInProgress(value, now)) return false
   const updated = value.updatedAt ? Date.parse(value.updatedAt) : Number.NaN
-  // No contacts, or lead days without campaigns, means a store saved before
-  // they were kept, not an empty tag.
+  // No contacts, no Gravity Forms contacts, or lead days without campaigns
+  // means a store saved before they were kept, not an empty tag.
   const missingCampaigns = Object.keys(value.leadDays).length > 0 && Object.keys(value.leadCampaigns).length === 0
-  return value.pending > 0 || value.contacts.length === 0 || missingCampaigns || !Number.isFinite(updated) || now - updated > STALE_MS
+  const missingGravity = !value.contacts.some((contact) => isGravityLeadTag(contact.tag))
+  return value.pending > 0 || missingGravity || missingCampaigns || !Number.isFinite(updated) || now - updated > STALE_MS
 }
 
 interface TagDateStore {
@@ -152,6 +162,7 @@ export async function refreshFbLeadTagDates(
   const began = Date.now()
   const call = (path: string) => mailchimp(apiKey, serverPrefix, path)
   const listId = await findList(call)
+  const contactsReadAt = new Date().toISOString()
   const contacts = await leadTagContacts(call, listId)
   const tagged = [...new Set(contacts.filter((contact) => isFbLeadAdsTag(contact.tag)).map((contact) => contact.email))]
   const taggedSet = new Set(tagged)
@@ -191,6 +202,7 @@ export async function refreshFbLeadTagDates(
       leadDays: { ...leadDays },
       leadCampaigns: { ...leadCampaigns },
       contacts,
+      contactsReadAt,
       pending: pendingCount(),
     }
     await store.write(value)
@@ -246,21 +258,23 @@ async function findList(call: Call): Promise<string> {
 }
 
 /**
- * Every contact carrying one of Make.com's FB lead tags (any tag named
- * `FB Lead- …`), whatever their subscription status, once per tag.
+ * Every contact carrying a lead tag (Make.com's `FB Lead- …` tags and the
+ * Learn Barehand form tag), whatever their subscription status, once per tag.
  */
-async function leadTagContacts(call: Call, listId: string): Promise<FbLeadContact[]> {
+async function leadTagContacts(call: Call, listId: string): Promise<LeadTagContact[]> {
   const body = await call(
     `/lists/${encodeURIComponent(listId)}/segments?type=static&count=1000&fields=segments.id,segments.name`,
   )
   const segments = asArray(body.segments).filter(isRecord).flatMap((row) =>
-    typeof row.name === 'string' && tagKey(row.name).startsWith('fb lead-') ? [{ id: num(row.id), name: row.name }] : [],
+    typeof row.name === 'string' && (isMetaLeadTag(row.name) || isGravityLeadTag(row.name))
+      ? [{ id: num(row.id), name: row.name }]
+      : [],
   )
   if (!segments.some((segment) => isFbLeadAdsTag(segment.name))) {
     throw new Error('Mailchimp tag "FB Lead- Ads" was not found in Raww Gym Tips.')
   }
 
-  const contacts: FbLeadContact[] = []
+  const contacts: LeadTagContact[] = []
   // One tag at a time, so a tag's pages never take more than three connections.
   for (const segment of segments) {
     const page = (offset: number) => call(
@@ -334,6 +348,17 @@ export function isFbLeadAdsTag(name: string): boolean {
   return TAG_NAMES.has(tagKey(name))
 }
 
+/** Make.com's tags for Meta lead-ad contacts: `FB Lead- Ads` now, `FB Lead- Glovegrab` in 2024. */
+export function isMetaLeadTag(name: string): boolean {
+  return tagKey(name).startsWith('fb lead-')
+}
+
+/** The Gravity Forms tag, `Form - Barehand learn`, in either word order. */
+export function isGravityLeadTag(name: string): boolean {
+  const key = tagKey(name)
+  return key === 'form-barehand learn' || key === 'form-learn barehand'
+}
+
 /** "FB Lead- Ads" and "FB-Lead-Ads" read the same. */
 function tagKey(name: string): string {
   return name.trim().toLowerCase().replace(/\s*-\s*/g, '-').replace(/\s+/g, ' ')
@@ -364,7 +389,8 @@ function normalise(raw: unknown): FbLeadTagDates {
     dates: dayMap(record.dates),
     leadDays: dayMap(record.leadDays),
     leadCampaigns: campaignMap(record.leadCampaigns),
-    contacts: asArray(record.contacts).filter(isRecord).flatMap((row): FbLeadContact[] => {
+    contactsReadAt: typeof record.contactsReadAt === 'string' ? record.contactsReadAt : null,
+    contacts: asArray(record.contacts).filter(isRecord).flatMap((row): LeadTagContact[] => {
       const text = (value: unknown) => (typeof value === 'string' ? value : '')
       const email = text(row.email)
       return email
