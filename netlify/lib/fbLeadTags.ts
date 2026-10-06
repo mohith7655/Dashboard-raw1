@@ -23,11 +23,18 @@ const TAG_NAMES = new Set(['fb lead-ads', 'fb-lead-ads'])
 const PAGE_SIZE = 1000
 // Mailchimp allows ten simultaneous connections per account; leave room for
 // the dashboard's own Mailchimp and Leads reads running at the same time.
-const CONCURRENCY = 4
+const CONCURRENCY = 3
 const SAVE_EVERY = 100
+const REQUEST_TIMEOUT_MS = 20_000
+const RETRY_MS = 1000
+const BACKOFF_MS = 3000
 const STALE_MS = 60 * 60_000
-/** Longer than a background run may last, so a crashed run does not block the next. */
+/** No run lasts longer than a background function may. */
 const RUNNING_MS = 15 * 60_000
+/** Long enough for a new run to list the tag and make its first save. */
+const JUST_STARTED_MS = 60_000
+/** A live run saves every hundred contacts, well inside this. */
+const PROGRESS_MS = 90_000
 
 export interface FbLeadTagDates {
   /** When the last refresh finished, or null before the first one. */
@@ -48,61 +55,110 @@ export async function writeFbLeadTagDates(value: FbLeadTagDates): Promise<void> 
   await getStore(STORE).setJSON(KEY, value)
 }
 
+/**
+ * Whether a refresh is under way: one started moments ago, or one that is
+ * still saving progress. A run that stopped saving has died, and does not
+ * hold back the next one.
+ */
+export function runInProgress(value: FbLeadTagDates, now = Date.now()): boolean {
+  const started = value.startedAt ? Date.parse(value.startedAt) : Number.NaN
+  if (!Number.isFinite(started) || now - started >= RUNNING_MS) return false
+  if (now - started < JUST_STARTED_MS) return true
+  const updated = value.updatedAt ? Date.parse(value.updatedAt) : Number.NaN
+  return Number.isFinite(updated) && updated >= started && now - updated < PROGRESS_MS
+}
+
 /** Whether the stored dates are worth refreshing and no refresh is already under way. */
 export function needsRefresh(value: FbLeadTagDates, now = Date.now()): boolean {
-  const started = value.startedAt ? Date.parse(value.startedAt) : Number.NaN
-  if (Number.isFinite(started) && now - started < RUNNING_MS) return false
+  if (runInProgress(value, now)) return false
   const updated = value.updatedAt ? Date.parse(value.updatedAt) : Number.NaN
   return value.pending > 0 || !Number.isFinite(updated) || now - updated > STALE_MS
 }
 
+interface TagDateStore {
+  read: () => Promise<FbLeadTagDates>
+  write: (value: FbLeadTagDates) => Promise<void>
+}
+
 /**
- * Brings `current` up to date with the contacts carrying the tag now: dates
- * the newly tagged, drops anyone whose tag was removed, and saves progress as
- * it goes so a run cut off at `deadline` is not wasted.
+ * Brings the stored dates up to date with the contacts carrying the tag now:
+ * dates the newly tagged, drops anyone whose tag was removed, and saves as it
+ * goes so a run cut off at `deadline` is not wasted.
+ *
+ * Every save first folds in what is stored, so two runs that overlap add to
+ * each other's progress instead of the later one overwriting the earlier.
  */
 export async function refreshFbLeadTagDates(
   apiKey: string,
   serverPrefix: string,
-  current: FbLeadTagDates,
+  startedAt: string,
   deadline: number,
-  save: (value: FbLeadTagDates) => Promise<void>,
+  store: TagDateStore,
+  log: (message: string) => void = () => {},
 ): Promise<FbLeadTagDates> {
+  const began = Date.now()
   const call = (path: string) => mailchimp(apiKey, serverPrefix, path)
   const listId = await findList(call)
   const segmentId = await findTagSegment(call, listId)
   const tagged = await segmentEmails(call, listId, segmentId)
+  const taggedSet = new Set(tagged)
 
   const dates: Record<string, string> = {}
-  for (const email of tagged) {
-    if (current.dates[email]) dates[email] = current.dates[email]
+  const absorb = (stored: FbLeadTagDates) => {
+    for (const [email, day] of Object.entries(stored.dates)) {
+      if (taggedSet.has(email) && !dates[email]) dates[email] = day
+    }
   }
-  const missing = tagged.filter((email) => !dates[email])
-  const snapshot = (): FbLeadTagDates => ({
-    updatedAt: new Date().toISOString(),
-    startedAt: current.startedAt,
-    dates: { ...dates },
-    pending: tagged.filter((email) => !dates[email]).length,
-  })
+  absorb(await store.read())
+  const pendingCount = () => tagged.filter((email) => !dates[email]).length
+  const save = async (): Promise<FbLeadTagDates> => {
+    absorb(await store.read())
+    const value: FbLeadTagDates = {
+      updatedAt: new Date().toISOString(),
+      startedAt,
+      dates: { ...dates },
+      pending: pendingCount(),
+    }
+    await store.write(value)
+    return value
+  }
 
+  const missing = tagged.filter((email) => !dates[email])
+  log(`tagged ${tagged.length}, already dated ${tagged.length - missing.length}, to look up ${missing.length}`)
+
+  let failures = 0
+  let lastError = ''
   let sinceSave = 0
   for (let i = 0; i < missing.length && Date.now() < deadline; i += CONCURRENCY) {
-    const batch = missing.slice(i, i + CONCURRENCY)
-    const days = await Promise.all(batch.map((email) => tagDay(call, listId, email)))
+    const batch = missing.slice(i, i + CONCURRENCY).filter((email) => !dates[email])
+    const results = await Promise.all(batch.map((email) => tagDay(call, listId, email)))
+    let batchFailures = 0
     batch.forEach((email, index) => {
-      if (days[index]) dates[email] = days[index]
+      const result = results[index]
+      if (result.day) dates[email] = result.day
+      if (result.error) {
+        batchFailures += 1
+        lastError = result.error
+      }
     })
+    failures += batchFailures
+    // A whole batch failing is Mailchimp pushing back (usually its
+    // ten-connection limit); give it a moment rather than racing on.
+    if (batch.length > 0 && batchFailures === batch.length) await pause(BACKOFF_MS)
     sinceSave += batch.length
     if (sinceSave >= SAVE_EVERY) {
-      await save(snapshot())
+      const saved = await save()
       sinceSave = 0
+      log(`dated ${Object.keys(saved.dates).length}, pending ${saved.pending}, failures ${failures}, ${Date.now() - began}ms`)
     }
   }
 
-  const next = snapshot()
-  await save(next)
+  const next = await save()
+  log(`done: dated ${Object.keys(next.dates).length}, pending ${next.pending}, failures ${failures}${lastError ? ` (last: ${lastError})` : ''}, ${Date.now() - began}ms`)
   return next
 }
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 type Call = (path: string) => Promise<Record<string, unknown>>
 
@@ -156,18 +212,26 @@ async function segmentEmails(call: Call, listId: string, segmentId: number): Pro
 }
 
 /**
- * The day this contact was given the tag, or '' when it cannot be read; the
- * contact then stays pending and the next refresh tries again.
+ * The day this contact was given the tag. A failed read is retried once; if it
+ * fails again the contact stays pending and the next refresh tries again.
  */
-async function tagDay(call: Call, listId: string, email: string): Promise<string> {
+async function tagDay(call: Call, listId: string, email: string): Promise<{ day: string; error: string }> {
   const hash = createHash('md5').update(email).digest('hex')
-  const body = await call(`/lists/${encodeURIComponent(listId)}/members/${hash}/tags?count=100`)
-    .catch(() => ({}) as Record<string, unknown>)
+  const path = `/lists/${encodeURIComponent(listId)}/members/${hash}/tags?count=100`
+  let body: Record<string, unknown>
+  try {
+    body = await call(path).catch(async () => {
+      await pause(RETRY_MS)
+      return call(path)
+    })
+  } catch (err) {
+    return { day: '', error: err instanceof Error ? err.message : String(err) }
+  }
   const tag = asArray(body.tags).filter(isRecord).find(
     (row) => typeof row.name === 'string' && TAG_NAMES.has(tagKey(row.name)),
   )
   const added = typeof tag?.date_added === 'string' ? Date.parse(tag.date_added) : Number.NaN
-  return Number.isFinite(added) ? new Date(added).toISOString().slice(0, 10) : ''
+  return { day: Number.isFinite(added) ? new Date(added).toISOString().slice(0, 10) : '', error: '' }
 }
 
 /** "FB Lead- Ads" and "FB-Lead-Ads" read the same. */
@@ -181,6 +245,8 @@ async function mailchimp(apiKey: string, serverPrefix: string, path: string): Pr
       authorization: `Basic ${Buffer.from(`dashboard:${apiKey}`).toString('base64')}`,
       accept: 'application/json',
     },
+    // One stuck request would otherwise hold the whole run until it is killed.
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   })
   const body: unknown = await response.json().catch(() => null)
   if (!response.ok) {

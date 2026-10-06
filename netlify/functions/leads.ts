@@ -32,6 +32,7 @@ const METORIK_BASE = 'https://app.metorik.com/api/v1/store'
 const EMAIL_BATCH_SIZE = 25
 const EMAIL_BATCH_CONCURRENCY = 5
 const ORDER_FACT_TTL_MS = 5 * 60 * 1000
+const TRIGGER_TIMEOUT_MS = 3000
 const ERROR_HINT =
   'Meta and Gravity Forms leads or WooCommerce customer history could not be read. Check META_ACCESS_TOKEN, MAILCHIMP_API_KEY, MAILCHIMP_SERVER_PREFIX, FLODESK_API_KEY, and METORIK_API_KEY in the Netlify environment, then click Retry.'
 
@@ -247,14 +248,15 @@ function firstLeadDays(entries: LeadEntry[], source: LeadSourceKey): { email: st
 
 /**
  * Asks the background function to date newly tagged FB Lead-Ads contacts.
- * Netlify answers 202 straight away; a failure only leaves the dates as they
- * are until the hourly run.
+ * Netlify answers 202 straight away; the timeout keeps a slow answer from
+ * holding up the report, and a missed start only waits for the hourly run.
  */
 async function startTagRefresh(origin: string): Promise<void> {
   try {
     await fetch(`${origin}/.netlify/functions/fb-lead-tags-background`, {
       method: 'POST',
       headers: serviceHeaders(),
+      signal: AbortSignal.timeout(TRIGGER_TIMEOUT_MS),
     })
   } catch {
     /* The hourly cron tries again. */
