@@ -983,6 +983,8 @@ export interface LeadReport {
   sources: Record<LeadSourceKey, LeadSourceStats>
   /** Meta and Gravity Forms contacts in the period with zero Woo orders. */
   uniqueContacts: LeadSourceStats
+  /** The Gravity Forms contacts counted in `sources.gravity` with zero Woo orders. */
+  gravityWithoutOrders: LeadSourceStats
   series: LeadDayPoint[]
   /**
    * Exact unique nonbuyer contacts at each Revenue Breakdown grain, deduped

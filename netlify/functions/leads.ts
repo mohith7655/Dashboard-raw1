@@ -108,9 +108,17 @@ export default async function handler(request: Request): Promise<Response> {
       gravity: statsFor(leadRows.filter((row) => row.source === 'gravity'), range, against),
     }
     const uniqueContacts = statsFor(nonBuyerRows, range, against)
+    const gravityWithoutOrders = statsFor(
+      leadRows.filter((row) =>
+        row.source === 'gravity' && (orderFacts.get(row.cells.email)?.orderCount ?? 0) === 0,
+      ),
+      range,
+      against,
+    )
     const report: LeadReport = {
       sources,
       uniqueContacts,
+      gravityWithoutOrders,
       series: seriesOf(leadRows, range),
       uniqueContactBuckets: {
         day: uniqueContactPointsOf(nonBuyerRows, range, 'day'),

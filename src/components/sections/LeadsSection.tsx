@@ -39,6 +39,7 @@ export function LeadsSection({
   const leadCount = report?.sources.facebook.count
   const gravityCount = report?.sources.gravity.count
   const contactsWithoutOrders = report?.uniqueContacts.count
+  const gravityWithoutOrders = report?.gravityWithoutOrders.count
   const costPerLead = useMemo(() => {
     const spend = meta?.spend.value ?? null
     if (!leadCount?.value || spend === null) return null
@@ -63,6 +64,7 @@ export function LeadsSection({
     currency: 'USD',
     mailchimpTaggedMetaLeads: leadCount?.value ?? null,
     gravityFormsLeads: gravityCount?.value ?? null,
+    gravityFormsContactsWithZeroWooOrders: gravityWithoutOrders?.value ?? null,
     uniqueLeadContactsWithZeroWooOrders: contactsWithoutOrders?.value ?? null,
     costPerMetaLead: costPerLead,
     metaSpend: meta?.spend.value ?? null,
@@ -121,7 +123,7 @@ export function LeadsSection({
       ) : (
         <>
           {report && (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
               <Headline
                 label="Meta leads"
                 value={formatInteger(leadCount?.value ?? 0)}
@@ -133,6 +135,12 @@ export function LeadsSection({
                 value={formatInteger(gravityCount?.value ?? 0)}
                 change={gravityCount?.deltaPct ?? null}
                 note="Learn Barehand contacts from Mailchimp + Flodesk"
+              />
+              <Headline
+                label="Gravity Forms · 0 orders"
+                value={formatInteger(gravityWithoutOrders?.value ?? 0)}
+                change={gravityWithoutOrders?.deltaPct ?? null}
+                note="Gravity Forms emails with no Woo order"
               />
               <Headline
                 label="Unique contacts · 0 orders"
