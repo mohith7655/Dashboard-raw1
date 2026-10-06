@@ -19,9 +19,10 @@ import { isRecord, num } from './http'
 import { PAID_STATUSES, type WooCredentials } from './woo'
 
 const STORE = 'dashboard'
-const KEY = 'woo-order-index'
+// v2 sweeps newest first; the first deploy's oldest-first index is not reused.
+const KEY = 'woo-order-index-v2'
 /** Kept apart from the index so claiming a run does not rewrite megabytes of orders. */
-const RUN_KEY = 'woo-order-index-run'
+const RUN_KEY = 'woo-order-index-v2-run'
 const PAGE_SIZE = 100
 /** Pages read at once. Each is a few seconds of the store's PHP; four leaves room for shoppers. */
 const CONCURRENCY = 4
@@ -228,12 +229,15 @@ export async function refreshWooOrderIndex(
 }
 
 /**
- * The first read of the whole history, oldest order first.
+ * The first read of the whole history, newest order first. The leads on
+ * screen are usually from the last few months, and their orders are on the
+ * first few pages, so they are matched within a minute; the years before fill
+ * in over the half hour the rest takes.
  *
  * Paged by number over a set frozen at the moment the sweep began, so new
  * orders do not shift the pages under it. Every status is read, not just paid
  * ones: an old order cancelled mid-sweep would otherwise leave the paid set
- * and slide its neighbour back onto a page already read. Anything that changes
+ * and slide its neighbour onto a page already read. Anything that changes
  * while the sweep runs is modified after it began, which is where the first
  * catch-up starts.
  */
@@ -251,7 +255,7 @@ async function sweepHistory(
     const pages = Array.from({ length: CONCURRENCY }, (_, i) => sweep.nextPage + i)
       .filter((page) => sweep.totalPages === 0 || page <= sweep.totalPages)
     const results = await Promise.allSettled(pages.map((page) =>
-      readOrders(creds, { before: sweep.before, orderby: 'id', order: 'asc', page: String(page) }),
+      readOrders(creds, { before: sweep.before, orderby: 'id', order: 'desc', page: String(page) }),
     ))
 
     let reachedEnd = pages.length === 0

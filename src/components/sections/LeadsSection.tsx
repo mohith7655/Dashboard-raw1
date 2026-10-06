@@ -124,7 +124,7 @@ export function LeadsSection({
         <>
           {report && !report.orderHistory.ready && (
             <p className="rounded-lg border border-btn-border px-3 py-2 text-[11px] leading-relaxed text-label">
-              Reading the WooCommerce order history ({formatPercent(report.orderHistory.progress)} done). Until it finishes, some contacts with orders count as having none; reload to update.
+              Reading the WooCommerce order history, newest first ({formatPercent(report.orderHistory.progress)} done). Recent orders are in; older ones are still loading, so "Previously purchased" can rise until it finishes. Reload to update.
             </p>
           )}
           {report && (
