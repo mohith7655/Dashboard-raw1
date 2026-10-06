@@ -19,9 +19,9 @@ interface Row extends LeadPurchaseContact {
 }
 
 /**
- * Gravity Forms leads' order outcomes, and every lead in the range with a Woo
- * order. Meta leads' outcomes are in the campaign table, by campaign; their
- * totals here would show the same figures twice.
+ * Meta and Gravity Forms leads in the range, set against their Woo order
+ * history. The campaign table above breaks Meta's figures down by campaign;
+ * these are the totals for each source.
  */
 export function LeadPurchases({ reports }: { reports: Record<LeadSourceKey, LeadPurchaseReport> }) {
   const [page, setPage] = useState(1)
@@ -89,12 +89,12 @@ export function LeadPurchases({ reports }: { reports: Record<LeadSourceKey, Lead
     <section className="flex flex-col gap-4">
       <SectionLabel glyph={<ShoppingBag size={14} className="text-muted" />}>Leads with Woo orders</SectionLabel>
 
-      {(() => {
-        const report = reports.gravity
+      {LEAD_SOURCES.map((source) => {
+        const report = reports[source]
         return (
-          <div className="flex flex-col gap-2">
+          <div key={source} className="flex flex-col gap-2">
             <div className="px-1 text-[11px] font-medium uppercase tracking-wide text-label">
-              {LEAD_SOURCE_LABELS.gravity}
+              {LEAD_SOURCE_LABELS[source]}
             </div>
             {/* The lead count itself is the headline card above, so it is not repeated here. */}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
@@ -110,7 +110,7 @@ export function LeadPurchases({ reports }: { reports: Record<LeadSourceKey, Lead
             </div>
           </div>
         )
-      })()}
+      })}
 
       <DataTable
         title="Leads with Woo orders"
