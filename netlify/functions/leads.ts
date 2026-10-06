@@ -1,24 +1,28 @@
 /**
  * Meta and Gravity Forms leads plus Make.com FB Lead-Ads contacts from
- * Mailchimp. Customer tags are not lead sources; WooCommerce customer history
- * is used to identify previous and later purchases.
+ * Mailchimp, whose tag dates come from the store `fb-lead-tags-background`
+ * keeps. Customer tags are not lead sources; WooCommerce customer history is
+ * used to identify previous and later purchases.
  */
 import type {
   BreakdownGrain,
   DateRange,
   LeadDayPoint,
+  LeadPurchaseContact,
+  LeadPurchaseReport,
   LeadReport,
+  LeadSourceKey,
   LeadSourceStats,
-  MailchimpPushContact,
   MailchimpPushReport,
   UniqueContactPoint,
 } from '../../src/lib/types'
 import { metric } from '../../src/lib/derive'
 import { bucketStart } from '../../src/lib/revenueBreakdown'
-import { denyWithoutSession } from '../lib/auth'
+import { denyWithoutSession, serviceHeaders } from '../lib/auth'
 import { BadRequest, isRecord, json, num, readComparison, readRange, toErrorResponse } from '../lib/http'
+import { needsRefresh, readFbLeadTagDates, type FbLeadTagDates } from '../lib/fbLeadTags'
 import { fetchFlodeskGravityEntries } from '../lib/flodeskLeadEntries'
-import { fetchMailchimpLeadEntries, type MailchimpPushEntry } from '../lib/mailchimpLeadEntries'
+import { fetchMailchimpLeadEntries } from '../lib/mailchimpLeadEntries'
 import { fetchMetaLeadEntries, type MetaLeadEntry } from '../lib/metaLeads'
 
 const META_PAGE_ID = process.env.META_LEAD_PAGE_ID?.trim() || '213491158815011'
@@ -77,26 +81,36 @@ export default async function handler(request: Request): Promise<Response> {
     const mailchimpPrefix = serverPrefix(mailchimpKey)
 
     const span = spanFor(range, against)
-    const [metaEntries, mailchimpEntries, flodeskGravityEntries] = await Promise.all([
+    const [metaEntries, mailchimpEntries, flodeskGravityEntries, fbTagDates] = await Promise.all([
       fetchMetaLeadEntries(META_PAGE_ID, metaToken, META_TIME_ZONE, span),
       fetchMailchimpLeadEntries(mailchimpKey, mailchimpPrefix, span),
       fetchFlodeskGravityEntries(flodeskKey, span),
+      // The tag dates are an annotation; without Blobs the rest still loads.
+      readFbLeadTagDates().catch((): FbLeadTagDates => ({ updatedAt: null, startedAt: null, dates: {}, pending: 0 })),
     ])
+    const refreshing = needsRefresh(fbTagDates) ? startTagRefresh(url.origin) : Promise.resolve()
     const entries: LeadEntry[] = [
       ...metaEntries.map(toMetaEntry),
       ...mailchimpEntries.gravity,
       ...flodeskGravityEntries,
     ]
     const inScope = entries.filter((entry) => within(entry.day, range) || (against !== null && within(entry.day, against)))
-    const pushEntries = uniquePushEntries(mailchimpEntries.makePush)
-    const pushInScope = pushEntries.filter((entry) => within(entry.day, range) || (against !== null && within(entry.day, against)))
-    const emails = [...new Set([...inScope, ...pushInScope].map((entry) => entry.email).filter(Boolean))]
+    const pushInRange = Object.entries(fbTagDates.dates)
+      .map(([email, day]) => ({ email, day }))
+      .filter((entry) => within(entry.day, range))
+    const emails = [...new Set([...inScope, ...pushInRange].map((entry) => entry.email).filter(Boolean))]
     const orderFacts = await loadOrderFacts(metorikKey, emails)
 
-    const mailchimpPush = mailchimpPushReport(
-      pushEntries.filter((entry) => within(entry.day, range)),
-      orderFacts,
-    )
+    const mailchimpPush: MailchimpPushReport = {
+      ...purchaseReport('FB Lead-Ads', pushInRange, orderFacts, false),
+      pending: fbTagDates.pending,
+      datesUpdatedAt: fbTagDates.updatedAt,
+    }
+    const inRange = inScope.filter((entry) => within(entry.day, range))
+    const leadPurchases = {
+      facebook: purchaseReport('Meta leads', firstLeadDays(inRange, 'facebook'), orderFacts, true),
+      gravity: purchaseReport('Gravity Forms leads', firstLeadDays(inRange, 'gravity'), orderFacts, true),
+    }
 
     const leadRows = entries.map(toLeadRow)
     const nonBuyerRows = uniqueRowsByEmail(inScope
@@ -127,12 +141,14 @@ export default async function handler(request: Request): Promise<Response> {
       },
       campaigns: formsIn(leadRows, range),
       mailchimpPush,
+      leadPurchases,
       lastSeen: {
         facebook: latestDay(leadRows.filter((row) => row.source === 'facebook')),
         gravity: latestDay(leadRows.filter((row) => row.source === 'gravity')),
       },
     }
 
+    await refreshing
     return json(report)
   } catch (err) {
     return toErrorResponse(err, ERROR_HINT)
@@ -218,23 +234,45 @@ function toLeadRow(entry: LeadEntry): Row {
   }
 }
 
-/** Keep one pushed-contact row per email, using the earliest available tag day. */
-function uniquePushEntries(entries: MailchimpPushEntry[]): MailchimpPushEntry[] {
-  const firstByEmail = new Map<string, MailchimpPushEntry>()
+/** One row per email for a source, on the first day it became a lead. */
+function firstLeadDays(entries: LeadEntry[], source: LeadSourceKey): { email: string; day: string }[] {
+  const firstByEmail = new Map<string, string>()
   for (const entry of entries) {
-    const email = entry.email.trim().toLowerCase()
-    if (!email) continue
-    const current = firstByEmail.get(email)
-    if (!current || entry.day < current.day) firstByEmail.set(email, { ...entry, email })
+    if (entry.source !== source || !entry.email) continue
+    const current = firstByEmail.get(entry.email)
+    if (!current || entry.day < current) firstByEmail.set(entry.email, entry.day)
   }
-  return [...firstByEmail.values()]
+  return [...firstByEmail].map(([email, day]) => ({ email, day }))
 }
 
-function mailchimpPushReport(
-  entries: MailchimpPushEntry[],
+/**
+ * Asks the background function to date newly tagged FB Lead-Ads contacts.
+ * Netlify answers 202 straight away; a failure only leaves the dates as they
+ * are until the hourly run.
+ */
+async function startTagRefresh(origin: string): Promise<void> {
+  try {
+    await fetch(`${origin}/.netlify/functions/fb-lead-tags-background`, {
+      method: 'POST',
+      headers: serviceHeaders(),
+    })
+  } catch {
+    /* The hourly cron tries again. */
+  }
+}
+
+/**
+ * Each contact's Woo history against the day they became a lead. With
+ * `buyersOnly`, the totals still cover every contact but the list keeps only
+ * those with an order, which is the list the dashboard shows.
+ */
+function purchaseReport(
+  tag: string,
+  entries: { email: string; day: string }[],
   orderFacts: Map<string, OrderFact>,
-): MailchimpPushReport {
-  const contacts: MailchimpPushContact[] = entries.map((entry) => {
+  buyersOnly: boolean,
+): LeadPurchaseReport {
+  const contacts: LeadPurchaseContact[] = entries.map((entry) => {
     const fact = orderFacts.get(entry.email) ?? { orderCount: 0, firstOrderDate: '', lastOrderDate: '' }
     return {
       email: entry.email,
@@ -255,14 +293,14 @@ function mailchimpPushReport(
     contact.orderCount > 0 && !contact.purchasedBefore && !contact.purchasedAfter,
   ).length
   return {
-    tag: 'FB Lead-Ads',
+    tag,
     total,
     previouslyPurchased,
     purchasedAfter,
     noPurchase,
     sameDayOrUnknown: Math.max(0, sameDayOrUnknown),
     conversionRate: total ? purchasedAfter / total : 0,
-    contacts,
+    contacts: buyersOnly ? contacts.filter((contact) => contact.orderCount > 0) : contacts,
   }
 }
 

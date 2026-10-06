@@ -12,6 +12,7 @@ import {
 import type { StatRowData } from '../StatRows'
 import { Skeleton } from '../Skeleton'
 import { LeadsOverTime } from '../charts/LeadsOverTime'
+import { LeadPurchases } from './LeadPurchases'
 import { MailchimpPushConversion } from './MailchimpPushConversion'
 
 interface LeadsSectionProps {
@@ -171,6 +172,7 @@ export function LeadsSection({
             />
           )}
           {report && <MailchimpPushConversion report={report.mailchimpPush} />}
+          {report && <LeadPurchases reports={report.leadPurchases} />}
         </>
       )}
     </section>

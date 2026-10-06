@@ -84,6 +84,11 @@ export function MailchimpPushConversion({ report }: { report: MailchimpPushRepor
 
   return (
     <section className="flex flex-col gap-4">
+      {report.pending > 0 && (
+        <p className="rounded-lg border border-btn-border px-3 py-2 text-[11px] leading-relaxed text-label">
+          Reading the FB Lead-Ads tag date for {formatInteger(report.pending)} contacts from Mailchimp. The figures below fill in over the next few minutes; reload to update.
+        </p>
+      )}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
         <Metric label="FB Lead-Ads pushed" value={report.total} note="Mailchimp contacts in selected dates" />
         <Metric label="Purchased after tag" value={report.purchasedAfter} note="WooCommerce order after being tagged" />
@@ -102,7 +107,11 @@ export function MailchimpPushConversion({ report }: { report: MailchimpPushRepor
         title="Mailchimp lead purchases"
         subtitle={`${report.tag} contacts · ${formatInteger(report.purchasedAfter)} of ${formatInteger(report.total)} purchased after the tag was added · ${formatPercent(report.conversionRate)} conversion`}
         height={250}
-        unavailable={report.total === 0 ? 'No FB Lead-Ads contacts were tagged in this date range.' : undefined}
+        unavailable={report.total === 0
+          ? report.pending > 0
+            ? 'Tag dates are still being read from Mailchimp.'
+            : 'No FB Lead-Ads contacts were tagged in this date range.'
+          : undefined}
       >
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} margin={{ top: 8, right: 16, bottom: 4, left: 8 }}>
@@ -160,12 +169,12 @@ export function MailchimpPushConversion({ report }: { report: MailchimpPushRepor
   )
 }
 
-function Metric({ label, value, note }: { label: string; value: number; note: string }) {
+export function Metric({ label, value, note }: { label: string; value: number | string; note: string }) {
   return (
     <div className="min-w-0 rounded-lg border border-btn-border px-3 py-2.5">
       <div className="truncate text-[10.5px] uppercase tracking-wide text-label">{label}</div>
       <div className="mt-1 truncate text-[24px] font-semibold leading-tight tabular-nums text-ink">
-        {formatInteger(value)}
+        {typeof value === 'number' ? formatInteger(value) : value}
       </div>
       <div className="mt-0.5 text-[11px] text-label">{note}</div>
     </div>

@@ -956,9 +956,10 @@ export interface LeadCampaign {
   leads: number
 }
 
-/** One Mailchimp contact carrying Make.com's FB Lead-Ads tag. */
-export interface MailchimpPushContact {
+/** One lead contact matched to WooCommerce order history by email. */
+export interface LeadPurchaseContact {
   email: string
+  /** The day they became a lead, or were given the tag. */
   addedAt: string
   orderCount: number
   firstOrderDate: string | null
@@ -967,16 +968,28 @@ export interface MailchimpPushContact {
   purchasedAfter: boolean
 }
 
-/** Purchase outcome for contacts pushed into Mailchimp by Make.com. */
-export interface MailchimpPushReport {
+/** Purchase outcome for one set of lead contacts in the selected dates. */
+export interface LeadPurchaseReport {
   tag: string
+  /** Distinct emails. */
   total: number
   previouslyPurchased: number
   purchasedAfter: number
   noPurchase: number
   sameDayOrUnknown: number
   conversionRate: number
-  contacts: MailchimpPushContact[]
+  contacts: LeadPurchaseContact[]
+}
+
+/** One Mailchimp contact carrying Make.com's FB Lead-Ads tag. */
+export type MailchimpPushContact = LeadPurchaseContact
+
+/** Purchase outcome for contacts pushed into Mailchimp by Make.com. */
+export interface MailchimpPushReport extends LeadPurchaseReport {
+  /** Tagged contacts whose tag date has not been read from Mailchimp yet. */
+  pending: number
+  /** When the stored tag dates were last brought up to date. */
+  datesUpdatedAt: string | null
 }
 
 export interface LeadReport {
@@ -994,6 +1007,11 @@ export interface LeadReport {
   campaigns: LeadCampaign[]
   /** Mailchimp Raww Gym Tips contacts carrying Make.com's FB Lead-Ads tag. */
   mailchimpPush: MailchimpPushReport
+  /**
+   * Meta and Gravity Forms leads in the range matched to Woo orders, dated by
+   * each email's first lead day. `contacts` lists only those with an order.
+   */
+  leadPurchases: Record<LeadSourceKey, LeadPurchaseReport>
   /**
    * The most recent tagged contact day available for each source.
    *
