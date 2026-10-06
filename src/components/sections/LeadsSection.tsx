@@ -1,7 +1,7 @@
 import { useId, useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, Megaphone, UserPlus } from 'lucide-react'
 import type { AdsMetrics, LeadReport } from '../../lib/types'
-import { formatCurrency, formatDeltaPercent, formatInteger, formatPercent } from '../../lib/format'
+import { formatDeltaPercent, formatInteger, formatPercent } from '../../lib/format'
 import { RowsCard } from '../RowsCard'
 import { SectionLabel } from '../SectionLabel'
 import {
@@ -139,7 +139,7 @@ export function LeadsSection({
             </p>
           )}
           {report && (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
               <Headline
                 label="Meta leads"
                 value={formatInteger(leadCount?.value ?? 0)}
@@ -163,15 +163,6 @@ export function LeadsSection({
                 value={formatInteger(contactsWithoutOrders?.value ?? 0)}
                 change={contactsWithoutOrders?.deltaPct ?? null}
                 note="Distinct Meta and form emails with no Woo order"
-              />
-              <Headline
-                label="Cost per Meta lead"
-                value={costPerLead === null ? '—' : formatCurrency(costPerLead)}
-                note={
-                  costPerLead === null
-                    ? 'Meta spend or Meta lead data unavailable'
-                    : "Meta's whole spend divided by Meta leads in Mailchimp"
-                }
               />
             </div>
           )}

@@ -8,6 +8,7 @@
 import type {
   BreakdownGrain,
   LeadDayPoint,
+  LeadSourceKey,
   RevenueBreakdownRow,
   RevenueBreakdownViewRow,
   TrafficPoint,
@@ -131,12 +132,13 @@ export function bucketVisitors(
 export function bucketLeads(
   series: LeadDayPoint[],
   grain: BreakdownGrain,
-): Map<string, number> {
-  const byBucket = new Map<string, number>()
+): Map<string, Record<LeadSourceKey, number>> {
+  const byBucket = new Map<string, Record<LeadSourceKey, number>>()
   for (const point of series) {
     const date = bucketStart(point.date, grain)
-    const total = LEAD_SOURCES.reduce((sum, key) => sum + (point[key] ?? 0), 0)
-    byBucket.set(date, (byBucket.get(date) ?? 0) + total)
+    const bucket = byBucket.get(date) ?? { facebook: 0, gravity: 0 }
+    for (const key of LEAD_SOURCES) bucket[key] += point[key] ?? 0
+    byBucket.set(date, bucket)
   }
   return byBucket
 }
@@ -168,7 +170,7 @@ export function withTraffic(
   rows: RevenueBreakdownRow[],
   visitorsByBucket: Map<string, number>,
   available: boolean,
-  leadsByBucket?: Map<string, number>,
+  leadsByBucket?: Map<string, Record<LeadSourceKey, number>>,
   contactsByBucket?: Map<string, number>,
 ): RevenueBreakdownViewRow[] {
   return rows.map((row) => {
@@ -176,7 +178,7 @@ export function withTraffic(
     // Undefined map means the sheet has not been read at all, which is not the
     // same as a bucket it holds no rows for — the first is unknown everywhere,
     // the second is a genuine nought on a day the automation did report.
-    const leads = leadsByBucket ? (leadsByBucket.get(row.date) ?? 0) : null
+    const leads = leadsByBucket ? (leadsByBucket.get(row.date) ?? { facebook: 0, gravity: 0 }) : null
     const contacts = contactsByBucket ? (contactsByBucket.get(row.date) ?? 0) : null
 
     // Both rates guard the empty denominator as well as the missing one: a day
@@ -188,10 +190,12 @@ export function withTraffic(
     return {
       ...row,
       visitors,
-      leads,
+      metaLeads: leads?.facebook ?? null,
+      gravityLeads: leads?.gravity ?? null,
       contacts,
       conversion: per(row.orders),
-      leadRate: per(leads),
+      metaLeadRate: per(leads?.facebook ?? null),
+      gravityLeadRate: per(leads?.gravity ?? null),
     }
   })
 }

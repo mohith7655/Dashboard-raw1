@@ -3,13 +3,14 @@ import { ChevronDown, ChevronUp } from 'lucide-react'
 import type {
   BreakdownGrain,
   LeadDayPoint,
+  LeadSourceKey,
   RevenueBreakdownRow,
   RevenueBreakdownViewRow,
   SortDirection,
   TrafficPoint,
   UniqueContactPoint,
 } from '../../lib/types'
-import { BREAKDOWN_GRAINS, LEAD_SOURCES } from '../../lib/types'
+import { BREAKDOWN_GRAINS } from '../../lib/types'
 import {
   bucketLabel,
   bucketContacts,
@@ -26,11 +27,11 @@ interface RevenueBreakdownCardProps {
   rows: RevenueBreakdownRow[]
   /** The analytics provider's daily visitors, folded onto the table's grain. */
   traffic: TrafficPoint[]
-  /** Daily Meta submissions and Gravity Forms contacts from Mailchimp tags. */
+  /** Daily Meta leads and Gravity Forms entries, by source. */
   leads?: LeadDayPoint[]
-  /** Meta contacts with zero WooCommerce orders, deduplicated by email per bucket. */
+  /** Meta and Gravity Forms contacts with zero WooCommerce orders, deduplicated by email per bucket. */
   uniqueContacts?: Record<BreakdownGrain, UniqueContactPoint[]>
-  /** Whole-period Meta contacts with zero orders for the totals row. */
+  /** Whole-period contacts with zero orders for the totals row. */
   uniqueContactTotal?: number
   /**
    * False when no analytics provider is connected. Distinct from an empty
@@ -68,9 +69,9 @@ interface ColumnSpec {
 /**
  * The funnel a day at a time, then the statement behind it.
  *
- * Read straight across from the date: who arrived, how many left an address,
- * how many bought, what that billed, what went back — then the two rates those
- * counts imply. Quantities first and rates after, so the reader has both
+ * Read straight across from the date: who arrived, how many left an address
+ * through each source, how many bought, what that billed, what went back —
+ * then the rates those counts imply, each against the visitors. Quantities first and rates after, so the reader has both
  * numerators and the denominator in view before meeting the division.
  *
  * The statement's own columns still follow the rule, in the order the
@@ -78,12 +79,14 @@ interface ColumnSpec {
  */
 const COLUMNS: ColumnSpec[] = [
   { key: 'visitors', header: 'Visitors', count: true },
-  { key: 'leads', header: 'Meta leads', count: true },
-  { key: 'contacts', header: 'Meta contacts · 0 orders', count: true },
+  { key: 'metaLeads', header: 'Meta leads', count: true },
+  { key: 'gravityLeads', header: 'Gravity leads', count: true },
+  { key: 'contacts', header: 'Leads · 0 orders', count: true },
   { key: 'orders', header: 'Orders', count: true },
   { key: 'totalSales', header: 'Total Sales', lead: true },
   { key: 'refunds', header: 'Refunds', negative: true },
-  { key: 'leadRate', header: 'Lead %', rate: true },
+  { key: 'metaLeadRate', header: 'Meta lead %', rate: true },
+  { key: 'gravityLeadRate', header: 'Gravity lead %', rate: true },
   { key: 'conversion', header: 'Conversion', rate: true, divide: true },
   { key: 'grossSales', header: 'Gross Sales' },
   { key: 'discounts', header: 'Discounts', negative: true },
@@ -166,23 +169,22 @@ export function RevenueBreakdownCard({
     const visitors = trafficAvailable
       ? traffic.reduce((sum, point) => sum + point.visitors, 0)
       : null
-    const leadTotal = leads
-      ? leads.reduce(
-          (sum, point) =>
-            sum + LEAD_SOURCES.reduce((n, key) => n + (point[key] ?? 0), 0),
-          0,
-        )
-      : null
+    const leadTotal = (key: LeadSourceKey) =>
+      leads ? leads.reduce((sum, point) => sum + (point[key] ?? 0), 0) : null
+    const metaLeads = leadTotal('facebook')
+    const gravityLeads = leadTotal('gravity')
     const per = (top: number | null) =>
       top === null || visitors === null || visitors === 0 ? null : top / visitors
 
     return {
       ...money,
       visitors,
-      leads: leadTotal,
+      metaLeads,
+      gravityLeads,
       contacts: uniqueContactTotal ?? null,
       conversion: per(money.orders),
-      leadRate: per(leadTotal),
+      metaLeadRate: per(metaLeads),
+      gravityLeadRate: per(gravityLeads),
     }
   }, [rows, traffic, leads, uniqueContactTotal, trafficAvailable])
   // The period's own bounds, so a partial week or month at either edge is
@@ -296,8 +298,10 @@ export function RevenueBreakdownCard({
             </table>
           </div>
           <p className="px-5 pb-5 pt-3 text-[12px] text-muted">
-            Meta contacts are deduplicated by email after excluding anyone with a
-            WooCommerce order. Website leads are not included.
+            Meta leads are Make.com&rsquo;s FB lead contacts in Mailchimp; Gravity leads are the
+            form entries Make.com logs. Each lead % is that source&rsquo;s leads ÷ visitors, and
+            Conversion is orders ÷ visitors. Leads · 0 orders counts both sources once by email,
+            leaving out anyone with a WooCommerce order.
           </p>
         </>
       )}

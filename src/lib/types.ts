@@ -142,22 +142,24 @@ export type BreakdownGrain = (typeof BREAKDOWN_GRAINS)[number]
  */
 export interface RevenueBreakdownViewRow extends RevenueBreakdownRow {
   visitors: number | null
+  /** Meta leads (Make.com's FB lead contacts in Mailchimp) in this bucket. */
+  metaLeads: number | null
+  /** Gravity Forms entries in this bucket. */
+  gravityLeads: number | null
   /**
-   * Meta form submissions and Gravity Forms contacts on this day.
-   */
-  leads: number | null
-  /**
-   * Meta contacts whose email has no WooCommerce order, counted once.
+   * Meta and Gravity Forms contacts whose email has no WooCommerce order,
+   * counted once.
    */
   contacts: number | null
   /**
-   * Leads ÷ visitors for this bucket, as a ratio in 0..1.
+   * Each source's leads ÷ visitors for this bucket, as a ratio in 0..1.
    *
    * The step conversion misses: a visitor who leaves without buying has not
-   * necessarily left without giving you anything. Struck from the two columns
+   * necessarily left without giving you anything. Struck from the columns
    * beside it, on the same rule as `conversion`.
    */
-  leadRate: number | null
+  metaLeadRate: number | null
+  gravityLeadRate: number | null
   /**
    * Orders ÷ visitors for this bucket, as a ratio in 0..1.
    *
