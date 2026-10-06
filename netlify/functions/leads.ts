@@ -24,7 +24,6 @@ import { fetchMetaLeadEntries, type MetaLeadEntry } from '../lib/metaLeads'
 const META_PAGE_ID = process.env.META_LEAD_PAGE_ID?.trim() || '213491158815011'
 const META_TIME_ZONE = process.env.META_LEAD_TIME_ZONE?.trim() || 'America/Los_Angeles'
 const METORIK_BASE = 'https://app.metorik.com/api/v1/store'
-const LOOKBACK_DAYS = 90
 const EMAIL_BATCH_SIZE = 100
 const EMAIL_BATCH_CONCURRENCY = 5
 const ORDER_FACT_TTL_MS = 5 * 60 * 1000
@@ -286,10 +285,8 @@ function statsFor(rows: Row[], range: DateRange, against: DateRange | null): Lea
 }
 
 function spanFor(range: DateRange, against: DateRange | null): { start: string; end: string } {
-  const today = new Date().toISOString().slice(0, 10)
-  const floor = new Date(Date.now() - LOOKBACK_DAYS * 86_400_000).toISOString().slice(0, 10)
-  const starts = [range.start, floor]
-  const ends = [range.end, today]
+  const starts = [range.start]
+  const ends = [range.end]
   if (against) {
     starts.push(against.start)
     ends.push(against.end)

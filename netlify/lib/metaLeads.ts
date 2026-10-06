@@ -54,6 +54,13 @@ export async function fetchMetaLeadEntries(
         fields: 'id,created_time,field_data',
         limit: '1000',
         access_token: pageToken,
+        // Bound Meta's server-side scan to the selected days (plus a UTC-day
+        // margin for the page's local reporting timezone). Exact local-day
+        // filtering still happens below.
+        filtering: JSON.stringify([
+          { field: 'time_created', operator: 'GREATER_THAN', value: rangeFloor(span.start) },
+          { field: 'time_created', operator: 'LESS_THAN', value: rangeCeiling(span.end) },
+        ]),
       })
       const entries = await fetchAllPages(
         `https://graph.facebook.com/${GRAPH_VERSION}/${id}/leads?${params}`,
@@ -82,6 +89,14 @@ export async function fetchMetaLeadEntries(
     seen.add(entry.id)
     return true
   })
+}
+
+function rangeFloor(day: string): number {
+  return Math.floor(Date.parse(`${day}T00:00:00Z`) / 1000) - 86_400
+}
+
+function rangeCeiling(day: string): number {
+  return Math.floor(Date.parse(`${day}T00:00:00Z`) / 1000) + 2 * 86_400
 }
 
 function dayInTimeZone(iso: string, timeZone: string): string {
