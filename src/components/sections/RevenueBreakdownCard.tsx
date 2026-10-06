@@ -298,8 +298,8 @@ export function RevenueBreakdownCard({
             </table>
           </div>
           <p className="px-5 pb-5 pt-3 text-[12px] text-muted">
-            Gravity leads are the form entries Make.com logs; Meta leads are Make.com&rsquo;s FB
-            lead contacts in Mailchimp. Each lead % is that source&rsquo;s leads ÷ visitors, and
+            Gravity leads are Gravity Forms entries (Learn Barehand, then the Barehand popup); Meta
+            leads are Make.com&rsquo;s FB lead contacts in Mailchimp. Each lead % is that source&rsquo;s leads ÷ visitors, and
             Conversion is orders ÷ visitors. Leads · 0 orders counts both sources once by email,
             leaving out anyone with a WooCommerce order.
           </p>

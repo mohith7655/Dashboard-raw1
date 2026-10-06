@@ -99,6 +99,35 @@ export const ENV_VARS: EnvVarSpec[] = [
     where: 'WooCommerce → Settings → Advanced → REST API → Add key (Read)',
   },
 
+  /* ---------------------------- Gravity Forms --------------------------- */
+  {
+    name: 'GRAVITY_FORMS_KEY',
+    service: 'Gravity Forms',
+    required: false,
+    scope: 'functions',
+    description: 'REST API consumer key, `ck_…`. Read permission is enough. Read on the WOO_STORE_URL site.',
+    powers: ['Leads'],
+    where: 'Forms → Settings → REST API → Add Key (Read)',
+  },
+  {
+    name: 'GRAVITY_FORMS_SECRET',
+    service: 'Gravity Forms',
+    required: false,
+    scope: 'functions',
+    description: 'REST API consumer secret, `cs_…`, issued with the key above.',
+    powers: ['Leads'],
+    where: 'Forms → Settings → REST API → Add Key (Read)',
+  },
+  {
+    name: 'GRAVITY_FORMS_LEAD_FORMS',
+    service: 'Gravity Forms',
+    required: false,
+    scope: 'functions',
+    description: 'Comma-separated ids of the lead forms read directly. Defaults to 62, the Barehand popup.',
+    powers: ['Leads'],
+    where: 'Forms → the id column',
+  },
+
   /* --------------------------------- Tori ------------------------------ */
   {
     name: 'ANTHROPIC_API_KEY',

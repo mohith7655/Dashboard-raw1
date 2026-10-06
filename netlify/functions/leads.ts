@@ -1,7 +1,8 @@
 /**
  * Meta and Gravity Forms leads: the contacts Make.com tags as FB leads in
- * Mailchimp Raww Gym Tips, and the Gravity Forms entries Make.com sends there,
- * as its log sheet records them. FB Lead-Ads tag dates and Meta submission days come from the store
+ * Mailchimp Raww Gym Tips, and the Gravity Forms entries, from Make.com's log
+ * sheet for the old Learn Barehand form and from Gravity Forms itself for the
+ * Barehand popup that replaced it. FB Lead-Ads tag dates and Meta submission days come from the store
  * `fb-lead-tags-background` keeps. Customer tags are not lead sources;
  * WooCommerce order history, read from the index `woo-orders-background`
  * keeps, is used to identify previous and later purchases.
@@ -32,6 +33,7 @@ import {
   type LeadTagContact,
   type FbLeadTagDates,
 } from '../lib/fbLeadTags'
+import { fetchFormEntries, gravityFormsCredentials, type FormEntry } from '../lib/gravityForms'
 import { fetchSheetEntries, type SheetEntry } from '../lib/leadSheet'
 import { fetchLeadTagContacts, type LeadContactFilter } from '../lib/mailchimpLeadEntries'
 import { wooCredentials } from '../lib/woo'
@@ -83,6 +85,7 @@ export default async function handler(request: Request): Promise<Response> {
     const mailchimpPrefix = serverPrefix(mailchimpKey)
 
     const span = spanFor(range, against)
+    const gravityCreds = gravityFormsCredentials()
     const metaToken = process.env.META_ACCESS_TOKEN?.trim()
     const metaAccount = process.env.META_AD_ACCOUNT_ID?.trim()
     // Without Blobs the leads still load, from the live read alone.
@@ -96,7 +99,7 @@ export default async function handler(request: Request): Promise<Response> {
       contactsReadAt: null,
       pending: 0,
     }))
-    const [fbTagDates, contacts, sheetEntries, orderHistory, campaignInsights] = await Promise.all([
+    const [fbTagDates, contacts, sheetEntries, formEntries, orderHistory, campaignInsights] = await Promise.all([
       storedLeads,
       storedLeads.then((stored) => currentContacts(mailchimpKey, mailchimpPrefix, stored, span)),
       // Without the sheet, Gravity Forms leads fall back to Mailchimp opt-in.
@@ -104,6 +107,12 @@ export default async function handler(request: Request): Promise<Response> {
         console.error('[leads] entries sheet unavailable:', err instanceof Error ? err.message : err)
         return null
       }),
+      gravityCreds
+        ? fetchFormEntries(gravityCreds, span).catch((err) => {
+            console.error('[leads] Gravity Forms entries unavailable:', err instanceof Error ? err.message : err)
+            return null
+          })
+        : null,
       // Without Blobs the leads still load, marked as having no order history yet.
       readWooOrderHistory().catch((err): WooOrderHistory => {
         console.error('[leads] order history unreadable:', err instanceof Error ? err.message : err)
@@ -130,7 +139,7 @@ export default async function handler(request: Request): Promise<Response> {
     const orderFacts = orderHistory.facts
     const entries: LeadEntry[] = [
       ...metaLeadEntries(contacts.filter((contact) => isMetaLeadTag(contact.tag)), fbTagDates),
-      ...gravityLeadEntries(sheetEntries, contacts.filter((contact) => isGravityLeadTag(contact.tag))),
+      ...gravityLeadEntries(sheetEntries, formEntries, contacts.filter((contact) => isGravityLeadTag(contact.tag))),
     ]
     const inScope = entries.filter((entry) => within(entry.day, range) || (against !== null && within(entry.day, against)))
     const inRange = inScope.filter((entry) => within(entry.day, range))
@@ -221,19 +230,32 @@ async function currentContacts(
 }
 
 /**
- * Gravity Forms leads: every entry in the log sheet, on the day it was
- * captured, so someone already subscribed who fills the form again counts
- * that day. Mailchimp's own dates cannot do this (see `leadSheet`). Before
- * the log begins, or if it cannot be read, Learn Barehand contacts stand in
- * on the day they opted in.
+ * Gravity Forms leads: every entry, on the day it was submitted, so someone
+ * already subscribed who fills a form again counts that day. Mailchimp's own
+ * dates cannot do this (see `leadSheet`). The old Learn Barehand form's
+ * entries come from Make.com's log sheet; the Barehand popup that replaced it
+ * on 3 October is not in that log, so its entries come from Gravity Forms.
+ * Before the log begins, or if it cannot be read, Learn Barehand contacts
+ * stand in on the day they opted in.
  */
-function gravityLeadEntries(sheet: SheetEntry[] | null, contacts: LeadTagContact[]): LeadEntry[] {
+function gravityLeadEntries(
+  sheet: SheetEntry[] | null,
+  forms: FormEntry[] | null,
+  contacts: LeadTagContact[],
+): LeadEntry[] {
   const logStart = sheet?.reduce<string | null>((min, entry) => (!min || entry.day < min ? entry.day : min), null) ?? null
   const logged = (sheet ?? []).map((entry): LeadEntry => ({
     id: entry.email,
     day: entry.day,
     email: entry.email,
-    label: 'Form - Barehand learn (entries sheet)',
+    label: 'Learn Barehand',
+    source: 'gravity',
+  }))
+  const submitted = (forms ?? []).map((entry): LeadEntry => ({
+    id: entry.email,
+    day: entry.day,
+    email: entry.email,
+    label: entry.form,
     source: 'gravity',
   }))
   const beforeLog = contacts.flatMap((contact): LeadEntry[] =>
@@ -242,12 +264,12 @@ function gravityLeadEntries(sheet: SheetEntry[] | null, contacts: LeadTagContact
           id: contact.email,
           day: contact.optInDay,
           email: contact.email,
-          label: `${contact.tag} (Mailchimp · Raww Gym Tips)`,
+          label: 'Learn Barehand',
           source: 'gravity',
         }]
       : [],
   )
-  return [...logged, ...beforeLog]
+  return [...logged, ...submitted, ...beforeLog]
 }
 
 /**
@@ -499,14 +521,10 @@ function eachDay(range: DateRange): string[] {
 function formsIn(rows: Row[], range: DateRange): LeadReport['campaigns'] {
   const byForm = new Map<string, Set<string>>()
   // Deduplicated within the range, as the headline counts are.
-  const deduplicated = uniqueRowsByEmail(rows.filter((row) => within(row.day, range)), true).map((row) =>
-    row.source === 'gravity'
-      ? { ...row, cells: { ...row.cells, 'form name': 'Learn Barehand' } }
-      : row,
-  )
+  const deduplicated = uniqueRowsByEmail(rows.filter((row) => within(row.day, range)), true)
   for (const row of deduplicated) {
     if (!within(row.day, range)) continue
-    const prefix = row.source === 'facebook' ? 'Meta tag' : 'Gravity Forms tag'
+    const prefix = row.source === 'facebook' ? 'Meta tag' : 'Gravity Forms'
     const form = `${prefix}: ${row.cells['form name'] || 'Unlabeled'}`
     const seen = byForm.get(form) ?? new Set<string>()
     seen.add(row.key)
