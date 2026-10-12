@@ -42,6 +42,7 @@ import {
   withoutToday,
   formatRangeLabel,
   rangeFromPreset,
+  refreshPreset,
   resolveComparison,
 } from './lib/dateRange'
 import {
@@ -157,21 +158,47 @@ function useScopedMetrics(scope: SectionRange) {
 }
 
 export default function App() {
-  const [dateFilter, setDateFilter] = useState<DateFilterState>(() =>
-    loadDateFilter() ?? {
-      pickedRange: rangeFromPreset('thisMonth'),
-      comparison: DEFAULT_COMPARISON,
-      excludeToday: false,
-    },
-  )
+  const [dateFilter, setDateFilter] = useState<DateFilterState>(() => {
+    const saved = loadDateFilter()
+    // A named preset comes back re-read against today, so "This Month" saved
+    // on the 6th opens on the 12th as the 1st to the 12th rather than the
+    // six days it covered then. A custom range comes back exactly as picked.
+    return saved
+      ? { ...saved, pickedRange: refreshPreset(saved.pickedRange) }
+      : {
+          pickedRange: rangeFromPreset('thisMonth'),
+          comparison: DEFAULT_COMPARISON,
+          excludeToday: false,
+        }
+  })
   const { pickedRange, comparison, excludeToday } = dateFilter
 
-  // Keep the exact dates, comparison choice and today setting together. A
-  // preset is intentionally saved as its resolved dates: reopening later must
-  // show the period the reader chose, rather than silently move it forward.
+  // Keep the dates, comparison choice and today setting together.
   useEffect(() => {
     saveDateFilter(dateFilter)
   }, [dateFilter])
+
+  // The same re-read for a tab left open past midnight: on coming back to it,
+  // a preset moves on to the day it now is. Left alone where nothing changed,
+  // so returning to the tab on the same day does not refetch the page.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return
+      setDateFilter((current) => {
+        const next = refreshPreset(current.pickedRange)
+        return next.start === current.pickedRange.start &&
+          next.end === current.pickedRange.end
+          ? current
+          : { ...current, pickedRange: next }
+      })
+    }
+    document.addEventListener('visibilitychange', refresh)
+    window.addEventListener('focus', refresh)
+    return () => {
+      document.removeEventListener('visibilitychange', refresh)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [])
 
   /**
    * The range everything is actually measured over.

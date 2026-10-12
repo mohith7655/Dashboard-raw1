@@ -110,6 +110,19 @@ export function rangeFromPreset(preset: PresetId, current?: DateRange): DateRang
 }
 
 /**
+ * A named preset re-read against today, or a custom range left as it is.
+ *
+ * A preset is a promise about the dates rather than a pair of them: "This
+ * Month" ticked over Oct 1–6 on the 12th claims the month while leaving out
+ * the six days since it was chosen. Restoring a saved filter, or coming back
+ * to a tab left open overnight, runs through this so the tick and the dates
+ * always agree. Only `custom` is a period the reader fixed by hand.
+ */
+export function refreshPreset(range: DateRange): DateRange {
+  return range.preset === 'custom' ? range : rangeFromPreset(range.preset)
+}
+
+/**
  * Pulls a range's end back to the last date with data behind it.
  *
  * Presets are built this way already; this catches the hand-picked ones. A
